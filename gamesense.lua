@@ -159,12 +159,22 @@ getgenv().Loaded = true
             return getcustomasset(Name .. ".font");
         end
         
-        local Verdana = RegisterFont("Verawdawdawdwaddana", 400, "Normal", {
-            Id = "Verdanawdawdwada.ttf",
-            Font = game:HttpGet("https://github.com/i77lhm/storage/raw/refs/heads/main/fonts/fs-tahoma-8px.ttf"),
-        })
-
-        Library.Font = Font.new(Verdana, Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+        local Verdana
+        local fontSuccess, fontUrlContent = pcall(function()
+            return game:HttpGet("https://raw.githubusercontent.com/i77lhm/storage/main/fonts/fs-tahoma-8px.ttf")
+        end)
+        
+        if fontSuccess and fontUrlContent and #fontUrlContent > 0 then
+            Verdana = RegisterFont("Verawdawdawdwaddana", 400, "Normal", {
+                Id = "Verdanawdawdwada.ttf",
+                Font = fontUrlContent,
+            })
+            Library.Font = Font.new(Verdana, Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+        else
+            -- Fallback: use default Roblox font if custom font fails to load (Solara HttpGet bug)
+            warn("[gamesense] Custom font HttpGet failed, using default font")
+            Library.Font = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+        end
     end
 --
 
@@ -2447,4 +2457,731 @@ getgenv().Loaded = true
                 Items.Keybind = Library:Create("TextButton", {
                     Parent = self.Items.Components;
                     FontFace = Font.new("rbxassetid://12187371840", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                    Name = "
+                    Name = "\0";
+                    TextColor3 = rgb(111, 111, 111);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Text = "[NONE]";
+                    AutomaticSize = Enum.AutomaticSize.XY;
+                    Selectable = false;
+                    AnchorPoint = vec2(0.5, 0);
+                    BorderSizePixel = 0;
+                    BackgroundTransparency = 1;
+                    Position = dim2(1, 0, 0.10000000149011612, 0);
+                    Active = true;
+                    ZIndex = 2;
+                    TextSize = 9;
+                    BackgroundColor3 = rgb(255, 255, 255)
+                });
+                
+                Library:Create("UIStroke", {
+                    Color = rgb(20, 20, 20);
+                    LineJoinMode = Enum.LineJoinMode.Miter;
+                    Parent = Items.Keybind
+                });
+
+                Items.KeybindOutline = Library:Create("Frame", {
+                    Parent = Library.Items;
+                    Visible = false;
+                    Size = dim2(0, 100, 0, 73);
+                    Name = "\0";
+                    Position = dim2(0, 0, 0, 0);
+                    BorderColor3 = rgb(0, 0, 0);
+                    BorderSizePixel = 0;
+                    AutomaticSize = Enum.AutomaticSize.Y;
+                    BackgroundColor3 = rgb(12, 12, 12)
+                });
+
+                Items.Inline = Library:Create("Frame", {
+                    Parent = Items.KeybindOutline;
+                    Name = "\0";
+                    Position = dim2(0, 1, 0, 1);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Size = dim2(1, -2, 1, -2);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = rgb(35, 35, 35)
+                });
+                
+                Library:Create("UIListLayout", {
+                    Parent = Items.Inline;
+                    SortOrder = Enum.SortOrder.LayoutOrder
+                });
+                
+                Items.Toggle = Library:Create("TextButton", {
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextColor3 = rgb(205, 205, 205);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Text = "Toggle";
+                    Parent = Items.Inline;
+                    ClipsDescendants = true;
+                    AutomaticSize = Enum.AutomaticSize.Y;
+                    Size = dim2(1, 0, 0, 0);
+                    Name = "\0";
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    BorderSizePixel = 0;
+                    ZIndex = 2;
+                    TextSize = 13;
+                    BackgroundColor3 = rgb(26, 26, 26)
+                });
+                
+                Library:Create("UIPadding", {
+                    PaddingTop = dim(0, 5);
+                    PaddingBottom = dim(0, 5);
+                    Parent = Items.Toggle;
+                    PaddingRight = dim(0, 5);
+                    PaddingLeft = dim(0, 5)
+                });
+                
+                Items.Hold = Library:Create("TextButton", {
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextColor3 = rgb(205, 205, 205);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Text = "Hold";
+                    Parent = Items.Inline;
+                    ClipsDescendants = true;
+                    AutomaticSize = Enum.AutomaticSize.Y;
+                    Size = dim2(1, 0, 0, 0);
+                    Name = "\0";
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    BorderSizePixel = 0;
+                    ZIndex = 2;
+                    TextSize = 13;
+                    BackgroundColor3 = rgb(26, 26, 26)
+                });
+                
+                Library:Create("UIPadding", {
+                    PaddingTop = dim(0, 5);
+                    PaddingBottom = dim(0, 5);
+                    Parent = Items.Hold;
+                    PaddingRight = dim(0, 5);
+                    PaddingLeft = dim(0, 5)
+                });
+                
+                Items.Always = Library:Create("TextButton", {
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+                    Parent = Items.Inline;
+                    TextColor3 = rgb(205, 205, 205);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Text = "Always";
+                    Name = "\0";
+                    AutomaticSize = Enum.AutomaticSize.Y;
+                    Size = dim2(1, 0, 0, 0);
+                    ClipsDescendants = true;
+                    BackgroundTransparency = 0;
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    BorderSizePixel = 0;
+                    ZIndex = 2;
+                    TextSize = 13;
+                    BackgroundColor3 = rgb(26, 26, 26)
+                });
+                
+                Library:Create("UIPadding", {
+                    PaddingTop = dim(0, 5);
+                    PaddingBottom = dim(0, 5);
+                    Parent = Items.Always;
+                    PaddingRight = dim(0, 5);
+                    PaddingLeft = dim(0, 5)
+                });
+
+                for _,mode in {"Always", "Toggle", "Hold"} do 
+                    Items[mode].MouseButton1Click:Connect(function()
+                        for _,extra in {"Always", "Toggle", "Hold"} do
+                            Items[extra].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                            Items[extra].BackgroundTransparency = 0;
+                            Items[extra].TextColor3 = rgb(205, 205, 205)
+                        end 
+                        Items[mode].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+                        Items[mode].BackgroundTransparency = 1;
+                        Items[mode].TextColor3 = themes.preset.accent
+                        Cfg.Set(mode)
+                    end)
+                end 
+            end 
+
+            function Cfg.SetMode(mode) 
+                Cfg.Mode = mode 
+                if mode == "Always" then
+                    Cfg.Set(true)
+                elseif mode == "Hold" then
+                    Cfg.Set(false)
+                end
+                Flags[Cfg.Flag].Mode = mode
+            end
+
+            function Cfg.Set(input)
+                if type(input) == "boolean" then 
+                    Cfg.Active = input
+                    if Cfg.Mode == "Always" then 
+                        Cfg.Active = true
+                    end
+                elseif tostring(input):find("Enum") then 
+                    input = input.Name == "Escape" and "NONE" or input
+                    Cfg.Key = input or "NONE"	
+                elseif table.find({"Toggle", "Hold", "Always"}, input) then 
+                    if input == "Always" then 
+                        Cfg.Active = true 
+                    end 
+                    Cfg.Mode = input
+                    Cfg.SetMode(Cfg.Mode) 
+                elseif type(input) == "table" then
+                    if input.Key then
+                        local k = input.Key
+                        if type(k) == "string" and k ~= "NONE" then
+                            local ok, res = pcall(function() return Library:ConvertEnum(input.key) end)
+                            if ok then k = res end
+                        end
+                        if k == Enum.KeyCode.Escape then k = "NONE" end
+                        Cfg.Key = k or "NONE"
+                    end
+                    Cfg.Mode = input.Mode or "Toggle"
+                    if input.Active ~= nil then
+                        Cfg.Active = input.Active
+                    end
+                    Cfg.SetMode(Cfg.Mode) 
+                end 
+
+                Cfg.Callback(Cfg.Active)
+
+                local keyName = Cfg.Key
+                local text = "NONE"
+                if typeof(keyName) == "EnumItem" then
+                    if Keys[keyName] then
+                        text = Keys[keyName]
+                    else
+                        text = tostring(keyName):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
+                    end
+                elseif type(keyName) == "string" then
+                    text = keyName
+                elseif keyName == "NONE" or keyName == nil then
+                    text = "NONE"
+                else
+                    text = tostring(keyName)
+                end
+
+                Items.Keybind.Text = string.format("[%s]", text)
+
+                Flags[Cfg.Flag] = {
+                    mode = Cfg.Mode,
+                    key = Cfg.Key, 
+                    active = Cfg.Active
+                }
+            end
+            
+            function Cfg.SetVisible(bool)
+                Items.KeybindOutline.Visible = bool 
+                Items.KeybindOutline.Parent = bool and Library.Items or Library.Other
+                if bool then
+                    Items.KeybindOutline.Position = dim2(0, Items.Keybind.AbsolutePosition.X - 50, 0, Items.Keybind.AbsolutePosition.Y + 20)
+                end
+            end
+
+            Items.Keybind.MouseButton1Click:Connect(function()
+                task.wait()
+                Items.Keybind.Text = "[...]"	
+                Cfg.Binding = Library:Connection(InputService.InputBegan, function(keycode, game_event)  
+                    if not game_event then
+                        local k = keycode.KeyCode ~= Enum.KeyCode.Unknown and keycode.KeyCode or keycode.UserInputType
+                        if k and k.Name ~= "Unknown" then
+                            Cfg.Set(k)
+                            Cfg.Binding:Disconnect() 
+                            Cfg.Binding = nil
+                        end
+                    end
+                end)
+            end)
+
+            Items.Keybind.MouseButton2Click:Connect(function()
+                Cfg.Open = not Cfg.Open 
+                Cfg.SetVisible(Cfg.Open)
+            end)
+
+            Library:Connection(InputService.InputBegan, function(input, game_event) 
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if not Library:Hovering({Items.Keybind, Items.KeybindOutline}) then
+                        Cfg.SetVisible(false)
+                        Cfg.Open = false;
+                    end 
+                end 
+                if not game_event then
+                    local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
+                    if selected_key == Cfg.Key then 
+                        if Cfg.Mode == "Toggle" then 
+                            Cfg.Active = not Cfg.Active
+                            Cfg.Set(Cfg.Active)
+                        elseif Cfg.Mode == "Hold" then 
+                            Cfg.Set(true)
+                        end
+                    end
+                end
+            end)    
+
+            Library:Connection(InputService.InputEnded, function(input, game_event) 
+                if game_event then 
+                    return 
+                end 
+                local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
+                if selected_key == Cfg.Key then
+                    if Cfg.Mode == "Hold" then 
+                        Cfg.Set(false)
+                    end
+                end
+            end)
+            
+            Cfg.Set({Mode = Cfg.Mode, Active = Cfg.Active, Key = Cfg.Key})           
+            ConfigFlags[Cfg.Flag] = Cfg.Set
+
+            return setmetatable(Cfg, Library)
+        end
+
+        function Library:Button(properties) 
+            local Cfg = {
+                Name = properties.Name or "TextBox",
+                Callback = properties.Callback or function() end,
+                 
+                -- Other
+                Items = {};
+            }
+            
+            local Items = Cfg.Items; do 
+                Items.Button = Library:Create( "TextButton" , {
+                    FontFace = Library.Font;
+                    TextColor3 = rgb(0, 0, 0);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Text = "";
+                    Parent = self.Items.GroupElements or self.Items.Elements;
+                    Name = "\0";
+                    BackgroundTransparency = 1;
+                    Size = dim2(1, 0, 0, 0);
+                    BorderSizePixel = 0;
+                    AutomaticSize = Enum.AutomaticSize.Y;
+                    TextSize = 14;
+                    BackgroundColor3 = rgb(255, 255, 255)
+                });
+                
+                Items.Outline = Library:Create( "Frame" , {
+                    Name = "\0";
+                    Parent = Items.Button;
+                    BorderColor3 = rgb(0, 0, 0);
+                    Size = dim2(1, 0, 0, 18);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = themes.preset.outline
+                });	Library:Themify(Items.Outline, "outline", "BackgroundColor3")
+                
+                Items.Inline = Library:Create( "Frame" , {
+                    Parent = Items.Outline;
+                    Name = "\0";
+                    Position = dim2(0, 1, 0, 1);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Size = dim2(1, -2, 1, -2);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = themes.preset.inline
+                });	Library:Themify(Items.Inline, "inline", "BackgroundColor3")
+                
+                Items.Background = Library:Create( "Frame" , {
+                    Parent = Items.Inline;
+                    Name = "\0";
+                    Position = dim2(0, 1, 0, 1);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Size = dim2(1, -2, 1, -2);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = rgb(255, 255, 255)
+                });
+                
+                local gradient = Library:Create( "UIGradient" , {
+                    Rotation = 90;
+                    Parent = Items.Background;
+                    Color = rgbseq{rgbkey(0, themes.preset.inline), rgbkey(1, themes.preset.gradient)}
+                }); Library:SaveGradient(gradient, "Selected");
+                
+                Items.Name = Library:Create( "TextLabel" , {
+                    FontFace = Library.Font;
+                    TextColor3 = themes.preset.text_color;
+                    BorderColor3 = rgb(0, 0, 0);
+                    Text = Cfg.Name;
+                    Parent = Items.Background;
+                    Name = "\0";
+                    Size = dim2(1, 0, 1, 0);
+                    BackgroundTransparency = 1;
+                    Position = dim2(0, 3, 0, 0);
+                    BorderSizePixel = 0;
+                    AutomaticSize = Enum.AutomaticSize.XY;
+                    TextSize = 12;
+                    BackgroundColor3 = rgb(255, 255, 255)
+                });
+                
+                Library:Create( "UIStroke" , {
+                    Parent = Items.Name;
+                    LineJoinMode = Enum.LineJoinMode.Miter
+                });                                  
+            end 
+
+            Items.Button.MouseButton1Click:Connect(function()
+                Items.Name.TextColor3 = rgb(255, 255, 255)
+                Library:Tween(Items.Name, {TextColor3 = themes.preset.text_color})
+                
+                Cfg.Callback()
+            end)
+            
+            return setmetatable(Cfg, Library)
+        end
+
+        function Library:Configs(window) 
+            local Text;
+            local ConfigText; 
+
+            local Tab = window:Tab({Name = "Settings"})
+
+            local Section = Tab:Section({Name = "Main", Side = "Left"})
+            ConfigHolder = Section:Dropdown({Name = "Configs", Options = {"Report", "This", "Error", "To", "Finobe"}, Callback = function(option) if Text then Text.Set(option) end end, Flag = "config_Name_list"}); Library:UpdateConfigList()
+            window.Tweening = true
+            Text = Section:Textbox({Name = "Config Name:", Flag = "config_Name_text", Callback = function(text)
+                ConfigText = text
+            end})
+            window.Tweening = false
+            Section:Button({Name = "Save", Callback = function() 
+                writefile(Library.Directory .. "/configs/" .. ConfigText .. ".cfg", Library:GetConfig())
+                Library:UpdateConfigList()
+                Notifications:Create({Name = "Saved Config (" ..  Library.Directory .. "/configs/" .. ConfigText .. ".cfg" .. ")"}) 
+            end})
+
+            Section:Button({Name = "Load", Callback = function() 
+                Library:LoadConfig(readfile(Library.Directory .. "/configs/" .. ConfigText .. ".cfg"))  
+                Library:UpdateConfigList() 
+                Notifications:Create({Name = "Loaded Config (" ..  Library.Directory .. "/configs/" .. ConfigText .. ".cfg" .. ")"}) 
+            end})
+
+            Section:Button({Name = "Delete", Callback = function() 
+                delfile(Library.Directory .. "/configs/" .. ConfigText .. ".cfg")  
+                Library:UpdateConfigList() 
+                Notifications:Create({Name = "Deleted Config (" ..  Library.Directory .. "/configs/" .. ConfigText .. ".cfg" .. ")"}) 
+            end})
+
+            window.Tweening = true
+            Section:Label({Name = "Menu Bind"}):Keybind({Name = "Menu Bind", ShowInList = false, Callback = function(bool) 
+                if window.Tweening then
+                    return 
+                end 
+
+                window.ToggleMenu(bool) 
+            end, Default = true})
+
+            delay(2, function() window.Tweening = false end)
+
+            local Section = Tab:Section({Name = "Other", Side = "Right"})
+            Section:Toggle({Name = "Watermark", Flag = "Watermark", Callback = window.ToggleWatermark})
+            Section:Toggle({Name = "Keybind List", Flag = "KeybindList", Callback = window.ToggleKeybindList})
+            Section:Toggle({Name = "Toggle Status", Flag = "Status", Callback = window.ToggleStatus})
+            Section:Textbox({Name = "Custom Menu Name", Callback = window.ChangeTitle, Default = window.Name, Placeholder = "Title name here..."})
+            Section:Textbox({Name = "Custom Watermark Name", Callback = window.ChangeWatermarkTitle, Default = window.Name .. ".lua", Placeholder = "Title name here..."})
+            Section:Dropdown({Name = "Tweening Style", Options = {"Linear", "Sine", "Back", "Quad", "Quart", "Quint", "Bounce", "Elastic", "Exponential", "Circular", "Cubic"}, Flag = "LibraryEasingStyle", Default = "Quint", Callback = function(Option)
+                Library.EasingStyle = Enum.EasingStyle[Option]
+            end});
+            Section:Slider({Name = "Tweening Speed", Min = 0, Max = 10, Decimal = 0.01, Suffix = "s", Default = 0.25, Flag = "TweeningSpeed", Callback = function(int)
+                Library.TweeningSpeed = int
+            end})
+
+            Section:Label({Name = "Inline"}):Colorpicker({Flag = "Inline", Callback = function(color, alpha) 
+                Library:RefreshTheme("inline", color) 
+
+                for _,seq in themes.gradients.Selected do 
+                    seq.Color = rgbseq{rgbkey(0, themes.preset.inline), rgbkey(1, themes.preset.gradient)}
+                end 
+            end, Color = themes.preset.inline})
+
+            Section:Label({Name = "Gradient"}):Colorpicker({Flag = "Gradient", Callback = function(color, alpha) 
+                Library:RefreshTheme("gradient", color)
+
+                for _,seq in themes.gradients.Selected do 
+                    seq.Color = rgbseq{rgbkey(0, themes.preset.inline), rgbkey(1, themes.preset.gradient)}
+                end
+
+                for _,seq in themes.gradients.Deselected do 
+                    seq.Color = rgbseq{rgbkey(0, themes.preset.gradient), rgbkey(1, themes.preset.background)}
+                end
+            end, Color = themes.preset.gradient})
+            
+            Section:Label({Name = "Outline"}):Colorpicker({Flag = "Outline", Callback = function(color, alpha) 
+                Library:RefreshTheme("outline", color) 
+            end, Color = themes.preset.outline})
+            
+            Section:Label({Name = "Accent"}):Colorpicker({Flag = "Accent", Callback = function(color, alpha) 
+                Library:RefreshTheme("accent", color) 
+            end, Color = themes.preset.accent})
+            
+            Section:Label({Name = "Background"}):Colorpicker({Flag = "Background", Callback = function(color, alpha) 
+                Library:RefreshTheme("background", color) 
+
+                for _,seq in themes.gradients.Deselected do 
+                    seq.Color = rgbseq{rgbkey(0, themes.preset.gradient), rgbkey(1, themes.preset.background)}
+                end
+            end, Color = themes.preset.background})
+            
+            Section:Label({Name = "Text Color"}):Colorpicker({Flag = "Text Color", Callback = function(color, alpha) 
+                Library:RefreshTheme("text_color", color) 
+            end, Color = themes.preset.text_color})
+            
+            Section:Label({Name = "Text Outline"}):Colorpicker({Flag = "Text Outline", Callback = function(color, alpha) 
+                Library:RefreshTheme("text_outline", color) 
+            end, Color = themes.preset.text_outline})
+            
+            Section:Label({Name = "Background"}):Colorpicker({Flag = "Background", Callback = function(color, alpha) 
+                Library:RefreshTheme("tab_background", color) 
+            end, Color = themes.preset.tab_background})
+            
+            
+
+        end
+    --
+
+    -- Notification Library
+        -- IGNORE: , TweenInfo.new(1, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+        function Notifications:RefreshNotifications() 
+            local offset = 50
+            
+            for i, v in Notifications.Notifs do
+                local Position = vec2(20, offset)
+                Library:Tween(v, {Position = dim_offset(Position.X, Position.Y)})
+                offset += (v.AbsoluteSize.Y + 10)
+            end
+
+            return offset
+        end
+        
+        function Notifications:FadeNotifs(path, is_fading)
+            local fading = is_fading and 1 or 0 
+            
+            Library:Tween(path, {BackgroundTransparency = fading})
+
+            for _, instance in path:GetDescendants() do 
+                if not instance:IsA("GuiObject") then 
+                    if instance:IsA("UIStroke") then
+                        Library:Tween(instance, {Transparency = fading})
+                    end
+        
+                    continue
+                end 
+        
+                if instance:IsA("TextLabel") then
+                    Library:Tween(instance, {TextTransparency = fading})
+                elseif instance:IsA("Frame") then
+                    Library:Tween(instance, {BackgroundTransparency = instance.Transparency and 0.6 and is_fading and 1 or 0.6})
+                end
+            end
+        end 
+        
+        function Notifications:Create(properties)
+            local Cfg = {
+                Name = properties.Name or "This is a title!";
+                Lifetime = properties.LifeTime or 3;
+                
+                Items = {};
+                outline;
+            }
+
+            local Items = Cfg.Items; do 
+                Items.Outline = Library:Create( "Frame" , {
+                    Parent = Library.Items;
+                    Size = dim2(0, 0, 0, 18);
+                    Name = "\0";
+                    AnchorPoint = vec2(1, 0);
+                    Position = dim2(0, 7, 0, 46);
+                    BorderColor3 = rgb(0, 0, 0);
+                    BorderSizePixel = 0;
+                    AutomaticSize = Enum.AutomaticSize.XY;
+                    BackgroundColor3 = rgb(52, 52, 52)
+                });
+                
+                Items.Inline = Library:Create( "Frame" , {
+                    Parent = Items.Outline;
+                    Name = "\0";
+                    Position = dim2(0, 1, 0, 1);
+                    BorderColor3 = rgb(0, 0, 0);
+                    BorderSizePixel = 0;
+                    AutomaticSize = Enum.AutomaticSize.XY;
+                    BackgroundColor3 = rgb(5, 5, 5)
+                });
+                
+                Library:Create( "UIPadding" , {
+                    PaddingTop = dim(0, 7);
+                    PaddingBottom = dim(0, 6);
+                    Parent = Items.Inline;
+                    PaddingRight = dim(0, 8);
+                    PaddingLeft = dim(0, 4)
+                });
+                
+                Items.Text = Library:Create( "TextLabel" , {
+                    FontFace = Library.Font;
+                    Parent = Items.Inline;
+                    TextColor3 = rgb(255, 255, 255);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Text = Cfg.Name;
+                    Name = "\0";
+                    AutomaticSize = Enum.AutomaticSize.XY;
+                    Size = dim2(1, -4, 1, 0);
+                    Position = dim2(0, 4, 0, -2);
+                    BackgroundTransparency = 1;
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    BorderSizePixel = 0;
+                    ZIndex = 2;
+                    TextSize = 12;
+                    BackgroundColor3 = rgb(255, 255, 255)
+                });
+                
+                Library:Create( "UIPadding" , {
+                    PaddingBottom = dim(0, 1);
+                    PaddingRight = dim(0, 1);
+                    Parent = Items.Outline
+                });
+                
+                Items.AccentLine = Library:Create( "Frame" , {
+                    Parent = Items.Outline;
+                    Name = "\0";
+                    Position = dim2(0, 2, 1, -1);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Size = dim2(1, -1, 0, 1);
+                    BorderSizePixel = 0;
+                    ZIndex = 100;
+                    BackgroundColor3 = themes.preset.accent
+                });	Library:Themify(Items.AccentLine, "accent", "BackgroundColor3")
+                
+                Items.Accent = Library:Create( "Frame" , {
+                    Parent = Items.Outline;
+                    Name = "\0";
+                    ZIndex = 100;
+                    Position = dim2(0, 1, 0, 1);
+                    BorderColor3 = rgb(0, 0, 0);
+                    Size = dim2(0, 1, 1, -1);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = themes.preset.accent
+                });	Library:Themify(Items.Accent, "accent", "BackgroundColor3")                    
+            end 
+            
+            local index = #Notifications.Notifs + 1
+            Notifications.Notifs[index] = Items.Outline
+
+            -- Notifications:FadeNotifs(Items.Outline, false)
+            
+            local offset = Notifications:RefreshNotifications()
+
+            Items.Outline.Position = dim_offset(20, offset)
+
+            Library:Tween(Items.Outline, {AnchorPoint = vec2(0, 0)})
+            Library:Tween(Items.AccentLine, {Size = dim2(0, -2, 0, 1)}, TweenInfo.new(Cfg.Lifetime, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut, 0, false, 0))
+
+            print(Items.AccentLine.BackgroundTransparency)
+            task.spawn(function()
+                task.wait(Cfg.Lifetime)
+                Notifications.Notifs[index] = nil
+                Notifications:FadeNotifs(Items.Outline, true)
+                Library:Tween(Items.Outline, {AnchorPoint = vec2(1, 0)})
+                task.wait(1)
+                Items.Outline:Destroy() 
+            end)
+        end
+    --
+-- 
+
+
+local Window = Library:Window({Name = "gamesense", Size = UDim2.new(0, 660, 0, 674)})
+
+local Tabs = {
+    Rage = Window:Tab({Icon = "rbxassetid://8547236654"}),
+    Aiming = Window:Tab({Icon = "rbxassetid://8547249956"}),
+    Visuals = Window:Tab({Icon = "rbxassetid://8547254518"}),
+    Misc = Window:Tab({Icon = "rbxassetid://8547256547"}),
+    Skins = Window:Tab({Icon = "rbxassetid://8547258459"}),
+    Config = Window:Tab({Icon = "rbxassetid://107672994153530"}),
+}
+
+-- [ RAGE TAB ] - Fixed version as per screenshot
+local WeaponTypeSection = Tabs.Rage:Section({Name = "Weapon type", Side = "Left", Size = 0.22})
+WeaponTypeSection:Dropdown({
+    Name = "Global", 
+    Options = {"Global", "Pistol", "Heavy Pistol", "Rifle", "SMG", "Shotgun", "Scout", "AWP", "Auto"}, 
+    Default = "Global", 
+    Flag = "WeaponType_Global"
+})
+
+local AimbotSection = Tabs.Rage:Section({Name = "Aimbot", Side = "Left", Size = 1})
+
+local EnabledToggle = AimbotSection:Toggle({Name = "Enabled", Flag = "Aimbot_Enabled", Default = false})
+EnabledToggle:Keybind({Name = "Aimbot Key", Flag = "Aimbot_Enabled_Key", Key = Enum.UserInputType.MouseButton5, Mode = "Toggle", Default = false})
+
+AimbotSection:Dropdown({
+    Name = "Target selection", 
+    Options = {"Cycle", "Cycle (2x)", "Closest distance", "Near crosshair", "Highest damage", "Lowest ping", "Lowest HP"}, 
+    Default = "Cycle",
+    Flag = "Aimbot_TargetSelection"
+})
+
+AimbotSection:Dropdown({
+    Name = "Target hitbox", 
+    Options = {"Head", "Neck", "Chest", "Stomach", "Pelvis", "Nearest", "Best damage"}, 
+    Default = "Head",
+    Flag = "Aimbot_TargetHitbox"
+})
+
+local MultiPointDropdown = AimbotSection:Dropdown({
+    Name = "Multi-point", 
+    Options = {"Disabled", "Low", "Medium", "High", "Extreme"}, 
+    Default = "Disabled",
+    Flag = "Aimbot_MultiPoint"
+})
+MultiPointDropdown:Keybind({Flag = "Aimbot_MultiPoint_Key"})
+
+AimbotSection:Slider({
+    Name = "Minimum hit chance", 
+    Min = 0, 
+    Max = 100, 
+    Default = 50, 
+    Decimal = 1, 
+    Suffix = "%", 
+    Flag = "Aimbot_MinHitChance"
+})
+
+AimbotSection:Slider({
+    Name = "Minimum damage", 
+    Min = 0, 
+    Max = 150, 
+    Default = 10, 
+    Decimal = 1, 
+    Suffix = "", 
+    Flag = "Aimbot_MinDamage"
+})
+
+local MinDamageOverride = AimbotSection:Toggle({Name = "Minimum damage override", Flag = "Aimbot_MinDamageOverride", Default = false})
+MinDamageOverride:Keybind({Flag = "Aimbot_MinDamageOverride_Key", Mode = "Toggle"})
+
+AimbotSection:Toggle({Name = "Prefer safe point", Flag = "Aimbot_PreferSafePoint", Default = false})
+
+local ForceSafePoint = AimbotSection:Toggle({Name = "Force safe point", Flag = "Aimbot_ForceSafePoint", Default = false})
+ForceSafePoint:Keybind({Flag = "Aimbot_ForceSafePoint_Key"})
+
+AimbotSection:Dropdown({
+    Name = "Avoid unsafe hitboxes",
+    Options = {"Off", "On", "Strict"},
+    Default = "Off",
+    Flag = "Aimbot_AvoidUnsafe"
+})
+
+local ForceBodyAim = AimbotSection:Toggle({Name = "Force body aim", Flag = "Aimbot_ForceBodyAim", Default = false})
+ForceBodyAim:Keybind({Flag = "Aimbot_ForceBodyAim_Key", Mode = "Toggle"})
+
+AimbotSection:Toggle({Name = "Force body aim on peek", Flag = "Aimbot_ForceBodyPeek", Default = false})
+
+local QuickStop = AimbotSection:Toggle({Name = "Quick stop", Flag = "Aimbot_QuickStop", Default = false})
+QuickStop:Keybind({Flag = "Aimbot_QuickStop_Key"})
+
+local DoubleTap = AimbotSection:Toggle({Name = "Double tap", Flag = "Aimbot_DoubleTap", Default = false})
+DoubleTap:Keybind({Flag = "Aimbot_DoubleTap_Key", Mode = "Toggle"})
+
+AimbotSection:Toggle({Name = "Automatic scope", Flag = "Aimbot_AutoScope", Default = false})
+
+local OtherSection = Tabs.Rage:Section({Name = "Other", Side = "Right", Size = 0.5})
+OtherSection:Toggle({Name = "Anti-aim", Flag = "Other_AntiAim"})
+OtherSection:Dropdown({Name = "Pitch", Options = {"None", "Up", "Down", "Zero", "Random"}, Default = "None", Flag = "AA_Pitch"})
+OtherSection:Dropdown({Name = "Yaw base", Options = {"At targets", "Forward", "Backward"}, Default = "At targets", Flag = "AA_YawBase"})
+OtherSection:Dropdown({Name = "Yaw", Options = {"Static", "Jitter", "Spin", "Random"}, Default = "Static", Flag = "AA_Yaw"})
+OtherSection:Slider({Name = "Yaw offset", Min = -180, Max = 180, Default = 0, Suffix = "\194\176", Flag = "AA_YawOffset"})
+
+Window.ToggleMenu(true)
+print("[gamesense fixed] Aimbot tab loaded - Solara ready")
