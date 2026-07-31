@@ -1892,6 +1892,10 @@ getgenv().Loaded = true
             end;
             
             function Cfg.Set(bool)
+                -- Keep the component's internal state in sync when a bind or
+                -- config calls Set directly. Without this, Toggle-mode binds
+                -- can read an old Enabled value and appear not to toggle.
+                Cfg.Enabled = bool
                 Flags[Cfg.Flag] = bool
 
                 Cfg.Callback(bool)
@@ -3927,7 +3931,9 @@ do
                 CloseModeMenu()
             end
 
-            if gameProcessed or binding or not boundKey then return end
+            -- Do not use gameProcessed here: many Roblox games mark keyboard
+            -- input as processed themselves, which otherwise disables binds.
+            if binding or not boundKey then return end
 
             local key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
             if key ~= boundKey then return end
@@ -3942,7 +3948,7 @@ do
         end)
 
         Library:Connection(InputService.InputEnded, function(input, gameProcessed)
-            if gameProcessed or binding or not boundKey or bindMode ~= "Hold" then return end
+            if binding or not boundKey or bindMode ~= "Hold" then return end
 
             local key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
             if key == boundKey then
