@@ -5379,7 +5379,7 @@ do
             Name = "\0";
             Size = dim2(1, 0, 1, 0);
             BackgroundTransparency = 1;
-            Image = "rbxassetid://6403436082";
+            Image = "";
             ScaleType = Enum.ScaleType.Fit;
             BorderSizePixel = 0;
             ZIndex = 11;
@@ -5392,17 +5392,17 @@ do
         })
 
         task.spawn(function()
-            local path = Library.Directory .. "/avatar.png"
-            local asset = nil
-
-            pcall(function()
-                if isfile(path) then
-                    asset = getcustomasset(path)
-                end
+            -- настоящая аватарка локального игрока
+            local ok, thumb = pcall(function()
+                return Players:GetUserThumbnailAsync(
+                    lp.UserId,
+                    Enum.ThumbnailType.HeadShot,
+                    Enum.ThumbnailSize.Size100x100
+                )
             end)
 
-            if asset then
-                NameAvatarImage.Image = asset
+            if ok and thumb then
+                NameAvatarImage.Image = thumb
             end
         end)
 
@@ -7354,92 +7354,15 @@ do
     local VelocityRow = MakeInfoRow("Velocity", 16)
     local StateRow = MakeInfoRow("Movement", 17)
 
-    -- Пока данные фейковые и стабильные для каждого ника
-    local FakeWeapons = {"Assault Rifle", "Bolt Action", "MP5A4", "Custom SMG", "Python", "Rock", "Hatchet", "Semi Rifle"}
-    local FakeMoves = {"Standing", "Running", "Crouching", "Falling", "Swimming"}
-    local FakeCache = {}
-
-    local function Seeded(name)
-        if FakeCache[name] then
-            return FakeCache[name]
-        end
-
-        local seed = 0
-
-        for i = 1, #name do
-            seed += string.byte(name, i) * i
-        end
-
-        local rng = Random.new(seed)
-
-        local data = {
-            Wood = rng:NextInteger(0, 20000);
-            Stone = rng:NextInteger(0, 15000);
-            Metal = rng:NextInteger(0, 8000);
-            Health = rng:NextInteger(5, 100);
-            Weapon = FakeWeapons[rng:NextInteger(1, #FakeWeapons)];
-            Move = FakeMoves[rng:NextInteger(1, #FakeMoves)];
-            X = rng:NextInteger(-2000, 2000);
-            Y = rng:NextInteger(0, 400);
-            Z = rng:NextInteger(-2000, 2000);
-            Distance = rng:NextInteger(5, 900);
-            Velocity = rng:NextInteger(0, 30);
-        }
-
-        FakeCache[name] = data
-
-        return data
-    end
-
-    local function Commas(number)
-        local text = tostring(number)
-
-        while true do
-            local replaced
-
-            text, replaced = string.gsub(text, "^(-?%d+)(%d%d%d)", "%1 %2")
-
-            if replaced == 0 then
-                break
-            end
-        end
-
-        return text
-    end
-
-    local function HealthColor(hp)
-        return hsv((hp / 100) * 0.33, 0.75, 1)
-    end
-
     local function ClearInfo()
         for _, row in InfoRows do
             row.Set("-")
         end
     end
 
+    -- Данные пока не собираем: все строки просто пустые ("-")
     function RefreshInfo()
-        if not SelectedPlayer then
-            ClearInfo()
-
-            return
-        end
-
-        local data = Seeded(SelectedPlayer)
-        local player = Players:FindFirstChild(SelectedPlayer)
-
-        WoodRow.Set(Commas(data.Wood))
-        StoneRow.Set(Commas(data.Stone))
-        MetalRow.Set(Commas(data.Metal))
-
-        HealthRow.Set(data.Health .. " hp", HealthColor(data.Health))
-        WeaponRow.Set(data.Weapon)
-
-        TeamRow.Set(player and player.Team and player.Team.Name or "None")
-
-        CoordsRow.Set(string.format("%d, %d, %d", data.X, data.Y, data.Z))
-        DistanceRow.Set(data.Distance .. " m")
-        VelocityRow.Set(data.Velocity .. " m/s")
-        StateRow.Set(data.Move)
+        ClearInfo()
     end
 
     ClearInfo()
