@@ -746,12 +746,17 @@ getgenv().Loaded = true
                 Cfg.SetVisible(Cfg.Open)            
             end)
 
+            Items.ColorpickerObject.MouseButton2Click:Connect(function()
+                Library:OpenColorContextMenu(Cfg, Items.ColorpickerObject)
+            end)
+
             -- Закрывать пикер вместе с меню
             table.insert(Library.ExtraClosers, function()
                 if Cfg.Open then
                     Cfg.Open = false
                     Cfg.SetVisible(false)
                 end
+                Library:CloseColorContextMenu()
             end)
 
             InputService.InputChanged:Connect(function(input)
@@ -775,6 +780,12 @@ getgenv().Loaded = true
             
             Library:Connection(InputService.InputBegan, function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if Library.ColorContextMenu and Library.ColorContextMenu.Visible then
+                        if not Library:Hovering({Library.ColorContextMenu}) then
+                            Library:CloseColorContextMenu()
+                        end
+                    end
+
                     if not Library:Hovering({Items.ColorpickerObject, Items.Colorpicker}) then 
                         Cfg.SetVisible(false)
                         Cfg.Open = false
@@ -905,17 +916,150 @@ getgenv().Loaded = true
             Library.OpenElement = {}
 		end
 
+        function Library:GetColorContextMenu()
+            if Library.ColorContextMenu then
+                return Library.ColorContextMenu
+            end
+
+            local Menu = Library:Create("Frame", {
+                Parent = Library.Other,
+                Name = "\0",
+                Size = dim2(0, 68, 0, 40),
+                BorderSizePixel = 0,
+                BackgroundColor3 = rgb(12, 12, 12),
+                Visible = false,
+                ZIndex = 25000
+            })
+
+            local Outline = Library:Create("Frame", {
+                Parent = Menu,
+                Name = "\0",
+                Position = dim2(0, 1, 0, 1),
+                Size = dim2(1, -2, 1, -2),
+                BorderSizePixel = 0,
+                BackgroundColor3 = rgb(35, 35, 35)
+            })
+
+            local Inline = Library:Create("Frame", {
+                Parent = Outline,
+                Name = "\0",
+                Position = dim2(0, 1, 0, 1),
+                Size = dim2(1, -2, 1, -2),
+                BorderSizePixel = 0,
+                BackgroundColor3 = rgb(18, 18, 18)
+            })
+
+            Library:Create("UIListLayout", {
+                Parent = Inline,
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Padding = dim(0, 0)
+            })
+
+            local function CreateMenuButton(text, layoutOrder, onClick)
+                local btn = Library:Create("TextButton", {
+                    Parent = Inline,
+                    Name = "\0",
+                    Size = dim2(1, 0, 0, 18),
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = rgb(18, 18, 18),
+                    Text = text,
+                    TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal),
+                    TextColor3 = rgb(205, 205, 205),
+                    LayoutOrder = layoutOrder,
+                    ZIndex = 25001
+                })
+
+                Library:Create("UIPadding", {
+                    Parent = btn,
+                    PaddingLeft = dim(0, 8),
+                    PaddingRight = dim(0, 8)
+                })
+
+                btn.MouseEnter:Connect(function()
+                    btn.BackgroundColor3 = rgb(28, 28, 28)
+                    btn.TextColor3 = themes.preset.accent
+                end)
+                btn.MouseLeave:Connect(function()
+                    btn.BackgroundColor3 = rgb(18, 18, 18)
+                    btn.TextColor3 = rgb(205, 205, 205)
+                end)
+                btn.MouseButton1Click:Connect(onClick)
+                return btn
+            end
+
+            CreateMenuButton("Copy", 1, function()
+                if Library.ActiveColorContextCfg then
+                    local cfg = Library.ActiveColorContextCfg
+                    local colorVal = Flags[cfg.Flag] and Flags[cfg.Flag].Color or cfg.Color
+                    local alphaVal = Flags[cfg.Flag] and Flags[cfg.Flag].Transparency or cfg.Alpha or 0
+                    local h, s, v = colorVal:ToHSV()
+                    Library.ColorClipboard = {
+                        Color = hsv(1 - h, 1 - s, v),
+                        Alpha = alphaVal
+                    }
+                end
+                Library:CloseColorContextMenu()
+            end)
+
+            CreateMenuButton("Paste", 2, function()
+                if Library.ActiveColorContextCfg and Library.ColorClipboard then
+                    local cfg = Library.ActiveColorContextCfg
+                    cfg.Set(Library.ColorClipboard.Color, Library.ColorClipboard.Alpha)
+                end
+                Library:CloseColorContextMenu()
+            end)
+
+            Library.ColorContextMenu = Menu
+            return Menu
+        end
+
+        function Library:CloseColorContextMenu()
+            if Library.ColorContextMenu then
+                Library.ColorContextMenu.Visible = false
+                Library.ColorContextMenu.Parent = Library.Other
+                Library.ActiveColorContextCfg = nil
+            end
+        end
+
+        function Library:OpenColorContextMenu(Cfg, TargetObject)
+            local menu = Library:GetColorContextMenu()
+            if menu.Visible and Library.ActiveColorContextCfg == Cfg then
+                Library:CloseColorContextMenu()
+                return
+            end
+
+            Library.ActiveColorContextCfg = Cfg
+            menu.Parent = Library.Items
+            menu.Visible = true
+
+            local Origin = TargetObject.AbsolutePosition
+            local Viewport = Camera.ViewportSize
+            local Size = TargetObject.AbsoluteSize
+            local MenuSize = menu.AbsoluteSize
+
+            local X = math.clamp(Origin.X, 0, math.max(0, Viewport.X - 68))
+            local Y = Origin.Y + 71
+
+            if Y + 40 > Viewport.Y then
+                Y = math.max(0, Origin.Y + 62 - 40)
+            end
+
+            menu.Position = dim2(0, X, 0, Y)
+        end
+
         function Library:Create(instance, options)
             local ins = Instance.new(instance) 
+
+            if instance == "TextButton" or ins:IsA("TextButton") then 
+                ins["AutoButtonColor"] = false 
+                ins["Text"] = ""
+            end 
 
             for prop, value in options do
                 ins[prop] = value
             end
-
-            if ins == "TextButton" then 
-                ins["AutoButtonColor"] = false 
-                ins["Text"] = ""
-            end 
             
             return ins 
         end
@@ -10285,6 +10429,13 @@ end
 ContextActionService:BindCoreAction("BlockEscape", function() 
     return Enum.ContextActionResult.Sink 
 end, false, Enum.KeyCode.Escape)
+
+Library.UnloadHooks = Library.UnloadHooks or {}
+table.insert(Library.UnloadHooks, function()
+    pcall(function()
+        ContextActionService:UnbindCoreAction("BlockEscape")
+    end)
+end)
 
 Library:Connection(InputService.InputBegan, function(input, ge)
     local key = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
