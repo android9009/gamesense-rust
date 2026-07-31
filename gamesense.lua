@@ -4906,9 +4906,36 @@ do
             ImageTransparency = 1;
             ScaleType = Enum.ScaleType.Stretch;
             BorderSizePixel = 0;
-            ZIndex = 7;
+            ZIndex = 8;
             BackgroundColor3 = rgb(255, 255, 255);
         })
+
+        -- Outline для Normal chams в Preview ESP.
+        -- Это несколько копий силуэта с небольшим смещением за основным chams-слоем.
+        local ChamsOutlines = {}
+
+        for _, offset in {
+            vec2(-1, 0), vec2(1, 0), vec2(0, -1), vec2(0, 1),
+            vec2(-1, -1), vec2(1, -1), vec2(-1, 1), vec2(1, 1),
+        } do
+            local outline = Library:Create("ImageLabel", {
+                Parent = Target;
+                Name = "\0";
+                AnchorPoint = vec2(0.5, 0.5);
+                Position = dim2(0.5, offset.X, 0.5, offset.Y);
+                Size = Dummy.Size;
+                BackgroundTransparency = 1;
+                Image = Dummy.Image;
+                ImageColor3 = rgb(255, 255, 255);
+                ImageTransparency = 1;
+                ScaleType = Enum.ScaleType.Stretch;
+                BorderSizePixel = 0;
+                ZIndex = 7;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            table.insert(ChamsOutlines, outline)
+        end
 
         local DummyOriginal = Dummy.Image
         local DummySilhouetteContent = nil
@@ -4951,11 +4978,28 @@ do
             if flat then
                 if DummySilhouetteContent then
                     ChamsOverlay.ImageContent = DummySilhouetteContent
+
+                    for _, outline in ChamsOutlines do
+                        outline.ImageContent = DummySilhouetteContent
+                    end
                 else
                     ChamsOverlay.Image = DummyOriginal
+
+                    for _, outline in ChamsOutlines do
+                        outline.Image = DummyOriginal
+                    end
                 end
             elseif DummyOriginal then
                 ChamsOverlay.Image = DummyOriginal
+
+                -- Для Normal outline лучше держать силуэтом, чтобы он был как обводка.
+                for _, outline in ChamsOutlines do
+                    if DummySilhouetteContent then
+                        outline.ImageContent = DummySilhouetteContent
+                    else
+                        outline.Image = DummyOriginal
+                    end
+                end
             end
         end
 
@@ -4971,7 +5015,7 @@ do
             TextColor3 = rgb(140, 140, 140);
             BackgroundTransparency = 1;
             BorderSizePixel = 0;
-            ZIndex = 8;
+            ZIndex = 9;
             BackgroundColor3 = rgb(255, 255, 255);
         })
 
@@ -5373,6 +5417,11 @@ do
                 ChamsOverlay.ImageColor3 = rgb(255, 255, 255)
                 ChamsOverlay.ImageTransparency = 1
 
+                for _, outline in ChamsOutlines do
+                    outline.ImageColor3 = rgb(255, 255, 255)
+                    outline.ImageTransparency = 1
+                end
+
                 return
             end
 
@@ -5386,6 +5435,13 @@ do
 
             ChamsOverlay.ImageColor3 = col
             ChamsOverlay.ImageTransparency = alpha
+
+            local outlineTransparency = ChamsStyle == "Normal" and alpha or 1
+
+            for _, outline in ChamsOutlines do
+                outline.ImageColor3 = col
+                outline.ImageTransparency = outlineTransparency
+            end
         end
 
         local ChamsButtons = {}
