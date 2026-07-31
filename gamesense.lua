@@ -3711,21 +3711,27 @@ do
     -- а только пишет активность в Flags[FlagName].Active
     function AddMenuBind(TargetToggle, FlagName, NoToggleState)
         local bindMode = "Toggle"
-        local bindActive = false
+        -- Keep a dedicated state for Toggle mode. It must not depend solely on
+        -- a UI object's stale Enabled field after config loading.
+        local bindActive = NoToggleState and false or (TargetToggle.Enabled == true)
 
         local function ApplyState(state)
+            bindActive = state == true
+
             if NoToggleState then
-                bindActive = state
-
-                if Flags[FlagName] then
-                    Flags[FlagName].Active = state
+                if type(Flags[FlagName]) ~= "table" then
+                    Flags[FlagName] = {Key = "NONE", Mode = bindMode, Active = bindActive}
+                else
+                    Flags[FlagName].Active = bindActive
+                    Flags[FlagName].Mode = bindMode
                 end
-
                 return
             end
 
-            TargetToggle.Enabled = state
-            TargetToggle.Set(state)
+            -- Set updates both Flags and the visual state. Explicitly assigning
+            -- Enabled makes Toggle mode reliable after a config has been read.
+            TargetToggle.Enabled = bindActive
+            TargetToggle.Set(bindActive)
         end
 
         local boundKey = nil
@@ -3959,7 +3965,7 @@ do
         Flags[FlagName] = {
             Key = "NONE";
             Mode = bindMode;
-            Active = false;
+            Active = bindActive;
         }
     end
 
@@ -4318,6 +4324,14 @@ do
     ColoredModel("Backtrack", "VisBacktrack", rgb(255, 255, 255))
 
     -- World
+    -- Master switch: when disabled the loader restores every Lighting value
+    -- and does not apply brightness, ambient, correction, or time changes.
+    local WorldEnabled = LeftBottom:Toggle({
+        Name = "Enable",
+        Default = false,
+        Flag = "VisWorldEnabled"
+    })
+
     local Brightness = LeftBottom:Dropdown({
         Name = "Brightness adjustment",
         Options = {"Off", "Fullbright", "Night mode"},
