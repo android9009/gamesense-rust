@@ -5594,20 +5594,43 @@ do
             CornerRadius = dim(1, 0);
         })
 
-        task.spawn(function()
-            -- настоящая аватарка локального игрока
-            local ok, thumb = pcall(function()
-                return Players:GetUserThumbnailAsync(
-                    lp.UserId,
-                    Enum.ThumbnailType.HeadShot,
-                    Enum.ThumbnailSize.Size100x100
-                )
-            end)
+        local function SetPreviewAvatar(userId)
+            userId = tonumber(userId) or (lp and lp.UserId)
 
-            if ok and thumb then
-                NameAvatarImage.Image = thumb
+            if not userId or userId <= 0 then
+                return
             end
-        end)
+
+            task.spawn(function()
+                local thumb
+                local loaded = false
+
+                -- Берём аватарку именно аккаунта, который запустил скрипт
+                for _ = 1, 5 do
+                    local ok, result, isReady = pcall(function()
+                        return Players:GetUserThumbnailAsync(
+                            userId,
+                            Enum.ThumbnailType.HeadShot,
+                            Enum.ThumbnailSize.Size100x100
+                        )
+                    end)
+
+                    if ok and result and result ~= "" then
+                        thumb = result
+                        loaded = isReady ~= false
+                        NameAvatarImage.Image = thumb
+
+                        if loaded then
+                            break
+                        end
+                    end
+
+                    task.wait(0.35)
+                end
+            end)
+        end
+
+        SetPreviewAvatar(lp and lp.UserId)
 
         local NameSettings = {Avatar = false, AvatarSize = 20}
 
