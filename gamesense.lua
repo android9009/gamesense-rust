@@ -35,11 +35,16 @@ getgenv().Loaded = true
         },
         Flags = {},
         ConfigFlags = {},
-        Connections = {},   
+        Connections = {},
         Notifications = {Notifs = {}},
         OpenElement = {}; -- type: table or userdata
         EasingStyle = Enum.EasingStyle.Quint;
         TweeningSpeed = 0.25;
+        -- Реестр всех созданных дропдаунов/мультибоксов.
+        -- Нужен, чтобы при закрытии меню закрывать их все разом:
+        -- Library.OpenElement хранит только последний открытый, а на деле
+        -- их может быть открыто несколько (особенно в превью ESP).
+        AllDropdowns = {};
     }
 
     local themes = {
@@ -1336,6 +1341,22 @@ getgenv().Loaded = true
                     for _, close in Library.ExtraClosers do
                         pcall(close)
                     end
+
+                    -- Принудительно закрываем ВСЕ открытые дропдауны/мультибоксы.
+                    -- CloseElement выше закрывает только один текущий,
+                    -- а на деле их может быть открыто несколько (например
+                    -- в превью ESP, где дропдауны живут в локальном AllCombos
+                    -- и не прокинуты в Library.OpenElement).
+                    if Library.AllDropdowns then
+                        for _, dd in Library.AllDropdowns do
+                            pcall(function()
+                                if dd and dd.Open and dd.SetVisible then
+                                    dd.Open = false
+                                    dd.SetVisible(false)
+                                end
+                            end)
+                        end
+                    end
                 end
             end
             
@@ -2376,12 +2397,16 @@ getgenv().Loaded = true
                 end 
             end)
 
-            Flags[Cfg.Flag] = {} 
+            Flags[Cfg.Flag] = {}
             ConfigFlags[Cfg.Flag] = Cfg.Set
-            
+
             Cfg.RefreshOptions(Cfg.Options)
             Cfg.Set(Cfg.Default)
-                
+
+            -- регистрируем в общем списке, чтобы при закрытии меню
+            -- можно было закрыть все открытые дропдауны разом
+            table.insert(Library.AllDropdowns, Cfg)
+
             return setmetatable(Cfg, Library)
         end
 
