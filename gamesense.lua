@@ -4268,8 +4268,9 @@ do
 
     LeftTop:Dropdown({
         Name = "Local player transparency",
-        Options = {"-", "Always", "On shot", "When scoped"},
-        Default = "-",
+        Options = {"Player overlap", "Weapon"},
+        Multi = true,
+        Default = {},
         Flag = "VisLocalPlayerTransparency"
     })
 
