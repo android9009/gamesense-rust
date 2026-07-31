@@ -4892,7 +4892,25 @@ do
             BackgroundColor3 = rgb(255, 255, 255);
         })
 
-        local DummyOriginal = nil
+        -- Отдельный слой чамсов поверх модели.
+        -- Прозрачность чамсов теперь меняет только этот слой, а не саму модель Элвина.
+        local ChamsOverlay = Library:Create("ImageLabel", {
+            Parent = Target;
+            Name = "\0";
+            AnchorPoint = vec2(0.5, 0.5);
+            Position = Dummy.Position;
+            Size = Dummy.Size;
+            BackgroundTransparency = 1;
+            Image = Dummy.Image;
+            ImageColor3 = rgb(255, 255, 255);
+            ImageTransparency = 1;
+            ScaleType = Enum.ScaleType.Stretch;
+            BorderSizePixel = 0;
+            ZIndex = 7;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local DummyOriginal = Dummy.Image
         local DummySilhouetteContent = nil
 
         local function MakeSilhouette()
@@ -4929,12 +4947,15 @@ do
         end
 
         local function UseSilhouette(flat)
+            -- Силуэт применяется только к overlay-чамсам, базовая модель всегда остаётся обычной.
             if flat then
                 if DummySilhouetteContent then
-                    Dummy.ImageContent = DummySilhouetteContent
+                    ChamsOverlay.ImageContent = DummySilhouetteContent
+                else
+                    ChamsOverlay.Image = DummyOriginal
                 end
             elseif DummyOriginal then
-                Dummy.Image = DummyOriginal
+                ChamsOverlay.Image = DummyOriginal
             end
         end
 
@@ -4950,7 +4971,7 @@ do
             TextColor3 = rgb(140, 140, 140);
             BackgroundTransparency = 1;
             BorderSizePixel = 0;
-            ZIndex = 7;
+            ZIndex = 8;
             BackgroundColor3 = rgb(255, 255, 255);
         })
 
@@ -5349,6 +5370,9 @@ do
                 Dummy.ImageColor3 = rgb(255, 255, 255)
                 Dummy.ImageTransparency = 0
 
+                ChamsOverlay.ImageColor3 = rgb(255, 255, 255)
+                ChamsOverlay.ImageTransparency = 1
+
                 return
             end
 
@@ -5356,8 +5380,12 @@ do
 
             UseSilhouette(ChamsStyle == "Flat")
 
-            Dummy.ImageColor3 = col
-            Dummy.ImageTransparency = alpha
+            -- Базовый Элвин не трогается. Цвет/прозрачность применяются только к чамс-слою.
+            Dummy.ImageColor3 = rgb(255, 255, 255)
+            Dummy.ImageTransparency = 0
+
+            ChamsOverlay.ImageColor3 = col
+            ChamsOverlay.ImageTransparency = alpha
         end
 
         local ChamsButtons = {}
