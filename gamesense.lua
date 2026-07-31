@@ -5,19 +5,22 @@
 ]]
 
 if getgenv().Loaded then 
-    getgenv().Library:Unload()
+    if getgenv().Library and getgenv().Library.Unload then
+        getgenv().Library:Unload()
+    end
 end 
 
 getgenv().Loaded = true 
 
 -- Variables 
     -- Services
-    local InputService, HttpService, GuiService, RunService, Stats, CoreGui, TweenService, SoundService, Workspace, Players = game:GetService("UserInputService"), game:GetService("HttpService"), game:GetService("GuiService"), game:GetService("RunService"), game:GetService("Stats"), game:GetService("CoreGui"), game:GetService("TweenService"), game:GetService("SoundService"), game:GetService("Workspace"), game:GetService("Players")
+    local InputService, HttpService, GuiService, RunService, CoreGui, TweenService, Workspace, Players = game:GetService("UserInputService"), game:GetService("HttpService"), game:GetService("GuiService"), game:GetService("RunService"), game:GetService("CoreGui"), game:GetService("TweenService"), game:GetService("Workspace"), game:GetService("Players")
+    local TextService = game:GetService("TextService")
     local Camera, lp, gui_offset = Workspace.CurrentCamera, Players.LocalPlayer, GuiService:GetGuiInset().Y
     local mouse = lp:GetMouse()
 
     -- Data types
-    local vec2, vec3, dim2, dim, rect, dim_offset = Vector2.new, Vector3.new, UDim2.new, UDim.new, Rect.new, UDim2.fromOffset
+    local vec2, dim2, dim, dim_offset = Vector2.new, UDim2.new, UDim.new, UDim2.fromOffset
 
     -- Extra data types
     local color, rgb, hex, hsv, rgbseq, rgbkey, numseq, numkey = Color3.new, Color3.fromRGB, Color3.fromHex, Color3.fromHSV, ColorSequence.new, ColorSequenceKeypoint.new, NumberSequence.new, NumberSequenceKeypoint.new
@@ -36,7 +39,7 @@ getgenv().Loaded = true
         Notifications = {Notifs = {}},
         OpenElement = {}; -- type: table or userdata
         EasingStyle = Enum.EasingStyle.Quint;
-        TweeningSpeed = 0.25
+        TweeningSpeed = 0.25;
     }
 
     local themes = {
@@ -44,7 +47,7 @@ getgenv().Loaded = true
             inline = rgb(50, 50, 50);
             gradient = rgb(40, 40, 40);
             outline = rgb(20, 20, 20);
-            accent = rgb(50, 119, 186);
+            accent = rgb(142, 181, 39);
             background = rgb(30, 30, 30);
             text_color = rgb(239, 239, 239);
             text_outline = rgb(0, 0, 0);
@@ -66,6 +69,13 @@ getgenv().Loaded = true
             Color = {};
         }
     end 
+
+    -- Keypicker.Set инвертирует hue/saturation - компенсируем при задании дефолта
+    local function PickerColorGlobal(color)
+        local h, sat, v = color:ToHSV()
+
+        return hsv(1 - h, 1 - sat, v)
+    end
 
     local Keys = {
         [Enum.KeyCode.LeftShift] = "LS",
@@ -128,6 +138,12 @@ getgenv().Loaded = true
         makefolder(Library.Directory .. path)
     end
 
+    Library.ExtraClosers = {}
+    Library.OpenHooks = {}
+    Library.UnloadHooks = {}
+    Library.DragLock = false
+    Library.NoDrag = {}
+
     local Flags = Library.Flags 
     local ConfigFlags = Library.ConfigFlags
     local Notifications = Library.Notifications 
@@ -159,45 +175,17 @@ getgenv().Loaded = true
             return getcustomasset(Name .. ".font");
         end
         
-        local Verdana
-        local fontSuccess, fontUrlContent = pcall(function()
-            return game:HttpGet("https://raw.githubusercontent.com/i77lhm/storage/main/fonts/fs-tahoma-8px.ttf")
-        end)
-        
-        if fontSuccess and fontUrlContent and #fontUrlContent > 0 then
-            Verdana = RegisterFont("Verawdawdawdwaddana", 400, "Normal", {
-                Id = "Verdanawdawdwada.ttf",
-                Font = fontUrlContent,
-            })
-            Library.Font = Font.new(Verdana, Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-        else
-            -- Fallback: use default Roblox font if custom font fails to load (Solara HttpGet bug)
-            warn("[gamesense] Custom font HttpGet failed, using default font")
-            Library.Font = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-        end
+        local Verdana = RegisterFont("Verawdawdawdwaddana", 400, "Normal", {
+            Id = "Verdanawdawdwada.ttf",
+            Font = game:HttpGet("https://github.com/i77lhm/storage/raw/refs/heads/main/fonts/fs-tahoma-8px.ttf"),
+        })
+
+        Library.Font = Font.new(Verdana, Enum.FontWeight.Regular, Enum.FontStyle.Normal);
     end
 --
 
 -- Library functions 
     -- Misc functions
-        function Library:GetTransparency(obj)
-            if obj:IsA("Frame") then
-                return {"BackgroundTransparency"}
-            elseif obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                return { "TextTransparency", "BackgroundTransparency" }
-            elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-                return { "BackgroundTransparency", "ImageTransparency" }
-            elseif obj:IsA("ScrollingFrame") then
-                return { "BackgroundTransparency", "ScrollBarImageTransparency" }
-            elseif obj:IsA("TextBox") then
-                return { "TextTransparency", "BackgroundTransparency" }
-            elseif obj:IsA("UIStroke") then 
-                return { "Transparency" }
-            end
-        
-            return nil
-        end
-
         function Library:Tween(Object, Properties, Info)
             local tween = TweenService:Create(Object, Info or TweenInfo.new(Library.TweeningSpeed, Library.EasingStyle, Enum.EasingDirection.InOut, 0, false, 0), Properties)
             tween:Play()
@@ -205,24 +193,59 @@ getgenv().Loaded = true
             return tween
         end
 
-        function Library:Fade(obj, prop, vis, speed)
-            if not (obj and prop) then
+        function Library:LayoutPath()
+            return Library.Directory .. "/layout.json"
+        end
+
+        function Library:SaveLayout()
+            local Window = Library.Window
+
+            if not Window then
                 return
             end
 
-            local OldTransparency = obj[prop]
-            obj[prop] = vis and 1 or OldTransparency
+            local Data = {
+                SizeX = Window.Size.X.Offset;
+                SizeY = Window.Size.Y.Offset;
+                PosX = Window.Position.X.Offset;
+                PosY = Window.Position.Y.Offset;
+            }
 
-            local Tween = Library:Tween(obj, { [prop] = vis and OldTransparency or 1 }, TweenInfo.new(speed or Library.TweeningSpeed, Library.EasingStyle, Enum.EasingDirection.InOut, 0, false, 0))
+            pcall(function()
+                writefile(Library:LayoutPath(), HttpService:JSONEncode(Data))
+            end)
+        end
 
-            Library:Connection(Tween.Completed, function()
-                if not vis then
-                    task.wait()
-                    obj[prop] = OldTransparency
-                end
+        function Library:LoadLayout(Window)
+            local Path = Library:LayoutPath()
+
+            if not isfile(Path) then
+                return
+            end
+
+            local Success, Data = pcall(function()
+                return HttpService:JSONDecode(readfile(Path))
             end)
 
-            return Tween
+            if not Success or type(Data) ~= "table" then
+                return
+            end
+
+            local Viewport = Camera.ViewportSize
+
+            if tonumber(Data.SizeX) and tonumber(Data.SizeY) then
+                Window.Size = dim2(
+                    0, math.clamp(Data.SizeX, 400, Viewport.X),
+                    0, math.clamp(Data.SizeY, 300, Viewport.Y)
+                )
+            end
+
+            if tonumber(Data.PosX) and tonumber(Data.PosY) then
+                Window.Position = dim2(
+                    0, math.clamp(Data.PosX, 0, math.max(0, Viewport.X - Window.Size.X.Offset)),
+                    0, math.clamp(Data.PosY, 0, math.max(0, Viewport.Y - Window.Size.Y.Offset))
+                )
+            end
         end
 
         function Library:Resizify(Parent)
@@ -240,10 +263,14 @@ getgenv().Loaded = true
             local IsResizing = false 
             local Size 
             local InputLost 
-            local ParentSize = Parent.Size  
+            local ParentSize = dim2(0, 400, 0, 300) -- минимальный размер окна
             
             Resizing.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if Library.DragLock then
+                        return
+                    end
+
                     IsResizing = true
                     InputLost = input.Position
                     Size = Parent.Size
@@ -253,6 +280,7 @@ getgenv().Loaded = true
             Resizing.InputEnded:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
                     IsResizing = false
+                    Library:SaveLayout()
                 end
             end)
         
@@ -279,6 +307,11 @@ getgenv().Loaded = true
                     end 
                 end 
             else 
+                -- у ScreenGui и прочих не-GuiObject нет AbsolutePosition
+                if typeof(Object) ~= "Instance" or not Object:IsA("GuiObject") then
+                    return false
+                end
+
                 local y_cond = Object.AbsolutePosition.Y <= mouse.Y and mouse.Y <= Object.AbsolutePosition.Y + Object.AbsoluteSize.Y
                 local x_cond = Object.AbsolutePosition.X <= mouse.X and mouse.X <= Object.AbsolutePosition.X + Object.AbsoluteSize.X
     
@@ -293,6 +326,20 @@ getgenv().Loaded = true
 
             Parent.InputBegan:Connect(function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if Library.DragLock then
+                        return
+                    end
+
+                    for _, zone in Library.NoDrag do
+                        local ok, blocked = pcall(function()
+                            return zone.Visible and Library:Hovering(zone)
+                        end)
+
+                        if ok and blocked then
+                            return
+                        end
+                    end
+
                     Dragging = true
                     InitialPosition = Input.Position
                     InitialSize = Parent.Position
@@ -302,6 +349,7 @@ getgenv().Loaded = true
             Parent.InputEnded:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
                     Dragging = false
+                    Library:SaveLayout()
                 end
             end)
 
@@ -330,31 +378,11 @@ getgenv().Loaded = true
             end)
         end 
 
-        function Library:Convert(str)
-            local Values = {}
-
-            for Value in string.gmatch(str, "[^,]+") do
-                table.insert(Values, tonumber(Value))
-            end
-
-            if #Values == 4 then              
-                return unpack(Values)
-            else
-                return
-            end
-        end
-        
-        function Library:Lerp(start, finish, t)
-            t = t or 1 / 8
-
-            return start * (1 - t) + finish * t
-        end
-
         function Library:ConvertEnum(enum)
             local EnumParts = {}
             
             for part in string.gmatch(enum, "[%w_]+") do
-                insert(EnumParts, part)
+                table.insert(EnumParts, part)
             end
         
             local EnumTable = Enum
@@ -366,44 +394,6 @@ getgenv().Loaded = true
             end
             
             return EnumTable
-        end
-
-        function Library:ConvertHex(color, alpha)
-            local r = math.floor(color.R * 255)
-            local g = math.floor(color.G * 255)
-            local b = math.floor(color.B * 255)
-            local a = alpha and math.floor(alpha * 255) or 255
-            return string.format("#%02X%02X%02X%02X", r, g, b, a)
-        end
-
-        function Library:ConvertFromHex(color)
-            color = color:gsub("#", "")
-            local r = tonumber(color:sub(1, 2), 16) / 255
-            local g = tonumber(color:sub(3, 4), 16) / 255
-            local b = tonumber(color:sub(5, 6), 16) / 255
-            local a = tonumber(color:sub(7, 8), 16) and tonumber(color:sub(7, 8), 16) / 255 or 1
-            return Color3.new(r, g, b), a
-        end
-
-        local ConfigHolder;
-        function Library:UpdateConfigList() 
-            if not ConfigHolder then 
-                print("no exist :(")
-                return 
-            end
-            
-            local List = {}
-            
-            for _,file in listfiles(Library.Directory .. "/configs") do
-                local Name = file:gsub(Library.Directory .. "/configs\\", ""):gsub(".cfg", ""):gsub(Library.Directory .. "\\configs\\", "")
-                List[#List + 1] = Name
-            end
-
-            for _,v in List do 
-                print(_,v)
-            end 
-
-            ConfigHolder.RefreshOptions(List)
         end
 
         function Library:Keypicker(properties) 
@@ -525,7 +515,7 @@ getgenv().Loaded = true
                         Size = dim2(0, 4, 0, 4);
                         BorderSizePixel = 0;
                         ZIndex = 10000;
-                        BackgroundColor3 = rgb(0, 0, 0)
+                        BackgroundColor3 = rgb(255, 255, 255)
                     });
                     
                     Items.InlinePicker = Library:Create( "Frame" , {
@@ -576,14 +566,14 @@ getgenv().Loaded = true
                     });
                     
                     Items.Alpha = Library:Create( "TextButton" , {
-                        Active = false;
+                        Active = true;
                         BorderColor3 = rgb(0, 0, 0);
                         Text = "";
                         AutoButtonColor = false;
                         Parent = Items.Inline;
                         Name = "\0";
                         Position = dim2(0, 0, 1, -12);
-                        Size = dim2(1, -20, 0, 12);
+                        Size = dim2(1, -18, 0, 12);
                         Selectable = false;
                         BorderSizePixel = 0;
                         BackgroundColor3 = rgb(0, 0, 0)
@@ -598,15 +588,24 @@ getgenv().Loaded = true
                         BorderSizePixel = 0;
                         BackgroundColor3 = rgb(0, 221, 255)
                     });
+
+                    -- Градиент прозрачности: слева непрозрачно, справа пусто
+                    Items.AlphaGradient = Library:Create( "UIGradient" , {
+                        Parent = Items.AlphaInline;
+                        Transparency = numseq{numkey(0, 0), numkey(1, 1)};
+                        Color = rgbseq{rgbkey(0, rgb(255, 255, 255)), rgbkey(1, rgb(255, 255, 255))}
+                    });
                     
                     Items.AlphaPicker = Library:Create( "Frame" , {
                         BorderMode = Enum.BorderMode.Inset;
                         BorderColor3 = rgb(12, 12, 12);
                         Parent = Items.AlphaInline;
-                        BackgroundTransparency = 0.25;
-                        Position = dim2(1, 1, 0, 1);
+                        BackgroundTransparency = 0;
+                        AnchorPoint = vec2(0.5, 0);
+                        Position = dim2(0, 0, 0, 0);
                         Name = "\0";
-                        Size = dim2(0, 2, 1, -2);
+                        Size = dim2(0, 2, 1, 0);
+                        ZIndex = 3;
                         BorderSizePixel = 0;
                         BackgroundColor3 = rgb(255, 255, 255)
                     });
@@ -665,10 +664,33 @@ getgenv().Loaded = true
                 -- 
             end;
             
+            -- Поднимаем окно пикера над секциями (ZIndexBehavior.Global)
+            do
+                Items.Colorpicker.ZIndex += 20000
+
+                for _, descendant in Items.Colorpicker:GetDescendants() do
+                    if descendant:IsA("GuiObject") then
+                        descendant.ZIndex += 20000
+                    end
+                end
+            end
+
             function Cfg.SetVisible(bool)
                 Items.Colorpicker.Visible = bool
                 Items.Colorpicker.Parent = bool and Library.Items or Library.Other
-                Items.Colorpicker.Position = dim2(0, Items.ColorpickerObject.AbsolutePosition.X, 0, Items.ColorpickerObject.AbsolutePosition.Y + 74)
+
+                local Origin = Items.ColorpickerObject.AbsolutePosition
+                local Viewport = Camera.ViewportSize
+                local Size = Items.Colorpicker.AbsoluteSize
+
+                local X = math.clamp(Origin.X, 0, math.max(0, Viewport.X - Size.X))
+                local Y = Origin.Y + 74
+
+                if Y + Size.Y > Viewport.Y then
+                    Y = math.max(0, Origin.Y - Size.Y + 65)
+                end
+
+                Items.Colorpicker.Position = dim2(0, X, 0, Y)
             end
             
             function Cfg.Set(color, alpha)
@@ -680,19 +702,20 @@ getgenv().Loaded = true
                     h, s, v = color:ToHSV()
                 end
                 
-                if alpha then 
+                if alpha ~= nil then 
                     a = alpha
                 end 
                 
                 local Color = hsv(1 - h, 1 - s, v)
 
                 Items.SatValPicker.Position = dim2(s, 0, 1 - v, 0)
-                Items.AlphaPicker.Position = dim2(a, -1, 0, 1)
+                Items.AlphaPicker.Position = dim2(a, 0, 0, 0)
                 Items.HuePicker.Position = dim2(0, 1, h, -1)
                 
                 Items.Inner.BackgroundColor3 = hsv(1 - h, 1, 1)
-                Items.AlphaInline.BackgroundColor3 = hsv(1 - h, 1, 1)
+                Items.AlphaInline.BackgroundColor3 = Color
                 Items.InnerObject.BackgroundColor3 = Color
+                Items.InnerObject.BackgroundTransparency = a
 
                 Flags[Cfg.Flag] = {
                     Color = Color;
@@ -721,6 +744,14 @@ getgenv().Loaded = true
             Items.ColorpickerObject.MouseButton1Click:Connect(function()
                 Cfg.Open = not Cfg.Open
                 Cfg.SetVisible(Cfg.Open)            
+            end)
+
+            -- Закрывать пикер вместе с меню
+            table.insert(Library.ExtraClosers, function()
+                if Cfg.Open then
+                    Cfg.Open = false
+                    Cfg.SetVisible(false)
+                end
             end)
 
             InputService.InputChanged:Connect(function(input)
@@ -797,7 +828,9 @@ getgenv().Loaded = true
 
                 if Function then 
                     if type(Value) == "table" and Value["Transparency"] and Value["Color"] then
-                        Function(hex(Value["Color"]), Value["Transparency"])
+                        -- Colorpicker.Set инвертирует hue/saturation, поэтому
+                        -- компенсируем инверсию, иначе цвета "уплывают" при каждой загрузке
+                        Function(PickerColorGlobal(hex(Value["Color"])), Value["Transparency"])
                     elseif type(Value) == "table" and Value["Active"] then 
                         Function(Value)
                     else
@@ -888,6 +921,10 @@ getgenv().Loaded = true
         end
 
         function Library:Unload() 
+            for _, hook in Library.UnloadHooks or {} do
+                pcall(hook)
+            end
+
             if Library.Items then 
                 Library.Items:Destroy()
             end
@@ -921,6 +958,7 @@ getgenv().Loaded = true
                 Enabled = true;
                 ZIndexBehavior = Enum.ZIndexBehavior.Global;
                 IgnoreGuiInset = true;
+                DisplayOrder = 500;
             });
             
             Library.Other = Library:Create( "ScreenGui" , {
@@ -1123,45 +1161,34 @@ getgenv().Loaded = true
             end
 
             do -- Other
+                Library.Window = Items.Window
+
+                Library:LoadLayout(Items.Window)
                 Library:Draggify(Items.Window)
                 Library:Resizify(Items.Window)
             end
 
             function Cfg.ToggleMenu(bool) 
-                if Cfg.Tweening then 
-                    return 
-                end 
+                Items.Window.Visible = bool
+                menuOpen = bool
+                
+                if bool then
+                    InputService.MouseBehavior = Enum.MouseBehavior.Default
+                    InputService.MouseIconEnabled = true
 
-                Cfg.Tweening = true 
-
-                if bool then 
-                    Items.Window.Visible = true
-                end
-
-                local Children = Items.Window:GetDescendants()
-                table.insert(Children, Items.Window)
-
-                local Tween;
-                for _,obj in Children do
-                    local Index = Library:GetTransparency(obj)
-
-                    if not Index then 
-                        continue 
+                    -- восстанавливаем то, что пряталось вместе с меню
+                    for _, open in Library.OpenHooks do
+                        pcall(open)
                     end
+                else
+                    -- Закрываем колорпикеры / дропдауны / кейпикеры
+                    Library:CloseElement()
 
-                    if type(Index) == "table" then
-                        for _,prop in Index do
-                            Tween = Library:Fade(obj, prop, bool)
-                        end
-                    else
-                        Tween = Library:Fade(obj, Index, bool)
+                    -- Закрываем кастомные меню биндов (Hold/Toggle/Always)
+                    for _, close in Library.ExtraClosers do
+                        pcall(close)
                     end
                 end
-
-                Library:Connection(Tween.Completed, function()
-                    Cfg.Tweening = false
-                    Items.Window.Visible = bool
-                end)
             end
             
             return setmetatable(Cfg, Library)
@@ -1296,6 +1323,7 @@ getgenv().Loaded = true
                     Items.Page = Library:Create( "Frame" , {
                         Parent = self.Items.PageHolder;
                         BackgroundTransparency = 1;
+                        Visible = false;
                         Name = "\0";
                         BorderColor3 = rgb(0, 0, 0);
                         Size = dim2(1, 0, 1, 0);
@@ -1376,7 +1404,6 @@ getgenv().Loaded = true
             end
 
             Items.ButtonHolder.MouseButton1Down:Connect(function()
-                print("clicked")
                 Cfg.OpenTab()
             end)
             
@@ -1575,6 +1602,16 @@ getgenv().Loaded = true
                 end)
             end 
 
+            -- регистрируем секцию, чтобы Lua API мог найти её по имени
+            Library.Registry = Library.Registry or {}
+
+            local tabName = self.RegistryName or "unknown"
+
+            Library.Registry[tabName] = Library.Registry[tabName] or {}
+            Library.Registry[tabName][string.lower(Cfg.Name)] = Cfg
+
+            Cfg.Tab = self
+
             return setmetatable(Cfg, Library)
         end  
 
@@ -1716,7 +1753,8 @@ getgenv().Loaded = true
                 Min = properties.Min or 0,
                 Max = properties.Max or 100,
                 Intervals = properties.Decimal or 1,
-                Value = properties.Default or 10, 
+                Value = properties.Default or 10,
+                Formatter = properties.Formatter,
 
                 -- Other
                 Dragging = false,
@@ -1733,6 +1771,7 @@ getgenv().Loaded = true
                     Name = "\0";
                     BackgroundTransparency = 1;
                     Size = dim2(1, 0, 0, 8);
+                    AutomaticSize = Enum.AutomaticSize.Y;
                     Selectable = false;
                     BorderSizePixel = 0;
                     BackgroundColor3 = rgb(255, 255, 255)
@@ -1863,7 +1902,7 @@ getgenv().Loaded = true
                 Cfg.Value = math.clamp(Library:Round(value, Cfg.Intervals), Cfg.Min, Cfg.Max)
 
                 Items.Accent.Size = dim2((Cfg.Value - Cfg.Min) / (Cfg.Max - Cfg.Min), Cfg.Value == Cfg.Min and 0 or -2, 1, -2)
-                Items.Value.Text = tostring(Cfg.Value) .. Cfg.Suffix
+                Items.Value.Text = Cfg.Formatter and Cfg.Formatter(Cfg.Value) or (tostring(Cfg.Value) .. Cfg.Suffix)
 
                 Flags[Cfg.Flag] = Cfg.Value
                 Cfg.Callback(Flags[Cfg.Flag])
@@ -1986,6 +2025,7 @@ getgenv().Loaded = true
                         Position = dim2(0, 1, 0, 1);
                         BorderColor3 = rgb(0, 0, 0);
                         Size = dim2(1, -2, 1, -2);
+                        ClipsDescendants = true;
                         BorderSizePixel = 0;
                         BackgroundColor3 = rgb(255, 255, 255)
                     });
@@ -2003,10 +2043,11 @@ getgenv().Loaded = true
                         Text = "-";
                         Parent = Items.Accent;
                         Name = "\0";
-                        AutomaticSize = Enum.AutomaticSize.XY;
-                        Size = dim2(1, 0, 1, 0);
+                        Size = dim2(1, -12, 1, 0);
                         BackgroundTransparency = 1;
                         TextXAlignment = Enum.TextXAlignment.Left;
+                        TextTruncate = Enum.TextTruncate.AtEnd;
+                        ClipsDescendants = true;
                         BorderSizePixel = 0;
                         ZIndex = 2;
                         TextSize = 13;
@@ -2135,7 +2176,7 @@ getgenv().Loaded = true
                     end
                 end
 
-                Items.InnerText.Text = if IsTable then table.concat(Selected, ", ") else Selected[1] or ""
+                Items.InnerText.Text = if IsTable then (#Selected > 0 and table.concat(Selected, ", ") or "None") else Selected[1] or ""
                 Flags[Cfg.Flag] = if IsTable then Selected else Selected[1]
                 
                 Cfg.Callback(Flags[Cfg.Flag]) 
@@ -2375,26 +2416,10 @@ getgenv().Loaded = true
                 });
                 
                 -- if Cfg.Name then 
-                --     Items.Title = Library:Create( "TextLabel" , {
-                --         FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                --         TextColor3 = rgb(205, 205, 205);
-                --         BorderColor3 = rgb(0, 0, 0);
-                --         Text = Cfg.Name;
-                --         Parent = Items.List;
-                --         Name = "\0";
-                --         AutomaticSize = Enum.AutomaticSize.XY;
-                --         BackgroundTransparency = 1;
-                --         Position = dim2(0, 20, 0, -2);
-                --         BorderSizePixel = 0;
-                --         ZIndex = 2;
-                --         TextSize = 13;
-                --         BackgroundColor3 = rgb(255, 255, 255)
                 --     });
 
-                --     Items.Textbox.Position = dim2(0, 20, 0, 13)
                 -- end 
             end 
-
 
             
             function Cfg.Set(text) 
@@ -2454,210 +2479,215 @@ getgenv().Loaded = true
             }
 
             local Items = Cfg.Items; do 
-                Items.Keybind = Library:Create("TextButton", {
-                    Parent = self.Items.Components;
-                    FontFace = Font.new("rbxassetid://12187371840", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                    Name = "\0";
-                    TextColor3 = rgb(111, 111, 111);
-                    BorderColor3 = rgb(0, 0, 0);
-                    Text = "[NONE]";
-                    AutomaticSize = Enum.AutomaticSize.XY;
-                    Selectable = false;
-                    AnchorPoint = vec2(0.5, 0);
-                    BorderSizePixel = 0;
-                    BackgroundTransparency = 1;
-                    Position = dim2(1, 0, 0.10000000149011612, 0);
-                    Active = true;
-                    ZIndex = 2;
-                    TextSize = 9;
-                    BackgroundColor3 = rgb(255, 255, 255)
-                });
+                -- Component
+                    Items.Keybind = Library:Create( "TextButton" , {
+                        Parent = self.Items.Components;
+                        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                        Name = "\0";
+                        TextColor3 = rgb(170, 170, 170);
+                        BorderColor3 = rgb(0, 0, 0);
+                        Text = "[T]";
+                        AutomaticSize = Enum.AutomaticSize.XY;
+                        Selectable = false;
+                        AnchorPoint = vec2(0.5, 0);
+                        BorderSizePixel = 0;
+                        BackgroundTransparency = 1;
+                        Position = dim2(1, 0, 0.10000000149011612, 0);
+                        Active = true;
+                        AutoButtonColor = false;
+                        ZIndex = 2;
+                        TextSize = 11;
+                        BackgroundColor3 = rgb(255, 255, 255)
+                    });
+                -- 
                 
-                Library:Create("UIStroke", {
-                    Color = rgb(20, 20, 20);
-                    LineJoinMode = Enum.LineJoinMode.Miter;
-                    Parent = Items.Keybind
-                });
+                -- Mode Holder
+                    Items.KeybindOutline = Library:Create( "Frame" , {
+                        Parent = Library.Items;
+                        Visible = false;
+                        Size = dim2(0, 100, 0, 22);
+                        Name = "\0";
+                        Position = dim2(0.8264937996864319, 0, 0.33450964093208313, 0);
+                        BorderColor3 = rgb(0, 0, 0);
+                        BorderSizePixel = 0;
+                        AutomaticSize = Enum.AutomaticSize.Y;
+                        BackgroundColor3 = rgb(12, 12, 12)
+                    });
 
-                Items.KeybindOutline = Library:Create("Frame", {
-                    Parent = Library.Items;
-                    Visible = false;
-                    Size = dim2(0, 100, 0, 73);
-                    Name = "\0";
-                    Position = dim2(0, 0, 0, 0);
-                    BorderColor3 = rgb(0, 0, 0);
-                    BorderSizePixel = 0;
-                    AutomaticSize = Enum.AutomaticSize.Y;
-                    BackgroundColor3 = rgb(12, 12, 12)
-                });
+                    Items.Inline = Library:Create( "Frame" , {
+                        Parent = Items.KeybindOutline;
+                        Name = "\0";
+                        Position = dim2(0, 1, 0, 1);
+                        BorderColor3 = rgb(0, 0, 0);
+                        Size = dim2(1, -2, 1, -2);
+                        BorderSizePixel = 0;
+                        BackgroundColor3 = rgb(35, 35, 35)
+                    });
+                    
+                    Library:Create( "UIListLayout" , {
+                        Parent = Items.Inline;
+                        SortOrder = Enum.SortOrder.LayoutOrder
+                    });
+                    
+                    Items.Toggle = Library:Create( "TextButton" , {
+                        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                        TextColor3 = rgb(205, 205, 205);
+                        BorderColor3 = rgb(0, 0, 0);
+                        Text = "Toggle";
+                        Parent = Items.Inline;
+                        ClipsDescendants = true;
+                        AutomaticSize = Enum.AutomaticSize.Y;
+                        Size = dim2(1, 0, 0, 0);
+                        Name = "\0";
+                        TextXAlignment = Enum.TextXAlignment.Left;
+                        BorderSizePixel = 0;
+                        ZIndex = 2;
+                        TextSize = 13;
+                        BackgroundColor3 = rgb(26, 26, 26)
+                    });
+                    
+                    Library:Create( "UIPadding" , {
+                        PaddingTop = dim(0, 5);
+                        PaddingBottom = dim(0, 5);
+                        Parent = Items.Toggle;
+                        PaddingRight = dim(0, 5);
+                        PaddingLeft = dim(0, 5)
+                    });
+                    
+                    Items.Hold = Library:Create( "TextButton" , {
+                        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                        TextColor3 = rgb(205, 205, 205);
+                        BorderColor3 = rgb(0, 0, 0);
+                        Text = "Hold";
+                        Parent = Items.Inline;
+                        ClipsDescendants = true;
+                        AutomaticSize = Enum.AutomaticSize.Y;
+                        Size = dim2(1, 0, 0, 0);
+                        Name = "\0";
+                        TextXAlignment = Enum.TextXAlignment.Left;
+                        BorderSizePixel = 0;
+                        ZIndex = 2;
+                        TextSize = 13;
+                        BackgroundColor3 = rgb(26, 26, 26)
+                    });
+                    
+                    Library:Create( "UIPadding" , {
+                        PaddingTop = dim(0, 5);
+                        PaddingBottom = dim(0, 5);
+                        Parent = Items.Hold;
+                        PaddingRight = dim(0, 5);
+                        PaddingLeft = dim(0, 5)
+                    });
+                    
+                    Items.Always = Library:Create( "TextButton" , {
+                        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+                        Parent = Items.Inline;
+                        TextColor3 = rgb(142, 181, 39);
+                        BorderColor3 = rgb(0, 0, 0);
+                        Text = "Always";
+                        Name = "\0";
+                        AutomaticSize = Enum.AutomaticSize.Y;
+                        Size = dim2(1, 0, 0, 0);
+                        ClipsDescendants = true;
+                        BackgroundTransparency = 1;
+                        TextXAlignment = Enum.TextXAlignment.Left;
+                        BorderSizePixel = 0;
+                        ZIndex = 2;
+                        TextSize = 13;
+                        BackgroundColor3 = rgb(255, 255, 255)
+                    });
+                    
+                    Library:Create( "UIPadding" , {
+                        PaddingTop = dim(0, 5);
+                        PaddingBottom = dim(0, 5);
+                        Parent = Items.Always;
+                        PaddingRight = dim(0, 5);
+                        PaddingLeft = dim(0, 5)
+                    });
 
-                Items.Inline = Library:Create("Frame", {
-                    Parent = Items.KeybindOutline;
-                    Name = "\0";
-                    Position = dim2(0, 1, 0, 1);
-                    BorderColor3 = rgb(0, 0, 0);
-                    Size = dim2(1, -2, 1, -2);
-                    BorderSizePixel = 0;
-                    BackgroundColor3 = rgb(35, 35, 35)
-                });
-                
-                Library:Create("UIListLayout", {
-                    Parent = Items.Inline;
-                    SortOrder = Enum.SortOrder.LayoutOrder
-                });
-                
-                Items.Toggle = Library:Create("TextButton", {
-                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                    TextColor3 = rgb(205, 205, 205);
-                    BorderColor3 = rgb(0, 0, 0);
-                    Text = "Toggle";
-                    Parent = Items.Inline;
-                    ClipsDescendants = true;
-                    AutomaticSize = Enum.AutomaticSize.Y;
-                    Size = dim2(1, 0, 0, 0);
-                    Name = "\0";
-                    TextXAlignment = Enum.TextXAlignment.Left;
-                    BorderSizePixel = 0;
-                    ZIndex = 2;
-                    TextSize = 13;
-                    BackgroundColor3 = rgb(26, 26, 26)
-                });
-                
-                Library:Create("UIPadding", {
-                    PaddingTop = dim(0, 5);
-                    PaddingBottom = dim(0, 5);
-                    Parent = Items.Toggle;
-                    PaddingRight = dim(0, 5);
-                    PaddingLeft = dim(0, 5)
-                });
-                
-                Items.Hold = Library:Create("TextButton", {
-                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                    TextColor3 = rgb(205, 205, 205);
-                    BorderColor3 = rgb(0, 0, 0);
-                    Text = "Hold";
-                    Parent = Items.Inline;
-                    ClipsDescendants = true;
-                    AutomaticSize = Enum.AutomaticSize.Y;
-                    Size = dim2(1, 0, 0, 0);
-                    Name = "\0";
-                    TextXAlignment = Enum.TextXAlignment.Left;
-                    BorderSizePixel = 0;
-                    ZIndex = 2;
-                    TextSize = 13;
-                    BackgroundColor3 = rgb(26, 26, 26)
-                });
-                
-                Library:Create("UIPadding", {
-                    PaddingTop = dim(0, 5);
-                    PaddingBottom = dim(0, 5);
-                    Parent = Items.Hold;
-                    PaddingRight = dim(0, 5);
-                    PaddingLeft = dim(0, 5)
-                });
-                
-                Items.Always = Library:Create("TextButton", {
-                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
-                    Parent = Items.Inline;
-                    TextColor3 = rgb(205, 205, 205);
-                    BorderColor3 = rgb(0, 0, 0);
-                    Text = "Always";
-                    Name = "\0";
-                    AutomaticSize = Enum.AutomaticSize.Y;
-                    Size = dim2(1, 0, 0, 0);
-                    ClipsDescendants = true;
-                    BackgroundTransparency = 0;
-                    TextXAlignment = Enum.TextXAlignment.Left;
-                    BorderSizePixel = 0;
-                    ZIndex = 2;
-                    TextSize = 13;
-                    BackgroundColor3 = rgb(26, 26, 26)
-                });
-                
-                Library:Create("UIPadding", {
-                    PaddingTop = dim(0, 5);
-                    PaddingBottom = dim(0, 5);
-                    Parent = Items.Always;
-                    PaddingRight = dim(0, 5);
-                    PaddingLeft = dim(0, 5)
-                });
+                    for _,mode in {"Always", "Toggle", "Hold"} do 
+                        Items[mode].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                        Items[mode].BackgroundTransparency = 0;
+                        Items[mode].TextColor3 = rgb(205, 205, 205)
 
-                for _,mode in {"Always", "Toggle", "Hold"} do 
-                    Items[mode].MouseButton1Click:Connect(function()
-                        for _,extra in {"Always", "Toggle", "Hold"} do
-                            Items[extra].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                            Items[extra].BackgroundTransparency = 0;
-                            Items[extra].TextColor3 = rgb(205, 205, 205)
-                        end 
-                        Items[mode].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-                        Items[mode].BackgroundTransparency = 1;
-                        Items[mode].TextColor3 = themes.preset.accent
-                        Cfg.Set(mode)
-                    end)
-                end 
+                        Items[mode].MouseButton1Click:Connect(function()
+                            for _,extra in {"Always", "Toggle", "Hold"} do
+                                Items[extra].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                                Items[extra].BackgroundTransparency = 0;
+                                Items[extra].TextColor3 = rgb(205, 205, 205)
+                            end 
+
+                            Items[mode].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+                            Items[mode].BackgroundTransparency = 1;
+                            Items[mode].TextColor3 = themes.preset.accent
+
+                            Cfg.Set(mode)
+                        end)
+                    end 
+                --
             end 
 
             function Cfg.SetMode(mode) 
                 Cfg.Mode = mode 
+
                 if mode == "Always" then
                     Cfg.Set(true)
                 elseif mode == "Hold" then
                     Cfg.Set(false)
                 end
+
                 Flags[Cfg.Flag].Mode = mode
             end
 
             function Cfg.Set(input)
                 if type(input) == "boolean" then 
                     Cfg.Active = input
+
                     if Cfg.Mode == "Always" then 
                         Cfg.Active = true
                     end
                 elseif tostring(input):find("Enum") then 
                     input = input.Name == "Escape" and "NONE" or input
+                    
                     Cfg.Key = input or "NONE"	
                 elseif table.find({"Toggle", "Hold", "Always"}, input) then 
                     if input == "Always" then 
                         Cfg.Active = true 
                     end 
+
                     Cfg.Mode = input
                     Cfg.SetMode(Cfg.Mode) 
                 elseif type(input) == "table" then
-                    if input.Key then
-                        local k = input.Key
-                        if type(k) == "string" and k ~= "NONE" then
-                            local ok, res = pcall(function() return Library:ConvertEnum(input.key) end)
-                            if ok then k = res end
-                        end
-                        if k == Enum.KeyCode.Escape then k = "NONE" end
-                        Cfg.Key = k or "NONE"
-                    end
+                    input.Key = type(input.Key) == "string" and input.Key ~= "NONE" and Library:ConvertEnum(input.key) or input.Key
+                    input.Key = input.Key == Enum.KeyCode.Escape and "NONE" or input.Key
+
+                    Cfg.Key = input.Key or "NONE"
                     Cfg.Mode = input.Mode or "Toggle"
-                    if input.Active ~= nil then
+
+                    if input.Active then
                         Cfg.Active = input.Active
                     end
+
                     Cfg.SetMode(Cfg.Mode) 
                 end 
 
                 Cfg.Callback(Cfg.Active)
 
-                local keyName = Cfg.Key
-                local text = "NONE"
-                if typeof(keyName) == "EnumItem" then
-                    if Keys[keyName] then
-                        text = Keys[keyName]
-                    else
-                        text = tostring(keyName):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
-                    end
-                elseif type(keyName) == "string" then
-                    text = keyName
-                elseif keyName == "NONE" or keyName == nil then
-                    text = "NONE"
-                else
-                    text = tostring(keyName)
-                end
+                local text = (tostring(Cfg.Key) ~= "Enums" and (Keys[Cfg.Key] or tostring(Cfg.Key):gsub("Enum.", "")) or nil)
+                local __text = text and tostring(text):gsub("KeyCode.", ""):gsub("UserInputType.", "")
 
-                Items.Keybind.Text = string.format("[%s]", text)
+                Items.Key.Text = __text
+
+                if Items.Keybinds then
+                    Items.Keybinds.TextTransparency = 1
+                    Library:Tween(Items.Keybinds, {TextTransparency = 0})
+
+                    Items.KeybindsStroke.Transparency = 1
+                    Library:Tween(Items.KeybindsStroke, {Transparency = 0})
+
+                    Items.Keybinds.Visible = Cfg.Active
+                    Items.Keybinds.Text = string.format("[%s]: %s", __text, Cfg.Name or Cfg.Flag or "Key")
+                end 
 
                 Flags[Cfg.Flag] = {
                     mode = Cfg.Mode,
@@ -2668,41 +2698,41 @@ getgenv().Loaded = true
             
             function Cfg.SetVisible(bool)
                 Items.KeybindOutline.Visible = bool 
-                Items.KeybindOutline.Parent = bool and Library.Items or Library.Other
-                if bool then
-                    Items.KeybindOutline.Position = dim2(0, Items.Keybind.AbsolutePosition.X - 50, 0, Items.Keybind.AbsolutePosition.Y + 20)
-                end
+                Items.KeybindOutline.Position = dim2(0, Items.KeybindOutline.AbsolutePosition.X + 2, 0, Items.KeybindOutline.AbsolutePosition.Y + 74)
             end
 
-            Items.Keybind.MouseButton1Click:Connect(function()
+            Items.Keybind.MouseButton1Down:Connect(function()
                 task.wait()
-                Items.Keybind.Text = "[...]"	
+                Items.Key.Text = "..."	
+
                 Cfg.Binding = Library:Connection(InputService.InputBegan, function(keycode, game_event)  
-                    if not game_event then
-                        local k = keycode.KeyCode ~= Enum.KeyCode.Unknown and keycode.KeyCode or keycode.UserInputType
-                        if k and k.Name ~= "Unknown" then
-                            Cfg.Set(k)
-                            Cfg.Binding:Disconnect() 
-                            Cfg.Binding = nil
-                        end
-                    end
+                    Cfg.Set(keycode.KeyCode ~= Enum.KeyCode.Unknown and keycode.KeyCode or keycode.UserInputType)
+                    
+                    Cfg.Binding:Disconnect() 
+                    Cfg.Binding = nil
                 end)
             end)
 
-            Items.Keybind.MouseButton2Click:Connect(function()
+            Items.Keybind.MouseButton2Down:Connect(function()
                 Cfg.Open = not Cfg.Open 
+
                 Cfg.SetVisible(Cfg.Open)
             end)
 
             Library:Connection(InputService.InputBegan, function(input, game_event) 
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    if not Library:Hovering({Items.Keybind, Items.KeybindOutline}) then
+                    if not (Library:Hovering(Items.Dropdown.Items.DropdownElements) or Library:Hovering(Items.ModeHolder)) then 
+                        Items.Dropdown.SetVisible(false)
+                        Items.Dropdown.Visible = false
+
                         Cfg.SetVisible(false)
                         Cfg.Open = false;
                     end 
                 end 
+                
                 if not game_event then
                     local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
+
                     if selected_key == Cfg.Key then 
                         if Cfg.Mode == "Toggle" then 
                             Cfg.Active = not Cfg.Active
@@ -2718,7 +2748,9 @@ getgenv().Loaded = true
                 if game_event then 
                     return 
                 end 
+
                 local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
+    
                 if selected_key == Cfg.Key then
                     if Cfg.Mode == "Hold" then 
                         Cfg.Set(false)
@@ -2728,10 +2760,11 @@ getgenv().Loaded = true
             
             Cfg.Set({Mode = Cfg.Mode, Active = Cfg.Active, Key = Cfg.Key})           
             ConfigFlags[Cfg.Flag] = Cfg.Set
+            Items.Dropdown.Set(Cfg.Mode)
 
             return setmetatable(Cfg, Library)
         end
-
+        
         function Library:Button(properties) 
             local Cfg = {
                 Name = properties.Name or "TextBox",
@@ -2743,7 +2776,7 @@ getgenv().Loaded = true
             
             local Items = Cfg.Items; do 
                 Items.Button = Library:Create( "TextButton" , {
-                    FontFace = Library.Font;
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
                     TextColor3 = rgb(0, 0, 0);
                     BorderColor3 = rgb(0, 0, 0);
                     Text = "";
@@ -2793,7 +2826,7 @@ getgenv().Loaded = true
                 }); Library:SaveGradient(gradient, "Selected");
                 
                 Items.Name = Library:Create( "TextLabel" , {
-                    FontFace = Library.Font;
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
                     TextColor3 = themes.preset.text_color;
                     BorderColor3 = rgb(0, 0, 0);
                     Text = Cfg.Name;
@@ -2804,7 +2837,7 @@ getgenv().Loaded = true
                     Position = dim2(0, 3, 0, 0);
                     BorderSizePixel = 0;
                     AutomaticSize = Enum.AutomaticSize.XY;
-                    TextSize = 12;
+                    TextSize = 13;
                     BackgroundColor3 = rgb(255, 255, 255)
                 });
                 
@@ -2824,116 +2857,9 @@ getgenv().Loaded = true
             return setmetatable(Cfg, Library)
         end
 
-        function Library:Configs(window) 
-            local Text;
-            local ConfigText; 
-
-            local Tab = window:Tab({Name = "Settings"})
-
-            local Section = Tab:Section({Name = "Main", Side = "Left"})
-            ConfigHolder = Section:Dropdown({Name = "Configs", Options = {"Report", "This", "Error", "To", "Finobe"}, Callback = function(option) if Text then Text.Set(option) end end, Flag = "config_Name_list"}); Library:UpdateConfigList()
-            window.Tweening = true
-            Text = Section:Textbox({Name = "Config Name:", Flag = "config_Name_text", Callback = function(text)
-                ConfigText = text
-            end})
-            window.Tweening = false
-            Section:Button({Name = "Save", Callback = function() 
-                writefile(Library.Directory .. "/configs/" .. ConfigText .. ".cfg", Library:GetConfig())
-                Library:UpdateConfigList()
-                Notifications:Create({Name = "Saved Config (" ..  Library.Directory .. "/configs/" .. ConfigText .. ".cfg" .. ")"}) 
-            end})
-
-            Section:Button({Name = "Load", Callback = function() 
-                Library:LoadConfig(readfile(Library.Directory .. "/configs/" .. ConfigText .. ".cfg"))  
-                Library:UpdateConfigList() 
-                Notifications:Create({Name = "Loaded Config (" ..  Library.Directory .. "/configs/" .. ConfigText .. ".cfg" .. ")"}) 
-            end})
-
-            Section:Button({Name = "Delete", Callback = function() 
-                delfile(Library.Directory .. "/configs/" .. ConfigText .. ".cfg")  
-                Library:UpdateConfigList() 
-                Notifications:Create({Name = "Deleted Config (" ..  Library.Directory .. "/configs/" .. ConfigText .. ".cfg" .. ")"}) 
-            end})
-
-            window.Tweening = true
-            Section:Label({Name = "Menu Bind"}):Keybind({Name = "Menu Bind", ShowInList = false, Callback = function(bool) 
-                if window.Tweening then
-                    return 
-                end 
-
-                window.ToggleMenu(bool) 
-            end, Default = true})
-
-            delay(2, function() window.Tweening = false end)
-
-            local Section = Tab:Section({Name = "Other", Side = "Right"})
-            Section:Toggle({Name = "Watermark", Flag = "Watermark", Callback = window.ToggleWatermark})
-            Section:Toggle({Name = "Keybind List", Flag = "KeybindList", Callback = window.ToggleKeybindList})
-            Section:Toggle({Name = "Toggle Status", Flag = "Status", Callback = window.ToggleStatus})
-            Section:Textbox({Name = "Custom Menu Name", Callback = window.ChangeTitle, Default = window.Name, Placeholder = "Title name here..."})
-            Section:Textbox({Name = "Custom Watermark Name", Callback = window.ChangeWatermarkTitle, Default = window.Name .. ".lua", Placeholder = "Title name here..."})
-            Section:Dropdown({Name = "Tweening Style", Options = {"Linear", "Sine", "Back", "Quad", "Quart", "Quint", "Bounce", "Elastic", "Exponential", "Circular", "Cubic"}, Flag = "LibraryEasingStyle", Default = "Quint", Callback = function(Option)
-                Library.EasingStyle = Enum.EasingStyle[Option]
-            end});
-            Section:Slider({Name = "Tweening Speed", Min = 0, Max = 10, Decimal = 0.01, Suffix = "s", Default = 0.25, Flag = "TweeningSpeed", Callback = function(int)
-                Library.TweeningSpeed = int
-            end})
-
-            Section:Label({Name = "Inline"}):Colorpicker({Flag = "Inline", Callback = function(color, alpha) 
-                Library:RefreshTheme("inline", color) 
-
-                for _,seq in themes.gradients.Selected do 
-                    seq.Color = rgbseq{rgbkey(0, themes.preset.inline), rgbkey(1, themes.preset.gradient)}
-                end 
-            end, Color = themes.preset.inline})
-
-            Section:Label({Name = "Gradient"}):Colorpicker({Flag = "Gradient", Callback = function(color, alpha) 
-                Library:RefreshTheme("gradient", color)
-
-                for _,seq in themes.gradients.Selected do 
-                    seq.Color = rgbseq{rgbkey(0, themes.preset.inline), rgbkey(1, themes.preset.gradient)}
-                end
-
-                for _,seq in themes.gradients.Deselected do 
-                    seq.Color = rgbseq{rgbkey(0, themes.preset.gradient), rgbkey(1, themes.preset.background)}
-                end
-            end, Color = themes.preset.gradient})
-            
-            Section:Label({Name = "Outline"}):Colorpicker({Flag = "Outline", Callback = function(color, alpha) 
-                Library:RefreshTheme("outline", color) 
-            end, Color = themes.preset.outline})
-            
-            Section:Label({Name = "Accent"}):Colorpicker({Flag = "Accent", Callback = function(color, alpha) 
-                Library:RefreshTheme("accent", color) 
-            end, Color = themes.preset.accent})
-            
-            Section:Label({Name = "Background"}):Colorpicker({Flag = "Background", Callback = function(color, alpha) 
-                Library:RefreshTheme("background", color) 
-
-                for _,seq in themes.gradients.Deselected do 
-                    seq.Color = rgbseq{rgbkey(0, themes.preset.gradient), rgbkey(1, themes.preset.background)}
-                end
-            end, Color = themes.preset.background})
-            
-            Section:Label({Name = "Text Color"}):Colorpicker({Flag = "Text Color", Callback = function(color, alpha) 
-                Library:RefreshTheme("text_color", color) 
-            end, Color = themes.preset.text_color})
-            
-            Section:Label({Name = "Text Outline"}):Colorpicker({Flag = "Text Outline", Callback = function(color, alpha) 
-                Library:RefreshTheme("text_outline", color) 
-            end, Color = themes.preset.text_outline})
-            
-            Section:Label({Name = "Background"}):Colorpicker({Flag = "Background", Callback = function(color, alpha) 
-                Library:RefreshTheme("tab_background", color) 
-            end, Color = themes.preset.tab_background})
-            
-            
-
-        end
     --
 
     -- Notification Library
-        -- IGNORE: , TweenInfo.new(1, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
         function Notifications:RefreshNotifications() 
             local offset = 50
             
@@ -3058,7 +2984,6 @@ getgenv().Loaded = true
             local index = #Notifications.Notifs + 1
             Notifications.Notifs[index] = Items.Outline
 
-            -- Notifications:FadeNotifs(Items.Outline, false)
             
             local offset = Notifications:RefreshNotifications()
 
@@ -3067,7 +2992,6 @@ getgenv().Loaded = true
             Library:Tween(Items.Outline, {AnchorPoint = vec2(0, 0)})
             Library:Tween(Items.AccentLine, {Size = dim2(0, -2, 0, 1)}, TweenInfo.new(Cfg.Lifetime, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut, 0, false, 0))
 
-            print(Items.AccentLine.BackgroundTransparency)
             task.spawn(function()
                 task.wait(Cfg.Lifetime)
                 Notifications.Notifs[index] = nil
@@ -3080,108 +3004,7379 @@ getgenv().Loaded = true
     --
 -- 
 
-
-local Window = Library:Window({Name = "gamesense", Size = UDim2.new(0, 660, 0, 674)})
+local Window = Library:Window({})
 
 local Tabs = {
     Rage = Window:Tab({Icon = "rbxassetid://8547236654"}),
     Aiming = Window:Tab({Icon = "rbxassetid://8547249956"}),
-    Visuals = Window:Tab({Icon = "rbxassetid://8547254518"}),
-    Misc = Window:Tab({Icon = "rbxassetid://8547256547"}),
+    Lighting = Window:Tab({Icon = "rbxassetid://8547254518"}),
+    Settings = Window:Tab({Icon = "rbxassetid://8547256547"}),
     Skins = Window:Tab({Icon = "rbxassetid://8547258459"}),
-    Config = Window:Tab({Icon = "rbxassetid://107672994153530"}),
+    Saving = Window:Tab({Icon = "rbxassetid://107672994153530"}),
+    Lua = Window:Tab({Icon = "rbxassetid://83653738255058"}),
 }
 
--- [ RAGE TAB ] - Fixed version as per screenshot
-local WeaponTypeSection = Tabs.Rage:Section({Name = "Weapon type", Side = "Left", Size = 0.22})
-WeaponTypeSection:Dropdown({
-    Name = "Global", 
-    Options = {"Global", "Pistol", "Heavy Pistol", "Rifle", "SMG", "Shotgun", "Scout", "AWP", "Auto"}, 
-    Default = "Global", 
-    Flag = "WeaponType_Global"
-})
+-- имена вкладок для Lua API (ui.new_checkbox("rage", "aimbot", ...))
+Library.Registry = Library.Registry or {}
+Library.TabsByName = Library.TabsByName or {}
 
-local AimbotSection = Tabs.Rage:Section({Name = "Aimbot", Side = "Left", Size = 1})
+for name, tab in Tabs do
+    tab.RegistryName = string.lower(name)
 
-local EnabledToggle = AimbotSection:Toggle({Name = "Enabled", Flag = "Aimbot_Enabled", Default = false})
-EnabledToggle:Keybind({Name = "Aimbot Key", Flag = "Aimbot_Enabled_Key", Key = Enum.UserInputType.MouseButton5, Mode = "Toggle", Default = false})
+    Library.TabsByName[string.lower(name)] = tab
+end
 
-AimbotSection:Dropdown({
-    Name = "Target selection", 
-    Options = {"Cycle", "Cycle (2x)", "Closest distance", "Near crosshair", "Highest damage", "Lowest ping", "Lowest HP"}, 
-    Default = "Cycle",
-    Flag = "Aimbot_TargetSelection"
-})
+-- алиасы под привычные названия из кс-читов
+Library.TabAliases = {
+    ragebot = "rage",
+    legit = "aiming",
+    legitbot = "aiming",
+    aa = "rage",
+    antiaim = "rage",
+    visuals = "lighting",
+    visual = "lighting",
+    esp = "lighting",
+    misc = "settings",
+    players = "skins",
+    playerlist = "skins",
+    config = "saving",
+    configs = "saving",
+    scripts = "lua",
+}
 
-AimbotSection:Dropdown({
-    Name = "Target hitbox", 
-    Options = {"Head", "Neck", "Chest", "Stomach", "Pelvis", "Nearest", "Best damage"}, 
-    Default = "Head",
-    Flag = "Aimbot_TargetHitbox"
-})
+-- Показывать элементы только при включённом чекбоксе
+local function BindVisibility(Toggle, Elements)
+    local Instances = {}
 
-local MultiPointDropdown = AimbotSection:Dropdown({
-    Name = "Multi-point", 
-    Options = {"Disabled", "Low", "Medium", "High", "Extreme"}, 
-    Default = "Disabled",
-    Flag = "Aimbot_MultiPoint"
-})
-MultiPointDropdown:Keybind({Flag = "Aimbot_MultiPoint_Key"})
+    for _, element in Elements do
+        local instance = element.Items.Slider
+            or element.Items.Toggle
+            or element.Items.Dropdown
+            or element.Items.Label
 
-AimbotSection:Slider({
-    Name = "Minimum hit chance", 
-    Min = 0, 
-    Max = 100, 
-    Default = 50, 
-    Decimal = 1, 
-    Suffix = "%", 
-    Flag = "Aimbot_MinHitChance"
-})
+        if instance then
+            table.insert(Instances, instance)
+        end
+    end
 
-AimbotSection:Slider({
-    Name = "Minimum damage", 
-    Min = 0, 
-    Max = 150, 
-    Default = 10, 
-    Decimal = 1, 
-    Suffix = "", 
-    Flag = "Aimbot_MinDamage"
-})
+    local Previous = Toggle.Callback
 
-local MinDamageOverride = AimbotSection:Toggle({Name = "Minimum damage override", Flag = "Aimbot_MinDamageOverride", Default = false})
-MinDamageOverride:Keybind({Flag = "Aimbot_MinDamageOverride_Key", Mode = "Toggle"})
+    local function Refresh(bool)
+        for _, instance in Instances do
+            instance.Visible = bool
+        end
+    end
 
-AimbotSection:Toggle({Name = "Prefer safe point", Flag = "Aimbot_PreferSafePoint", Default = false})
+    Toggle.Callback = function(bool)
+        Refresh(bool)
 
-local ForceSafePoint = AimbotSection:Toggle({Name = "Force safe point", Flag = "Aimbot_ForceSafePoint", Default = false})
-ForceSafePoint:Keybind({Flag = "Aimbot_ForceSafePoint_Key"})
+        if Previous then
+            Previous(bool)
+        end
+    end
 
-AimbotSection:Dropdown({
-    Name = "Avoid unsafe hitboxes",
-    Options = {"Off", "On", "Strict"},
-    Default = "Off",
-    Flag = "Aimbot_AvoidUnsafe"
-})
+    Refresh(Toggle.Enabled)
+end
 
-local ForceBodyAim = AimbotSection:Toggle({Name = "Force body aim", Flag = "Aimbot_ForceBodyAim", Default = false})
-ForceBodyAim:Keybind({Flag = "Aimbot_ForceBodyAim_Key", Mode = "Toggle"})
+-- Rage tab layout
+do
+    local Page = Tabs.Rage.Items.Page
+    
+    -- Меняем UIListLayout на Page — убираем HorizontalFlex чтобы колонки держали размеры
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    
+    -- Левая колонка 50%, правая 50%
+    Tabs.Rage.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Rage.Items.Right.Size = dim2(0.5, -10, 1, 0)
+    
+    -- Убираем VerticalFlex на колонках, чтобы секции не растягивались на всю высоту
+    for _, child in pairs(Tabs.Rage.Items.Left:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.VerticalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    for _, child in pairs(Tabs.Rage.Items.Right:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.VerticalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    
+    -- Левая сторона: Aimbot на всю высоту
+    local Aimbot = Tabs.Rage:Section({Name = "Aimbot", Side = "Left"})
+    
+    -- Toggle "Enabled" с кнопкой бинда справа
+    local Toggle = Aimbot:Toggle({Name = "Enabled", Flag = "AimbotEnabled"})
+    
+    Aimbot:Dropdown({Name = "Target selection", Options = {"Players", "Team", "Bots"}, Multi = true, Default = {"Players"}, Flag = "AimbotTargetSel"})
+    Aimbot:Dropdown({Name = "Target hitbox", Options = {"Head", "Neck", "Chest", "Stomach", "Legs", "Feet"}, Multi = true, Default = {"Head", "Chest"}, Flag = "AimbotHitbox"})
+    Aimbot:Toggle({Name = "Visible check", Flag = "AimbotVisibleCheck"})
+    Aimbot:Toggle({Name = "Auto fire", Flag = "AimbotAutoFire"})
+    Aimbot:Toggle({Name = "Silent aim", Flag = "AimbotSilentAim"})
+    -- Цвет "рискованных" опций (Air shot / Hitbox expander)
+    local RiskyColor = rgb(182, 182, 101)
 
-AimbotSection:Toggle({Name = "Force body aim on peek", Flag = "Aimbot_ForceBodyPeek", Default = false})
+    local AirShot = Aimbot:Toggle({Name = "Air shot", Flag = "AimbotAirShot"})
+    AirShot.Items.Title.TextColor3 = RiskyColor
 
-local QuickStop = AimbotSection:Toggle({Name = "Quick stop", Flag = "Aimbot_QuickStop", Default = false})
-QuickStop:Keybind({Flag = "Aimbot_QuickStop_Key"})
+    local ReachToggle = Aimbot:Toggle({Name = "Hitbox expander", Flag = "AimbotReach"})
+    ReachToggle.Items.Title.TextColor3 = RiskyColor
 
-local DoubleTap = AimbotSection:Toggle({Name = "Double tap", Flag = "Aimbot_DoubleTap", Default = false})
-DoubleTap:Keybind({Flag = "Aimbot_DoubleTap_Key", Mode = "Toggle"})
+    local ReachSlider = Aimbot:Slider({
+        Name = "Expand amount",
+        Min = 0,
+        Max = 30,
+        Default = 5,
+        Decimal = 0.1,
+        Suffix = " studs",
+        Flag = "AimbotReachValue"
+    })
 
-AimbotSection:Toggle({Name = "Automatic scope", Flag = "Aimbot_AutoScope", Default = false})
+    if ReachSlider.Items.Title then
+        ReachSlider.Items.Title.TextColor3 = RiskyColor
+    end
 
-local OtherSection = Tabs.Rage:Section({Name = "Other", Side = "Right", Size = 0.5})
-OtherSection:Toggle({Name = "Anti-aim", Flag = "Other_AntiAim"})
-OtherSection:Dropdown({Name = "Pitch", Options = {"None", "Up", "Down", "Zero", "Random"}, Default = "None", Flag = "AA_Pitch"})
-OtherSection:Dropdown({Name = "Yaw base", Options = {"At targets", "Forward", "Backward"}, Default = "At targets", Flag = "AA_YawBase"})
-OtherSection:Dropdown({Name = "Yaw", Options = {"Static", "Jitter", "Spin", "Random"}, Default = "Static", Flag = "AA_Yaw"})
-OtherSection:Slider({Name = "Yaw offset", Min = -180, Max = 180, Default = 0, Suffix = "\194\176", Flag = "AA_YawOffset"})
+    BindVisibility(ReachToggle, {ReachSlider})
+    
+    -- Toggle "Enabled" с кнопкой бинда справа и меню режима по ПКМ
+    do
+        local aimbotMode = "Toggle"
+        
+        local BindButton = Library:Create("TextButton", {
+            Active = false;
+            BorderColor3 = rgb(0, 0, 0);
+            Text = "[NONE]";
+            AutoButtonColor = false;
+            Name = "\0";
+            Parent = Toggle.Items.Components;
+            Size = dim2(0, 17, 0, 9);
+            Selectable = false;
+            BorderSizePixel = 0;
+            BackgroundTransparency = 1;
+            BackgroundColor3 = rgb(12, 12, 12);
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextColor3 = rgb(170, 170, 170);
+            TextSize = 11;
+            ZIndex = 2;
+        })
+        
+        local aimbotKey = nil
+        local isBinding = false
+        local blockBindClick = false
+        local blockBindClick2 = false
+        -- Прозрачная заслонка поверх кнопки бинда
+        local BindOverlay = Library:Create("TextButton", {
+            Visible = false;
+            Active = true;
+            BorderColor3 = rgb(0, 0, 0);
+            Text = "";
+            AutoButtonColor = false;
+            Name = "\0";
+            Parent = Library.Items;
+            Size = dim2(0, 17, 0, 9);
+            Selectable = false;
+            BorderSizePixel = 0;
+            BackgroundTransparency = 1;
+            ZIndex = 20;
+        })
+        
+        -- Меню выбора режима при ПКМ (у левого края)
+        local ModeFrame = Library:Create("Frame", {
+            Parent = Library.Items;
+            Visible = false;
+            Size = dim2(0, 100, 0, 66);
+            Name = "\0";
+            Position = dim2(0, 0, 0, 100);
+            BorderColor3 = rgb(0, 0, 0);
+            BorderSizePixel = 0;
+            ZIndex = 10;
+            BackgroundColor3 = rgb(12, 12, 12);
+        })
+        
+        local ModeInline = Library:Create("Frame", {
+            Parent = ModeFrame;
+            Name = "\0";
+            Position = dim2(0, 1, 0, 1);
+            BorderColor3 = rgb(0, 0, 0);
+            Size = dim2(1, -2, 1, -2);
+            BorderSizePixel = 0;
+            ZIndex = 10;
+            BackgroundColor3 = rgb(35, 35, 35)
+        })
+        
+        local function CreateModeOption(text)
+            local btn = Library:Create("TextButton", {
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextColor3 = rgb(205, 205, 205);
+                AutoButtonColor = false;
+                BorderColor3 = rgb(0, 0, 0);
+                Text = text;
+                Parent = ModeInline;
+                Size = dim2(1, 0, 0, 22);
+                Name = "\0";
+                TextXAlignment = Enum.TextXAlignment.Left;
+                BorderSizePixel = 0;
+                ZIndex = 10;
+                TextSize = 13;
+                BackgroundColor3 = rgb(26, 26, 26)
+            })
+            Library:Create("UIPadding", {
+                PaddingTop = dim(0, 5);
+                PaddingBottom = dim(0, 5);
+                Parent = btn;
+                PaddingRight = dim(0, 5);
+                PaddingLeft = dim(0, 5)
+            })
+            Library:Create("UIListLayout", {
+                Parent = ModeInline;
+                SortOrder = Enum.SortOrder.LayoutOrder
+            })
+            return btn
+        end
+        
+        local ModeHold = CreateModeOption("Hold")
+        local ModeToggle = CreateModeOption("Toggle")
+        local ModeAlways = CreateModeOption("Always")
+        
+        local function UpdateModeVisuals()
+            for _, btn in {ModeHold, ModeToggle, ModeAlways} do
+                btn.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                btn.TextColor3 = rgb(205, 205, 205)
+                btn.BackgroundTransparency = 0
+            end
+            local selected = aimbotMode == "Hold" and ModeHold or aimbotMode == "Toggle" and ModeToggle or ModeAlways
+            selected.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+            selected.TextColor3 = rgb(142, 181, 39)
+            selected.BackgroundTransparency = 1
+        end
+        
+        ModeHold.MouseButton1Click:Connect(function()
+            aimbotMode = "Hold"
+            ModeFrame.Visible = false
+            ModeFrame.Parent = Library.Other
+        end)
+        ModeToggle.MouseButton1Click:Connect(function()
+            aimbotMode = "Toggle"
+            ModeFrame.Visible = false
+            ModeFrame.Parent = Library.Other
+        end)
+        ModeAlways.MouseButton1Click:Connect(function()
+            aimbotMode = "Always"
+            ModeFrame.Visible = false
+            ModeFrame.Parent = Library.Other
+        end)
+        
+        local function StartBinding()
+            if isBinding then return end
+            isBinding = true
+            BindButton.Text = "..."
+            ModeFrame.Visible = false
+            ModeFrame.Parent = Library.Other
+            BindOverlay.Visible = true
+            BindOverlay.Size = dim2(0, BindButton.AbsoluteSize.X, 0, BindButton.AbsoluteSize.Y)
+            BindOverlay.Position = dim2(0, BindButton.AbsolutePosition.X, 0, BindButton.AbsolutePosition.Y)
+            
+            -- Игнорируем тот самый клик, которым открыли биндинг
+            local armed = false
+
+            task.defer(function()
+                armed = true
+            end)
+
+            local con
+            con = Library:Connection(InputService.InputBegan, function(input2)
+                if isBinding == false or not armed then return end
+                
+                local key = input2.KeyCode ~= Enum.KeyCode.Unknown and input2.KeyCode or input2.UserInputType
+                
+                -- Клик мышью завершит биндинг, но его "click" прилетит следом - гасим
+                if input2.UserInputType == Enum.UserInputType.MouseButton1 then
+                    blockBindClick = true
+                elseif input2.UserInputType == Enum.UserInputType.MouseButton2 then
+                    blockBindClick2 = true
+                end
+
+                if key == Enum.KeyCode.Escape then
+                    BindButton.Text = "[NONE]"
+                    aimbotKey = nil
+                    isBinding = false
+                    BindOverlay.Visible = false
+                    con:Disconnect()
+                    return
+                end
+                
+                if key then
+                    aimbotKey = key
+                    local text = Keys[key] or tostring(key):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
+                    BindButton.Text = "[" .. text .. "]"
+                end
+                
+                isBinding = false
+                BindOverlay.Visible = false
+                con:Disconnect()
+            end)
+        end
+        
+        -- ЛКМ - начать биндинг
+        BindButton.MouseButton1Click:Connect(function()
+            if blockBindClick then
+                blockBindClick = false
+                return
+            end
+
+            if isBinding then return end
+
+            StartBinding()
+        end)
+        
+        -- ПКМ - меню выбора режима
+        BindButton.MouseButton2Click:Connect(function()
+            if blockBindClick2 then
+                blockBindClick2 = false
+                return
+            end
+
+            if isBinding then return end
+
+            ModeFrame.Visible = not ModeFrame.Visible
+            if ModeFrame.Visible then
+                ModeFrame.Parent = Library.Items
+                ModeFrame.Position = dim2(0, BindButton.AbsolutePosition.X, 0, BindButton.AbsolutePosition.Y + 74)
+                UpdateModeVisuals()
+            else
+                ModeFrame.Parent = Library.Other
+            end
+        end)
+        
+        -- Закрываем меню режима при клике вне него
+        Library:Connection(InputService.InputBegan, function(input, ge)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                if ModeFrame.Visible and not Library:Hovering(ModeFrame) then
+                    ModeFrame.Visible = false
+                    ModeFrame.Parent = Library.Other
+                end
+            end
+        end)
+
+        table.insert(Library.ExtraClosers, function()
+            ModeFrame.Visible = false
+            ModeFrame.Parent = Library.Other
+        end)
+    end
+    
+    -- Правая сторона: Other (60% высоты) + Anti-aimbot angles (37% высоты)
+    local Other = Tabs.Rage:Section({Name = "Other", Side = "Right", Size = 0.6})
+    Other:Toggle({Name = "Visible FOV", Flag = "AimbotVisFOV"})
+    Other:Slider({Name = "Maximum FOV", Min = 1, Max = 180, Suffix = "°", Default = 90, Flag = "AimbotFOV"})
+    Other:Toggle({Name = "Lag compensation", Flag = "AimbotLagComp"})
+    Other:Toggle({Name = "Backtrack", Flag = "AimbotBacktrack"})
+    Other:Slider({Name = "Backtrack ms", Min = 0, Max = 1000, Suffix = "ms", Default = 200, Flag = "AimbotBacktrackMs"})
+    local AA = Tabs.Rage:Section({Name = "Anti-aimbot angles", Side = "Right", Size = 0.4})
+
+    -- Делим доступную высоту правой колонки 60/40 с учётом отступа между секциями.
+    -- Благодаря абсолютному пересчёту секции не выпирают при маленьком размере
+    -- и корректно растягиваются вместе с окном.
+    local function UpdateRageRightSections()
+        local gap = 19
+        local availableHeight = math.max(0, Tabs.Rage.Items.Right.AbsoluteSize.Y - gap)
+        local otherHeight = math.floor(availableHeight * 0.6)
+        local antiAimHeight = availableHeight - otherHeight
+
+        Other.Items.Outline.Size = dim2(1, 0, 0, otherHeight)
+        AA.Items.Outline.Size = dim2(1, 0, 0, antiAimHeight)
+    end
+
+    Library:Connection(Tabs.Rage.Items.Right:GetPropertyChangedSignal("AbsoluteSize"), UpdateRageRightSections)
+    task.defer(UpdateRageRightSections)
+
+    AA:Toggle({Name = "Enable anti-aim", Flag = "AAEnabled"})
+    AA:Dropdown({Name = "Yaw", Options = {"At targets", "Local view"}, Default = "At targets", Flag = "AAYaw"})
+    
+    -- Таблица для хранения слайдеров
+    local AASliders = {}
+    
+    -- Yaw value комбобокс
+    AA:Dropdown({
+        Name = "Yaw value", 
+        Options = {"180", "Spin", "Jitter"}, 
+        Default = "180", 
+        Flag = "AAYawValue",
+        Callback = function(value)
+            if not next(AASliders) then return end
+            
+            for _, slider in pairs(AASliders) do
+                slider.Items.Slider.Visible = false
+            end
+            
+            if value == "180" then
+                AASliders.YawOffset.Items.Slider.Visible = true
+            elseif value == "Spin" then
+                AASliders.SpinOffset.Items.Slider.Visible = true
+            elseif value == "Jitter" then
+                AASliders.JitterOffset1.Items.Slider.Visible = true
+                AASliders.JitterOffset2.Items.Slider.Visible = true
+                AASliders.JitterSpeed.Items.Slider.Visible = true
+            end
+        end
+    })
+    -- Теперь создаём слайдеры (они появятся ниже Dropdown)
+    AASliders.YawOffset = AA:Slider({Name = "Yaw offset", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAYawOffset"})
+    AASliders.SpinOffset = AA:Slider({Name = "Spin offset", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AASpinOffset"})
+    AASliders.JitterOffset1 = AA:Slider({Name = "Jitter offset 1", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAJitOff1"})
+    AASliders.JitterOffset2 = AA:Slider({Name = "Jitter offset 2", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAJitOff2"})
+    AASliders.JitterSpeed = AA:Slider({Name = "Jitter speed", Min = 0, Max = 30, Suffix = "t", Default = 5, Flag = "AAJitSpeed"})
+
+    -- Изначально показываем только Yaw offset (180 выбран по умолчанию)
+    AASliders.SpinOffset.Items.Slider.Visible = false
+    AASliders.JitterOffset1.Items.Slider.Visible = false
+    AASliders.JitterOffset2.Items.Slider.Visible = false
+    AASliders.JitterSpeed.Items.Slider.Visible = false
+    
+    
+end
+
+-- Legit tab layout
+local AddMenuBind
+do
+    local Page = Tabs.Aiming.Items.Page
+
+    -- Фиксируем две равные колонки 50/50
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+
+    Tabs.Aiming.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Aiming.Items.Right.Size = dim2(0.5, -10, 1, 0)
+
+    -- Обе секции занимают 100% высоты своих колонок
+    for _, column in {Tabs.Aiming.Items.Left, Tabs.Aiming.Items.Right} do
+        for _, child in pairs(column:GetChildren()) do
+            if child:IsA("UIListLayout") then
+                child.VerticalFlex = Enum.UIFlexAlignment.None
+            end
+        end
+    end
+
+    local LegitAimbot = Tabs.Aiming:Section({
+        Name = "Aimbot",
+        Side = "Left",
+        Size = 1
+    })
+
+    -- Элементы Legit Aimbot в порядке с референса
+    local LegitEnabled = LegitAimbot:Toggle({
+        Name = "Enabled",
+        Flag = "LegitAimbotEnabled"
+    })
+
+    -- Универсальный бинд: ЛКМ назначает клавишу, ПКМ открывает Hold/Toggle/Always
+    -- NoToggleState = true -> бинд НЕ меняет состояние чекбокса,
+    -- а только пишет активность в Flags[FlagName].Active
+    function AddMenuBind(TargetToggle, FlagName, NoToggleState)
+        local bindMode = "Toggle"
+        local bindActive = false
+
+        local function ApplyState(state)
+            if NoToggleState then
+                bindActive = state
+
+                if Flags[FlagName] then
+                    Flags[FlagName].Active = state
+                end
+
+                return
+            end
+
+            TargetToggle.Enabled = state
+            TargetToggle.Set(state)
+        end
+
+        local boundKey = nil
+        local binding = false
+        local blockBindClick = false
+        local blockBindClick2 = false
+
+        local BindButton = Library:Create("TextButton", {
+            Active = false;
+            AutoButtonColor = false;
+            Parent = TargetToggle.Items.Components;
+            Name = "\0";
+            Text = "[NONE]";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextColor3 = rgb(170, 170, 170);
+            TextSize = 11;
+            Size = dim2(0, 32, 0, 9);
+            BorderSizePixel = 0;
+            BackgroundTransparency = 1;
+            BackgroundColor3 = rgb(12, 12, 12);
+            ZIndex = 2;
+        })
+
+        local ModeFrame = Library:Create("Frame", {
+            Parent = Library.Other;
+            Visible = false;
+            Size = dim2(0, 100, 0, 66);
+            Name = "\0";
+            BorderColor3 = rgb(0, 0, 0);
+            BorderSizePixel = 0;
+            ZIndex = 10;
+            BackgroundColor3 = rgb(12, 12, 12);
+        })
+
+        local ModeInline = Library:Create("Frame", {
+            Parent = ModeFrame;
+            Name = "\0";
+            Position = dim2(0, 1, 0, 1);
+            Size = dim2(1, -2, 1, -2);
+            BorderSizePixel = 0;
+            ZIndex = 10;
+            BackgroundColor3 = rgb(35, 35, 35);
+        })
+
+        Library:Create("UIListLayout", {
+            Parent = ModeInline;
+            SortOrder = Enum.SortOrder.LayoutOrder;
+        })
+
+        local function CreateModeOption(text)
+            local button = Library:Create("TextButton", {
+                Parent = ModeInline;
+                Name = "\0";
+                Text = text;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextColor3 = rgb(205, 205, 205);
+                TextSize = 13;
+                TextXAlignment = Enum.TextXAlignment.Left;
+                AutoButtonColor = false;
+                Size = dim2(1, 0, 0, 22);
+                BorderSizePixel = 0;
+                ZIndex = 10;
+                BackgroundColor3 = rgb(26, 26, 26);
+            })
+
+            Library:Create("UIPadding", {
+                Parent = button;
+                PaddingLeft = dim(0, 5);
+                PaddingRight = dim(0, 5);
+                PaddingTop = dim(0, 5);
+                PaddingBottom = dim(0, 5);
+            })
+
+            return button
+        end
+
+        local ModeHold = CreateModeOption("Hold")
+        local ModeToggle = CreateModeOption("Toggle")
+        local ModeAlways = CreateModeOption("Always")
+
+        local function UpdateModeVisuals()
+            for _, button in {ModeHold, ModeToggle, ModeAlways} do
+                button.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                button.TextColor3 = rgb(205, 205, 205)
+                button.BackgroundTransparency = 0
+            end
+
+            local selected = bindMode == "Hold" and ModeHold or bindMode == "Toggle" and ModeToggle or ModeAlways
+            selected.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+            selected.TextColor3 = themes.preset.accent
+            selected.BackgroundTransparency = 1
+        end
+
+        local function CloseModeMenu()
+            ModeFrame.Visible = false
+            ModeFrame.Parent = Library.Other
+        end
+
+        table.insert(Library.ExtraClosers, CloseModeMenu)
+
+        local function SetMode(mode)
+            bindMode = mode
+            Flags[FlagName] = {
+                Key = boundKey and tostring(boundKey) or "NONE";
+                Mode = bindMode;
+                Active = bindActive;
+            }
+
+            if bindMode == "Always" then
+                ApplyState(true)
+            elseif bindMode == "Hold" then
+                ApplyState(false)
+            end
+
+            CloseModeMenu()
+        end
+
+        ModeHold.MouseButton1Click:Connect(function()
+            SetMode("Hold")
+        end)
+
+        ModeToggle.MouseButton1Click:Connect(function()
+            SetMode("Toggle")
+        end)
+
+        ModeAlways.MouseButton1Click:Connect(function()
+            SetMode("Always")
+        end)
+
+        -- ЛКМ назначает клавишу
+        BindButton.MouseButton1Click:Connect(function()
+            if blockBindClick then
+                blockBindClick = false
+                return
+            end
+
+            if binding then return end
+
+            binding = true
+            BindButton.Text = "[...]"
+            CloseModeMenu()
+
+            -- Игнорируем тот самый клик, которым открыли биндинг
+            local armed = false
+
+            task.defer(function()
+                armed = true
+            end)
+
+            local connection
+            connection = Library:Connection(InputService.InputBegan, function(input)
+                if not binding or not armed then return end
+
+                local key = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
+
+                -- Гасим "click", который прилетит после клика мышью
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    blockBindClick = true
+                elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+                    blockBindClick2 = true
+                end
+
+                if key == Enum.KeyCode.Escape then
+                    boundKey = nil
+                    BindButton.Text = "[NONE]"
+                else
+                    boundKey = key
+                    local keyName = Keys[key] or tostring(key):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
+                    BindButton.Text = "[" .. keyName .. "]"
+                end
+
+                Flags[FlagName] = {
+                    Key = boundKey and tostring(boundKey) or "NONE";
+                    Mode = bindMode;
+                    Active = bindActive;
+                }
+                binding = false
+                connection:Disconnect()
+            end)
+        end)
+
+        -- ПКМ открывает меню Hold / Toggle / Always
+        BindButton.MouseButton2Click:Connect(function()
+            if blockBindClick2 then
+                blockBindClick2 = false
+                return
+            end
+
+            if binding then return end
+
+            ModeFrame.Visible = not ModeFrame.Visible
+            if ModeFrame.Visible then
+                ModeFrame.Parent = Library.Items
+                ModeFrame.Position = dim2(0, BindButton.AbsolutePosition.X, 0, BindButton.AbsolutePosition.Y + 74)
+                UpdateModeVisuals()
+            else
+                ModeFrame.Parent = Library.Other
+            end
+        end)
+
+        Library:Connection(InputService.InputBegan, function(input, gameProcessed)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 and ModeFrame.Visible and not Library:Hovering(ModeFrame) then
+                CloseModeMenu()
+            end
+
+            if gameProcessed or binding or not boundKey then return end
+
+            local key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
+            if key ~= boundKey then return end
+
+            if bindMode == "Toggle" then
+                local current = NoToggleState and bindActive or TargetToggle.Enabled
+
+                ApplyState(not current)
+            else
+                ApplyState(true)
+            end
+        end)
+
+        Library:Connection(InputService.InputEnded, function(input, gameProcessed)
+            if gameProcessed or binding or not boundKey or bindMode ~= "Hold" then return end
+
+            local key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
+            if key == boundKey then
+                ApplyState(false)
+            end
+        end)
+
+        Flags[FlagName] = {
+            Key = "NONE";
+            Mode = bindMode;
+            Active = false;
+        }
+    end
+
+    AddMenuBind(LegitEnabled, "LegitAimbotBind")
+
+    LegitAimbot:Slider({
+        Name = "Speed",
+        Min = 0,
+        Max = 1,
+        Decimal = 0.01,
+        Default = 0.65,
+        Flag = "LegitAimbotSpeed"
+    })
+
+    LegitAimbot:Slider({
+        Name = "Speed (in attack)",
+        Min = 0,
+        Max = 1,
+        Decimal = 0.01,
+        Default = 0.65,
+        Flag = "LegitAimbotAttackSpeed"
+    })
+
+    LegitAimbot:Slider({
+        Name = "Speed scale - FOV",
+        Min = 0,
+        Max = 100,
+        Default = 100,
+        Suffix = "%",
+        Flag = "LegitAimbotSpeedScaleFOV"
+    })
+
+    LegitAimbot:Slider({
+        Name = "Maximum lock-on time",
+        Min = 0,
+        Max = 1000,
+        Default = 1000,
+        Decimal = 10,
+        Flag = "LegitAimbotMaxLockTime",
+        Formatter = function(value)
+            return value >= 1000 and "∞" or (tostring(value) .. "ms")
+        end
+    })
+
+    LegitAimbot:Slider({
+        Name = "Reaction time",
+        Min = 0,
+        Max = 1000,
+        Default = 100,
+        Decimal = 10,
+        Suffix = "ms",
+        Flag = "LegitAimbotReactionTime"
+    })
+
+    LegitAimbot:Slider({
+        Name = "Maximum FOV",
+        Min = 0,
+        Max = 180,
+        Default = 10,
+        Decimal = 0.1,
+        Suffix = "°",
+        Flag = "LegitAimbotMaximumFOV"
+    })
+
+    LegitAimbot:Slider({
+        Name = "Recoil compensation (P/Y)",
+        Min = 0,
+        Max = 100,
+        Default = 100,
+        Suffix = "%",
+        Flag = "LegitAimbotRecoilPitch"
+    })
+
+    LegitAimbot:Slider({
+        Min = 0,
+        Max = 100,
+        Default = 75,
+        Suffix = "%",
+        Flag = "LegitAimbotRecoilYaw"
+    })
+
+    LegitAimbot:Toggle({Name = "Visible check", Flag = "LegitAimbotVisibleCheck"})
+
+    -- Хитбоксы (цвет как у "Air shot")
+    local HitboxColor = rgb(182, 182, 101)
+
+    local LegitHead = LegitAimbot:Toggle({Name = "Head", Flag = "LegitAimbotHead"})
+    local LegitChest = LegitAimbot:Toggle({Name = "Chest", Flag = "LegitAimbotChest"})
+    local LegitStomach = LegitAimbot:Toggle({Name = "Stomach", Flag = "LegitAimbotStomach"})
+
+    for _, hitbox in {LegitHead, LegitChest, LegitStomach} do
+        hitbox.Items.Title.TextColor3 = HitboxColor
+    end
+
+    local Triggerbot = Tabs.Aiming:Section({
+        Name = "Triggerbot",
+        Side = "Right",
+        Size = 0.7
+    })
+
+    -- 70/30 по высоте (минус отступ 19px между секциями)
+    Triggerbot.Items.Outline.Size = dim2(1, 0, 0.7, -10)
+
+    local TriggerEnabled = Triggerbot:Toggle({
+        Name = "Enabled",
+        Flag = "TriggerbotEnabled"
+    })
+    AddMenuBind(TriggerEnabled, "TriggerbotBind")
+
+    Triggerbot:Slider({
+        Name = "Reaction time",
+        Min = 0,
+        Max = 1000,
+        Default = 100,
+        Decimal = 10,
+        Suffix = "ms",
+        Flag = "TriggerbotReactionTime"
+    })
+
+    Triggerbot:Toggle({
+        Name = "Magnet trigger",
+        Flag = "TriggerbotMagnet"
+    })
+
+    Triggerbot:Toggle({Name = "Visible check", Flag = "TriggerbotVisibleCheck"})
+
+    local TriggerHead = Triggerbot:Toggle({Name = "Head", Flag = "TriggerbotHead"})
+    local TriggerChest = Triggerbot:Toggle({Name = "Chest", Flag = "TriggerbotChest"})
+    local TriggerStomach = Triggerbot:Toggle({Name = "Stomach", Flag = "TriggerbotStomach"})
+
+    for _, hitbox in {TriggerHead, TriggerChest, TriggerStomach} do
+        hitbox.Items.Title.TextColor3 = HitboxColor
+    end
+
+    local Other = Tabs.Aiming:Section({
+        Name = "Other",
+        Side = "Right",
+        Size = 0.3
+    })
+
+    Other.Items.Outline.Size = dim2(1, 0, 0.3, -9)
+
+    local BacktrackToggle = Other:Toggle({
+        Name = "Backtrack",
+        Flag = "OtherBacktrack"
+    })
+
+    local BacktrackTime = Other:Slider({
+        Name = "Backtrack time",
+        Min = 0,
+        Max = 1000,
+        Default = 200,
+        Suffix = "ms",
+        Flag = "OtherBacktrackTime"
+    })
+
+    BindVisibility(BacktrackToggle, {BacktrackTime})
+end
 
 Window.ToggleMenu(true)
-print("[gamesense fixed] Aimbot tab loaded - Solara ready")
+
+-- Lighting (Visuals) tab layout
+do
+    local Page = Tabs.Lighting.Items.Page
+
+    -- Колонки строго 50/50 по ширине
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+
+    Tabs.Lighting.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Lighting.Items.Right.Size = dim2(0.5, -10, 1, 0)
+
+    for _, column in {Tabs.Lighting.Items.Left, Tabs.Lighting.Items.Right} do
+        for _, child in pairs(column:GetChildren()) do
+            if child:IsA("UIListLayout") then
+                child.VerticalFlex = Enum.UIFlexAlignment.None
+            end
+        end
+    end
+
+    -- Хелпер: табы внутри секции
+    local function SectionTabs(Section, names)
+        local Bar = Library:Create("Frame", {
+            Parent = Section.Items.Elements;
+            Name = "\0";
+            Size = dim2(1, 0, 0, 16);
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            LayoutOrder = -1;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        Library:Create("UIListLayout", {
+            Parent = Bar;
+            FillDirection = Enum.FillDirection.Horizontal;
+            HorizontalFlex = Enum.UIFlexAlignment.Fill;
+            SortOrder = Enum.SortOrder.LayoutOrder;
+        })
+
+        local pages, buttons = {}, {}
+
+        local function Select(index)
+            for i, page in pages do
+                page.Items.Elements.Visible = (i == index)
+                buttons[i].TextColor3 = (i == index) and themes.preset.accent or rgb(140, 140, 140)
+                buttons[i].BackgroundColor3 = (i == index) and rgb(30, 30, 30) or rgb(20, 20, 20)
+            end
+        end
+
+        for i, name in names do
+            local button = Library:Create("TextButton", {
+                Parent = Bar;
+                Name = "\0";
+                Text = name;
+                AutoButtonColor = false;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 13;
+                TextColor3 = rgb(140, 140, 140);
+                Size = dim2(0, 0, 1, 0);
+                LayoutOrder = i;
+                BorderSizePixel = 0;
+                BackgroundColor3 = rgb(20, 20, 20);
+            })
+
+            local Holder = Library:Create("Frame", {
+                Parent = Section.Items.Elements;
+                Name = "\0";
+                Size = dim2(1, 0, 0, 0);
+                AutomaticSize = Enum.AutomaticSize.Y;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                LayoutOrder = i;
+                Visible = false;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            Library:Create("UIListLayout", {
+                Parent = Holder;
+                Padding = dim(0, 8);
+                SortOrder = Enum.SortOrder.LayoutOrder;
+            })
+
+            buttons[i] = button
+            pages[i] = setmetatable({
+                Name = name;
+                Items = { Elements = Holder };
+            }, Library)
+
+            button.MouseButton1Click:Connect(function()
+                Select(i)
+            end)
+        end
+
+        Select(1)
+
+        return unpack(pages)
+    end
+
+    -- 4 секции: 2 колонки x 2 ряда, всё по 50%
+    local LeftTop = Tabs.Lighting:Section({Name = "Colored models", Side = "Left", Size = 0.7})
+    LeftTop.Items.Outline.Size = dim2(1, 0, 0.7, -10)
+
+    local LeftBottom = Tabs.Lighting:Section({Name = "World", Side = "Left", Size = 0.3})
+    LeftBottom.Items.Outline.Size = dim2(1, 0, 0.3, -9)
+
+    local RightTop = Tabs.Lighting:Section({Name = "Preview ESP", Side = "Right", Size = 0.65})
+    RightTop.Items.Outline.Size = dim2(1, 0, 0.65, -10)
+
+    local RightBottom = Tabs.Lighting:Section({Name = "Effects", Side = "Right", Size = 0.35})
+    RightBottom.Items.Outline.Size = dim2(1, 0, 0.35, -9)
+
+    -- Colored models
+    -- Хелпер: чекбокс + пикер + скрытый комбобокс стиля под ним
+    local function ColoredModel(name, flag, color)
+        local toggle = LeftTop:Toggle({Name = name, Flag = flag})
+        local picker = toggle:Colorpicker({Flag = flag .. "Color", Color = color})
+
+        local style = LeftTop:Dropdown({
+            Name = nil,
+            Options = {"Normal", "Flat"},
+            Default = "Flat",
+            Flag = flag .. "Style"
+        })
+
+        -- Комбобокс виден только при включённом чекбоксе
+        local root = style.Items.Dropdown
+        local previous = toggle.Callback
+
+        local function Refresh(state)
+            root.Visible = state
+        end
+
+        local previousStyle = style.Callback
+
+        style.Callback = function(...)
+            if previousStyle then
+                previousStyle(...)
+            end
+
+            Refresh(toggle.Enabled)
+        end
+
+        toggle.Callback = function(state, ...)
+            if previous then
+                previous(state, ...)
+            end
+
+            Refresh(state)
+        end
+
+        Refresh(toggle.Enabled)
+
+        return toggle, picker, style
+    end
+
+    local PlayerToggle, PlayerPicker, PlayerStyle = ColoredModel("Player", "VisPlayer", rgb(142, 181, 39))
+    local PlayerWallToggle, PlayerWallPicker, PlayerWallStyle = ColoredModel("Player behind wall", "VisPlayerWall", rgb(79, 143, 214))
+    local TeammateToggle, TeammatePicker, TeammateStyle = ColoredModel("Teammate", "VisTeammate", rgb(110, 110, 110))
+    local TeammateWallToggle, TeammateWallPicker, TeammateWallStyle = ColoredModel("Teammate behind wall", "VisTeammateWall", rgb(255, 255, 255))
+
+    -- Связка чамсов с превью ESP
+    local ChamsSources = {
+        Enemy = {
+            Visible = {Toggle = PlayerToggle, Picker = PlayerPicker, Flag = "VisPlayerColor", StyleFlag = "VisPlayerStyle", Style = PlayerStyle};
+            Invisible = {Toggle = PlayerWallToggle, Picker = PlayerWallPicker, Flag = "VisPlayerWallColor", StyleFlag = "VisPlayerWallStyle", Style = PlayerWallStyle};
+        };
+        Team = {
+            Visible = {Toggle = TeammateToggle, Picker = TeammatePicker, Flag = "VisTeammateColor", StyleFlag = "VisTeammateStyle", Style = TeammateStyle};
+            Invisible = {Toggle = TeammateWallToggle, Picker = TeammateWallPicker, Flag = "VisTeammateWallColor", StyleFlag = "VisTeammateWallStyle", Style = TeammateWallStyle};
+        };
+    }
+
+    ColoredModel("Local player", "VisLocalPlayer", rgb(110, 110, 110))
+
+    LeftTop:Dropdown({
+        Name = "Local player transparency",
+        Options = {"-", "Always", "On shot", "When scoped"},
+        Default = "-",
+        Flag = "VisLocalPlayerTransparency"
+    })
+
+    ColoredModel("Local player fake", "VisLocalPlayerFake", rgb(20, 20, 20))
+
+    ColoredModel("On shot", "VisOnShot", rgb(110, 110, 110))
+
+    ColoredModel("Hands", "VisHands", rgb(255, 255, 255))
+
+    ColoredModel("Weapon viewmodel", "VisViewmodel", rgb(85, 0, 255))
+
+    ColoredModel("Weapons", "VisWeapons", rgb(85, 0, 255))
+
+    ColoredModel("Backtrack", "VisBacktrack", rgb(255, 255, 255))
+
+    -- World
+    local Brightness = LeftBottom:Dropdown({
+        Name = "Brightness adjustment",
+        Options = {"Off", "Fullbright", "Night mode"},
+        Default = "Off",
+        Flag = "VisBrightnessMode"
+    })
+
+    -- Холдер под колорпикер справа от комбобокса
+    local BrightnessComponents = Library:Create("Frame", {
+        Parent = Brightness.Items.Dropdown;
+        Name = "\0";
+        AnchorPoint = vec2(1, 0);
+        Position = dim2(1, 0, 0, 18);
+        Size = dim2(0, 30, 0, 9);
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        ZIndex = 2;
+        BackgroundColor3 = rgb(255, 255, 255);
+    })
+
+    Library:Create("UIListLayout", {
+        Parent = BrightnessComponents;
+        FillDirection = Enum.FillDirection.Horizontal;
+        HorizontalAlignment = Enum.HorizontalAlignment.Right;
+        Padding = dim(0, 3);
+        SortOrder = Enum.SortOrder.LayoutOrder;
+    })
+
+    local BrightnessHost = setmetatable({
+        Items = { Components = BrightnessComponents };
+    }, Library)
+
+    local BrightnessColor = BrightnessHost:Colorpicker({
+        Flag = "VisBrightnessColor",
+        Color = rgb(255, 255, 255)
+    })
+
+    -- Колорпикер виден только при Fullbright / Night mode
+    local function UpdateBrightnessPicker(mode)
+        local visible = (mode == "Fullbright" or mode == "Night mode")
+        BrightnessComponents.Visible = visible
+
+        if not visible and BrightnessColor.SetVisible then
+            BrightnessColor.SetVisible(false)
+        end
+    end
+
+    Brightness.Callback = function(mode)
+        UpdateBrightnessPicker(mode)
+    end
+
+    UpdateBrightnessPicker(Flags.VisBrightnessMode)
+
+    LeftBottom:Label({Name = "Ambient"}):Colorpicker({
+        Flag = "VisAmbientColor",
+        Color = rgb(128, 128, 128)
+    })
+
+    LeftBottom:Label({Name = "Color correction"}):Colorpicker({
+        Flag = "VisColorCorrection",
+        Color = rgb(255, 255, 255)
+    })
+
+    LeftBottom:Slider({
+        Name = "Time changer",
+        Min = 0,
+        Max = 24,
+        Default = 12,
+        Decimal = 1,
+        Suffix = "h",
+        Flag = "VisTimeChanger"
+    })
+
+    -- Preview ESP (интерактивный превью)
+    local PreviewOk, PreviewErr = pcall(function()
+        local ESPFlags = {}
+
+        -- Keypicker.Set инвертирует hue/saturation, компенсируем это
+        local function PickerColor(color)
+            local h, sat, v = color:ToHSV()
+
+            return hsv(1 - h, 1 - sat, v)
+        end
+
+        -- ── Хелперы контекстного меню ──────────────────────────────
+        -- Поднимает пикер над меню
+        local function LiftPicker(picker)
+            local object = picker.Items and picker.Items.ColorpickerObject
+
+            if object then
+                object.ZIndex = 30020
+
+                for _, descendant in object:GetDescendants() do
+                    if descendant:IsA("GuiObject") then
+                        descendant.ZIndex = 30021
+                    end
+                end
+            end
+
+            local window = picker.Items and picker.Items.Colorpicker
+
+            if window then
+                window.ZIndex = 40000
+
+                for _, descendant in window:GetDescendants() do
+                    if descendant:IsA("GuiObject") then
+                        descendant.ZIndex += 20000
+                    end
+                end
+            end
+
+            return picker
+        end
+
+        -- Строка "подпись + колорпикер(ы)" внутри секции меню
+        local function MakeColorRow(parent, text, order, width)
+            local row = Library:Create("Frame", {
+                Parent = parent;
+                Name = "\0";
+                Size = dim2(1, 0, 0, 12);
+                BackgroundTransparency = 1;
+                LayoutOrder = order;
+                BorderSizePixel = 0;
+                ZIndex = 30003;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            Library:Create("TextLabel", {
+                Parent = row;
+                Name = "\0";
+                Text = text;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 12;
+                TextColor3 = rgb(190, 190, 190);
+                TextXAlignment = Enum.TextXAlignment.Left;
+                BackgroundTransparency = 1;
+                Size = dim2(1, -(width or 30), 1, 0);
+                BorderSizePixel = 0;
+                ZIndex = 30004;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            local host = Library:Create("Frame", {
+                Parent = row;
+                Name = "\0";
+                AnchorPoint = vec2(1, 0.5);
+                Position = dim2(1, 0, 0.5, 0);
+                Size = dim2(0, width or 20, 0, 9);
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                ZIndex = 30004;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            Library:Create("UIListLayout", {
+                Parent = host;
+                FillDirection = Enum.FillDirection.Horizontal;
+                HorizontalAlignment = Enum.HorizontalAlignment.Right;
+                Padding = dim(0, 3);
+                SortOrder = Enum.SortOrder.LayoutOrder;
+            })
+
+            return row, setmetatable({Items = {Components = host}}, Library)
+        end
+
+        -- Чекбокс: свой state у каждого экземпляра
+        local function MakeCheckbox(parent, text, order, callback, default)
+            local self = {
+                State = default or false;
+                Callback = callback;
+            }
+
+            local button = Library:Create("TextButton", {
+                Parent = parent;
+                Name = "\0";
+                Text = "";
+                AutoButtonColor = false;
+                BackgroundTransparency = 1;
+                Size = dim2(1, 0, 0, 10);
+                LayoutOrder = order;
+                BorderSizePixel = 0;
+                ZIndex = 30003;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            local outline = Library:Create("Frame", {
+                Parent = button;
+                Name = "\0";
+                Size = dim2(0, 8, 0, 8);
+                Position = dim2(0, 0, 0, 1);
+                BorderSizePixel = 0;
+                ZIndex = 30004;
+                BackgroundColor3 = rgb(12, 12, 12);
+            })
+
+            local accent = Library:Create("Frame", {
+                Parent = outline;
+                Name = "\0";
+                Position = dim2(0, 1, 0, 1);
+                Size = dim2(1, -2, 1, -2);
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                ZIndex = 30005;
+                BackgroundColor3 = themes.preset.accent;
+            })
+
+            local label = Library:Create("TextLabel", {
+                Parent = button;
+                Name = "\0";
+                Text = text;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 13;
+                TextColor3 = rgb(205, 205, 205);
+                TextXAlignment = Enum.TextXAlignment.Left;
+                BackgroundTransparency = 1;
+                Position = dim2(0, 14, 0, -2);
+                Size = dim2(1, -14, 0, 13);
+                BorderSizePixel = 0;
+                ZIndex = 30004;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            self.Button = button
+            self.Label = label
+
+            function self.Set(state, silent)
+                self.State = state
+                accent.BackgroundTransparency = state and 0 or 1
+
+                if not silent and self.Callback then
+                    self.Callback(state)
+                end
+            end
+
+            function self.Toggle()
+                self.Set(not self.State)
+            end
+
+            button.MouseButton1Click:Connect(self.Toggle)
+
+            self.Set(self.State, true)
+
+            return self
+        end
+
+        -- Секция меню под конкретный элемент
+        local function MakeSection(parent)
+            local section = Library:Create("Frame", {
+                Parent = parent;
+                Name = "\0";
+                Size = dim2(1, 0, 0, 0);
+                AutomaticSize = Enum.AutomaticSize.Y;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Visible = false;
+                LayoutOrder = 3;
+                ZIndex = 30002;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            Library:Create("UIListLayout", {
+                Parent = section;
+                Padding = dim(0, 6);
+                SortOrder = Enum.SortOrder.LayoutOrder;
+            })
+
+            return section
+        end
+
+        -- Комбобокс/мультибокс: своё состояние у каждого экземпляра
+        local AllCombos = {}
+
+        local function MakeCombo(parent, label, order, options, root, multi, default)
+            local self = {
+                Multi = multi or false;
+                Options = options;
+                Selected = {};
+                Buttons = {};
+                Callback = nil;
+            }
+
+            if label then
+                Library:Create("TextLabel", {
+                    Parent = parent;
+                    Name = "\0";
+                    Text = label;
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextSize = 12;
+                    TextColor3 = rgb(190, 190, 190);
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    BackgroundTransparency = 1;
+                    Size = dim2(1, 0, 0, 12);
+                    LayoutOrder = order;
+                    BorderSizePixel = 0;
+                    ZIndex = 30003;
+                    BackgroundColor3 = rgb(255, 255, 255);
+                })
+            end
+
+            local outline = Library:Create("TextButton", {
+                Parent = parent;
+                Name = "\0";
+                Text = "";
+                AutoButtonColor = false;
+                Size = dim2(1, 0, 0, 20);
+                LayoutOrder = order + 1;
+                BorderSizePixel = 0;
+                ZIndex = 30003;
+                BackgroundColor3 = rgb(12, 12, 12);
+            })
+
+            local inner = Library:Create("Frame", {
+                Parent = outline;
+                Name = "\0";
+                Position = dim2(0, 1, 0, 1);
+                Size = dim2(1, -2, 1, -2);
+                BorderSizePixel = 0;
+                ZIndex = 30004;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            Library:Create("UIGradient", {
+                Parent = inner;
+                Rotation = 90;
+                Color = rgbseq{rgbkey(0, rgb(31, 31, 31)), rgbkey(1, rgb(36, 36, 36))};
+            })
+
+            local text = Library:Create("TextLabel", {
+                Parent = inner;
+                Name = "\0";
+                Text = options[1];
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 13;
+                TextColor3 = rgb(205, 205, 205);
+                TextXAlignment = Enum.TextXAlignment.Left;
+                TextTruncate = Enum.TextTruncate.AtEnd;
+                BackgroundTransparency = 1;
+                Size = dim2(1, -14, 1, 0);
+                ClipsDescendants = true;
+                BorderSizePixel = 0;
+                ZIndex = 30005;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            Library:Create("UIPadding", {
+                Parent = text;
+                PaddingLeft = dim(0, 5);
+            })
+
+            Library:Create("ImageLabel", {
+                Parent = inner;
+                Name = "\0";
+                AnchorPoint = vec2(1, 0.5);
+                Position = dim2(1, -5, 0.5, 0);
+                Size = dim2(0, 5, 0, 4);
+                Image = "rbxassetid://83504953088675";
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                ZIndex = 30005;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            local list = Library:Create("Frame", {
+                Parent = root;
+                Name = "\0";
+                Visible = false;
+                Size = dim2(0, 132, 0, 0);
+                AutomaticSize = Enum.AutomaticSize.Y;
+                BorderSizePixel = 0;
+                ZIndex = 31000;
+                BackgroundColor3 = rgb(12, 12, 12);
+            })
+
+            local holder = Library:Create("Frame", {
+                Parent = list;
+                Name = "\0";
+                Position = dim2(0, 1, 0, 1);
+                Size = dim2(1, -2, 1, -2);
+                AutomaticSize = Enum.AutomaticSize.Y;
+                BorderSizePixel = 0;
+                ZIndex = 31001;
+                BackgroundColor3 = rgb(35, 35, 35);
+            })
+
+            Library:Create("UIPadding", {
+                Parent = holder;
+                PaddingBottom = dim(0, 1);
+            })
+
+            Library:Create("UIListLayout", {
+                Parent = holder;
+                SortOrder = Enum.SortOrder.LayoutOrder;
+            })
+
+            self.Outline = outline
+            self.Text = text
+            self.List = list
+
+            -- Обновляет подписи и подсветку
+            function self.Refresh()
+                if self.Multi then
+                    local picked = {}
+
+                    for _, value in self.Options do
+                        if self.Selected[value] then
+                            table.insert(picked, value)
+                        end
+                    end
+
+                    text.Text = #picked > 0 and table.concat(picked, ", ") or "None"
+                else
+                    text.Text = self.Value or self.Options[1]
+                end
+
+                for _, entry in self.Buttons do
+                    local active = self.Multi and self.Selected[entry.Value] or self.Value == entry.Value
+
+                    entry.Button.TextColor3 = active and themes.preset.accent or rgb(205, 205, 205)
+                    entry.Button.BackgroundTransparency = active and 1 or 0
+                    entry.Button.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json",
+                        active and Enum.FontWeight.Bold or Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                end
+            end
+
+            function self.Set(value, silent)
+                if self.Multi then
+                    self.Selected[value] = not self.Selected[value]
+                else
+                    self.Value = value
+                    list.Visible = false
+                end
+
+                self.Refresh()
+
+                if not silent and self.Callback then
+                    self.Callback(value, self.Multi and self.Selected[value] or nil)
+                end
+            end
+
+            for index, value in options do
+                local button = Library:Create("TextButton", {
+                    Parent = holder;
+                    Name = "\0";
+                    Text = value;
+                    AutoButtonColor = false;
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextSize = 13;
+                    TextColor3 = rgb(205, 205, 205);
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    ClipsDescendants = true;
+                    AutomaticSize = Enum.AutomaticSize.Y;
+                    Size = dim2(1, 0, 0, 0);
+                    LayoutOrder = index;
+                    BorderSizePixel = 0;
+                    ZIndex = 31002;
+                    BackgroundColor3 = rgb(26, 26, 26);
+                })
+
+                Library:Create("UIPadding", {
+                    Parent = button;
+                    PaddingTop = dim(0, 5);
+                    PaddingBottom = dim(0, 5);
+                    PaddingLeft = dim(0, 5);
+                    PaddingRight = dim(0, 5);
+                })
+
+                table.insert(self.Buttons, {Button = button, Value = value})
+
+                button.MouseButton1Click:Connect(function()
+                    self.Set(value)
+                end)
+            end
+
+            -- Список держится под полем
+            function self.Follow()
+                if not list.Visible then
+                    return
+                end
+
+                local rel = outline.AbsolutePosition - root.AbsolutePosition
+                local size = outline.AbsoluteSize
+
+                list.Size = dim2(0, size.X, 0, 0)
+                list.Position = dim2(0, rel.X, 0, rel.Y + size.Y)
+            end
+
+            Library:Connection(RunService.RenderStepped, self.Follow)
+
+            -- Открытие закрывает остальные комбобоксы
+            outline.MouseButton1Click:Connect(function()
+                local show = not list.Visible
+
+                for _, other in AllCombos do
+                    other.List.Visible = false
+                end
+
+                list.Visible = show
+
+                self.Follow()
+            end)
+
+            if default then
+                if self.Multi then
+                    for _, value in default do
+                        self.Selected[value] = true
+                    end
+                else
+                    self.Value = default
+                end
+            end
+
+            self.Refresh()
+
+            table.insert(AllCombos, self)
+
+            return self
+        end
+
+        -- ── Каркас превью ─────────────────────────────────────────
+        local Root = Library:Create("Frame", {
+            Parent = RightTop.Items.Background;
+            Name = "\0";
+            Position = dim2(0, 20, 0, 19);
+            Size = dim2(1, -40, 1, -34);
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            ZIndex = 3;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        -- Переключатели чамсов
+        local ChamsBar = Library:Create("Frame", {
+            Parent = Root;
+            Name = "\0";
+            Size = dim2(1, 0, 0, 18);
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            ZIndex = 4;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        Library:Create("UIListLayout", {
+            Parent = ChamsBar;
+            FillDirection = Enum.FillDirection.Horizontal;
+            HorizontalFlex = Enum.UIFlexAlignment.Fill;
+            Padding = dim(0, 3);
+            SortOrder = Enum.SortOrder.LayoutOrder;
+        })
+
+        local Preview = Library:Create("Frame", {
+            Parent = Root;
+            Name = "\0";
+            Position = dim2(0, 0, 0, 22);
+            Size = dim2(1, 0, 1, -60);
+            BorderSizePixel = 0;
+            ClipsDescendants = true;
+            ZIndex = 3;
+            BackgroundColor3 = rgb(12, 12, 12);
+        })
+
+        local PreviewInline = Library:Create("Frame", {
+            Parent = Preview;
+            Name = "\0";
+            Position = dim2(0, 1, 0, 1);
+            Size = dim2(1, -2, 1, -2);
+            BorderSizePixel = 0;
+            ClipsDescendants = true;
+            ZIndex = 4;
+            BackgroundColor3 = rgb(18, 18, 18);
+        })
+
+        -- Рамка игрока
+        local Target = Library:Create("Frame", {
+            Parent = PreviewInline;
+            Name = "\0";
+            AnchorPoint = vec2(0.5, 0.5);
+            Position = dim2(0.5, 0, 0.47, 0);
+            Size = dim2(1, 0, 0.66, 0);
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            ZIndex = 5;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        Library:Create("UIAspectRatioConstraint", {
+            Parent = Target;
+            AspectRatio = 0.48;
+            AspectType = Enum.AspectType.FitWithinMaxSize;
+            DominantAxis = Enum.DominantAxis.Height;
+        })
+
+        -- Модель
+        local Dummy = Library:Create("ImageLabel", {
+            Parent = Target;
+            Name = "\0";
+            AnchorPoint = vec2(0.5, 0.5);
+            Position = dim2(0.5, 0, 0.5, 0);
+            Size = dim2(1.45, 0, 1, 0);
+            BackgroundTransparency = 1;
+            Image = "rbxassetid://337558544";
+            ScaleType = Enum.ScaleType.Stretch;
+            BorderSizePixel = 0;
+            ZIndex = 6;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local DummyOriginal = nil
+        local DummySilhouetteContent = nil
+
+        local function MakeSilhouette()
+            pcall(function()
+                local AssetService = game:GetService("AssetService")
+                local editable = AssetService:CreateEditableImageAsync(Content.fromUri(Dummy.Image))
+
+                if not editable then
+                    return
+                end
+
+                DummyOriginal = Dummy.Image
+
+                local size = editable.Size
+                local pixels = editable:ReadPixelsBuffer(vec2(0, 0), size)
+                local count = buffer.len(pixels)
+
+                for offset = 0, count - 4, 4 do
+                    local alpha = buffer.readu8(pixels, offset + 3)
+
+                    if alpha < 128 then
+                        buffer.writeu8(pixels, offset + 3, 0)
+                    else
+                        buffer.writeu8(pixels, offset, 255)
+                        buffer.writeu8(pixels, offset + 1, 255)
+                        buffer.writeu8(pixels, offset + 2, 255)
+                        buffer.writeu8(pixels, offset + 3, 255)
+                    end
+                end
+
+                editable:WritePixelsBuffer(vec2(0, 0), size, pixels)
+                DummySilhouetteContent = Content.fromObject(editable)
+            end)
+        end
+
+        local function UseSilhouette(flat)
+            if flat then
+                if DummySilhouetteContent then
+                    Dummy.ImageContent = DummySilhouetteContent
+                end
+            elseif DummyOriginal then
+                Dummy.Image = DummyOriginal
+            end
+        end
+
+        local DummyLoader = Library:Create("TextLabel", {
+            Parent = PreviewInline;
+            Name = "\0";
+            AnchorPoint = vec2(0.5, 0.5);
+            Position = dim2(0.5, 0, 0.5, 0);
+            Size = dim2(1, 0, 0, 14);
+            Text = "loading model...";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 12;
+            TextColor3 = rgb(140, 140, 140);
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            ZIndex = 7;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        task.spawn(function()
+            local finished = false
+
+            task.spawn(function()
+                local dots = 0
+
+                while not finished do
+                    dots = (dots + 1) % 4
+
+                    if DummyLoader and DummyLoader.Parent then
+                        DummyLoader.Text = "loading model" .. string.rep(".", dots)
+                    end
+
+                    task.wait(0.35)
+                end
+            end)
+
+            local function Finish()
+                finished = true
+
+                if DummyLoader then
+                    DummyLoader:Destroy()
+                end
+            end
+
+            Dummy:GetPropertyChangedSignal("IsLoaded"):Connect(function()
+                if Dummy.IsLoaded then
+                    Finish()
+                end
+            end)
+
+            -- Элвин: 337558545 это Decal, картинка внутри неё - id минус один
+            pcall(function()
+                game:GetService("ContentProvider"):PreloadAsync({Dummy})
+            end)
+
+            local elapsed = 0
+
+            while not Dummy.IsLoaded and elapsed < 30 do
+                elapsed = elapsed + task.wait(0.25)
+            end
+
+            MakeSilhouette()
+            Finish()
+        end)
+
+        -- Box
+        local Box = Library:Create("Frame", {
+            Parent = Target;
+            Name = "\0";
+            Size = dim2(1, 0, 1, 0);
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            Visible = false;
+            ZIndex = 8;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local BoxStroke = Library:Create("UIStroke", {
+            Parent = Box;
+            Color = rgb(255, 255, 255);
+            Thickness = 1;
+            LineJoinMode = Enum.LineJoinMode.Miter;
+        })
+
+        -- Уголки для режима Corner
+        local BoxCorners = {}
+
+        for _, corner in {
+            {Anchor = vec2(0, 0), Position = dim2(0, 0, 0, 0)};
+            {Anchor = vec2(1, 0), Position = dim2(1, 0, 0, 0)};
+            {Anchor = vec2(0, 1), Position = dim2(0, 0, 1, 0)};
+            {Anchor = vec2(1, 1), Position = dim2(1, 0, 1, 0)};
+        } do
+            local holder = Library:Create("Frame", {
+                Parent = Box;
+                Name = "\0";
+                AnchorPoint = corner.Anchor;
+                Position = corner.Position;
+                Size = dim2(0.2, 0, 0.13, 0);
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Visible = false;
+                ZIndex = 9;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            local horizontal = Library:Create("Frame", {
+                Parent = holder;
+                Name = "\0";
+                AnchorPoint = corner.Anchor;
+                Position = corner.Position;
+                Size = dim2(1, 0, 0, 1);
+                BorderSizePixel = 0;
+                ZIndex = 9;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            local vertical = Library:Create("Frame", {
+                Parent = holder;
+                Name = "\0";
+                AnchorPoint = corner.Anchor;
+                Position = corner.Position;
+                Size = dim2(0, 1, 1, 0);
+                BorderSizePixel = 0;
+                ZIndex = 9;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            table.insert(BoxCorners, {Holder = holder, Lines = {horizontal, vertical}})
+        end
+
+        local BoxSettings = {Style = "Full", Color = rgb(255, 255, 255), Transparency = 0}
+
+        local function RefreshBox()
+            local isCorner = BoxSettings.Style == "Corner"
+
+            BoxStroke.Color = BoxSettings.Color
+            BoxStroke.Transparency = isCorner and 1 or BoxSettings.Transparency
+
+            for _, corner in BoxCorners do
+                corner.Holder.Visible = isCorner
+
+                for _, line in corner.Lines do
+                    line.BackgroundColor3 = BoxSettings.Color
+                    line.BackgroundTransparency = BoxSettings.Transparency
+                end
+            end
+        end
+
+        -- Health bar
+        local Health = Library:Create("Frame", {
+            Parent = Target;
+            Name = "\0";
+            AnchorPoint = vec2(1, 0);
+            Position = dim2(0, -5, 0, 0);
+            Size = dim2(0, 4, 1, 0);
+            BorderSizePixel = 0;
+            Visible = false;
+            ZIndex = 8;
+            BackgroundColor3 = rgb(0, 0, 0);
+        })
+
+        Library:Create("UICorner", {
+            Parent = Health;
+            CornerRadius = dim(0, 2);
+        })
+
+        local HealthFill = Library:Create("Frame", {
+            Parent = Health;
+            Name = "\0";
+            AnchorPoint = vec2(0, 1);
+            Position = dim2(0, 0, 1, 0);
+            Size = dim2(1, 0, 1, 0);
+            BorderSizePixel = 0;
+            ZIndex = 9;
+            BackgroundColor3 = rgb(88, 214, 74);
+        })
+
+        Library:Create("UICorner", {
+            Parent = HealthFill;
+            CornerRadius = dim(0, 2);
+        })
+
+        local HealthGradient = Library:Create("UIGradient", {
+            Parent = HealthFill;
+            Rotation = 90;
+            Enabled = false;
+            Color = rgbseq{rgbkey(0, rgb(88, 214, 74)), rgbkey(1, rgb(214, 79, 79))};
+        })
+
+        local HealthText = Library:Create("TextLabel", {
+            Parent = HealthFill;
+            Name = "\0";
+            Text = "100";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 11;
+            TextColor3 = rgb(255, 255, 255);
+            TextStrokeTransparency = 0;
+            BackgroundTransparency = 1;
+            AnchorPoint = vec2(0.5, 1);
+            Position = dim2(0.5, 0, 0, -1);
+            AutomaticSize = Enum.AutomaticSize.XY;
+            BorderSizePixel = 0;
+            ZIndex = 12;
+            Visible = false;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local HealthSettings = {
+            Text = false;
+            Gradient = false;
+            Color = rgb(88, 214, 74);
+            ColorTo = rgb(214, 79, 79);
+        }
+
+        local function RefreshHealth()
+            HealthText.Visible = Health.Visible and HealthSettings.Text
+
+            HealthGradient.Enabled = HealthSettings.Gradient
+
+            if HealthSettings.Gradient then
+                HealthFill.BackgroundColor3 = rgb(255, 255, 255)
+                HealthGradient.Color = rgbseq{
+                    rgbkey(0, HealthSettings.Color),
+                    rgbkey(1, HealthSettings.ColorTo),
+                }
+            else
+                HealthFill.BackgroundColor3 = HealthSettings.Color
+            end
+        end
+
+        -- Ammo bar
+        local Ammo = Library:Create("Frame", {
+            Parent = Target;
+            Name = "\0";
+            Position = dim2(0, 0, 1, 5);
+            Size = dim2(1, 0, 0, 4);
+            BorderSizePixel = 0;
+            Visible = false;
+            ZIndex = 8;
+            BackgroundColor3 = rgb(0, 0, 0);
+        })
+
+        Library:Create("UICorner", {
+            Parent = Ammo;
+            CornerRadius = dim(0, 2);
+        })
+
+        local AmmoFill = Library:Create("Frame", {
+            Parent = Ammo;
+            Name = "\0";
+            Size = dim2(0.8, 0, 1, 0);
+            BorderSizePixel = 0;
+            ZIndex = 9;
+            BackgroundColor3 = rgb(205, 205, 205);
+        })
+
+        Library:Create("UICorner", {
+            Parent = AmmoFill;
+            CornerRadius = dim(0, 2);
+        })
+
+        local AmmoGradient = Library:Create("UIGradient", {
+            Parent = AmmoFill;
+            Rotation = 0;
+            Enabled = false;
+            Color = rgbseq{rgbkey(0, rgb(205, 205, 205)), rgbkey(1, rgb(120, 120, 120))};
+        })
+
+        local AmmoText = Library:Create("TextLabel", {
+            Parent = AmmoFill;
+            Name = "\0";
+            Text = "30";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 11;
+            TextColor3 = rgb(255, 255, 255);
+            TextStrokeTransparency = 0;
+            BackgroundTransparency = 1;
+            AnchorPoint = vec2(1, 0);
+            Position = dim2(1, 1, 1, 1);
+            AutomaticSize = Enum.AutomaticSize.XY;
+            BorderSizePixel = 0;
+            ZIndex = 12;
+            Visible = false;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local AmmoSettings = {
+            Text = false;
+            Gradient = false;
+            Color = rgb(205, 205, 205);
+            ColorTo = rgb(120, 120, 120);
+        }
+
+        local function RefreshAmmo()
+            AmmoText.Visible = Ammo.Visible and AmmoSettings.Text
+
+            AmmoGradient.Enabled = AmmoSettings.Gradient
+
+            if AmmoSettings.Gradient then
+                AmmoFill.BackgroundColor3 = rgb(255, 255, 255)
+                AmmoGradient.Color = rgbseq{
+                    rgbkey(0, AmmoSettings.Color),
+                    rgbkey(1, AmmoSettings.ColorTo),
+                }
+            else
+                AmmoFill.BackgroundColor3 = AmmoSettings.Color
+            end
+        end
+
+        -- Полоски умеют вставать на любую сторону бокса
+        local Bars = {}
+        local SlotList = nil
+
+        local function ApplyBarSlot(bar, fill, slotId, thickness, depth)
+            local side = slotId:match("^Left") and "Left"
+                or slotId:match("^Right") and "Right"
+                or slotId:match("^Top") and "Top"
+                or slotId:match("^Bottom") and "Bottom"
+                or slotId
+
+            local shift = 5 + (depth or 0) * (thickness + 2)
+
+            if side == "Left" or side == "Right" then
+                bar.AnchorPoint = vec2(side == "Left" and 1 or 0, 0)
+                bar.Position = dim2(side == "Left" and 0 or 1, side == "Left" and -shift or shift, 0, 0)
+                bar.Size = dim2(0, thickness, 1, 0)
+
+                fill.AnchorPoint = vec2(0, 1)
+                fill.Position = dim2(0, 0, 1, 0)
+                fill.Size = dim2(1, 0, fill:GetAttribute("Value") or 1, 0)
+            else
+                bar.AnchorPoint = vec2(0, side == "Top" and 1 or 0)
+                bar.Position = dim2(0, 0, side == "Top" and 0 or 1, side == "Top" and -shift or shift)
+                bar.Size = dim2(1, 0, 0, thickness)
+
+                fill.AnchorPoint = vec2(0, 0)
+                fill.Position = dim2(0, 0, 0, 0)
+                fill.Size = dim2(fill:GetAttribute("Value") or 1, 0, 1, 0)
+            end
+        end
+
+        local function LayoutBars()
+            local used = {}
+            local counts = {}
+
+            for _, entry in Bars do
+                if not entry.Element.Objects[1].Visible then
+                    continue
+                end
+
+                local slotId = entry.Element.Slot
+                local side = slotId:match("^Left") and "Left"
+                    or slotId:match("^Right") and "Right"
+                    or slotId:match("^Top") and "Top"
+                    or slotId:match("^Bottom") and "Bottom"
+                    or slotId
+
+                local depth = counts[side] or 0
+                counts[side] = depth + 1
+
+                used[side] = math.max(used[side] or 0, 5 + (depth + 1) * (entry.Bar.Thickness + 2))
+
+                ApplyBarSlot(entry.Element.Objects[1], entry.Bar.Fill, slotId, entry.Bar.Thickness, depth)
+            end
+
+            if not SlotList then
+                return
+            end
+
+            for _, slot in SlotList do
+                local push = used[slot.Side] or 0
+                local base = slot.BasePosition
+
+                if slot.Side == "Left" then
+                    slot.Holder.Position = dim2(base.X.Scale, base.X.Offset - push, base.Y.Scale, base.Y.Offset)
+                elseif slot.Side == "Right" then
+                    slot.Holder.Position = dim2(base.X.Scale, base.X.Offset + push, base.Y.Scale, base.Y.Offset)
+                elseif slot.Side == "Top" then
+                    slot.Holder.Position = dim2(base.X.Scale, base.X.Offset, base.Y.Scale, base.Y.Offset - push)
+                else
+                    slot.Holder.Position = dim2(base.X.Scale, base.X.Offset, base.Y.Scale, base.Y.Offset + push)
+                end
+            end
+        end
+
+        HealthFill:SetAttribute("Value", 1)
+        AmmoFill:SetAttribute("Value", 0.8)
+
+        table.insert(Library.NoDrag, Preview)
+
+        -- ── Чамсы ─────────────────────────────────────────────────
+        local ChamsState = {Team = "Enemy", Mode = "Visible"}
+
+        local function CurrentSource()
+            return ChamsSources[ChamsState.Team][ChamsState.Mode]
+        end
+
+        local ChamsStyle = "Flat"
+
+        local function RefreshChams()
+            local source = CurrentSource()
+            local data = Flags[source.Flag] or {}
+
+            local swatch = source.Picker.Items and source.Picker.Items.InnerObject
+            local col = data.Color or (swatch and swatch.BackgroundColor3) or rgb(255, 255, 255)
+            local alpha = data.Transparency or (swatch and swatch.BackgroundTransparency) or 0
+
+            if not source.Toggle.Enabled then
+                UseSilhouette(false)
+
+                Dummy.ImageColor3 = rgb(255, 255, 255)
+                Dummy.ImageTransparency = 0
+
+                return
+            end
+
+            ChamsStyle = Flags[source.StyleFlag] or "Flat"
+
+            UseSilhouette(ChamsStyle == "Flat")
+
+            Dummy.ImageColor3 = col
+            Dummy.ImageTransparency = alpha
+        end
+
+        local ChamsButtons = {}
+
+        local function RefreshChamsButtons()
+            for _, entry in ChamsButtons do
+                local active = (entry.Kind == "Team" and ChamsState.Team == entry.Value)
+                    or (entry.Kind == "Mode" and ChamsState.Mode == entry.Value)
+
+                entry.Button.TextColor3 = active and themes.preset.accent or rgb(150, 150, 150)
+                entry.Button.BackgroundColor3 = active and rgb(34, 34, 34) or rgb(22, 22, 22)
+            end
+        end
+
+        for order, info in {
+            {Text = "Enemy", Kind = "Team", Value = "Enemy"};
+            {Text = "Team", Kind = "Team", Value = "Team"};
+            {Text = "Visible", Kind = "Mode", Value = "Visible"};
+            {Text = "Invisible", Kind = "Mode", Value = "Invisible"};
+        } do
+            local button = Library:Create("TextButton", {
+                Parent = ChamsBar;
+                Name = "\0";
+                Text = info.Text;
+                AutoButtonColor = false;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 12;
+                TextColor3 = rgb(150, 150, 150);
+                Size = dim2(0, 0, 1, 0);
+                LayoutOrder = order;
+                BorderSizePixel = 0;
+                ZIndex = 5;
+                BackgroundColor3 = rgb(22, 22, 22);
+            })
+
+            table.insert(ChamsButtons, {Button = button, Kind = info.Kind, Value = info.Value})
+
+            button.MouseButton1Click:Connect(function()
+                ChamsState[info.Kind] = info.Value
+
+                RefreshChamsButtons()
+                RefreshChams()
+            end)
+        end
+
+        -- Живое обновление при смене чекбокса, цвета или стиля
+        for _, team in ChamsSources do
+            for _, source in team do
+                local previousToggle = source.Toggle.Callback
+
+                source.Toggle.Callback = function(...)
+                    if previousToggle then
+                        previousToggle(...)
+                    end
+
+                    RefreshChams()
+                end
+
+                if source.Style then
+                    local previousStyle = source.Style.Callback
+
+                    source.Style.Callback = function(...)
+                        if previousStyle then
+                            previousStyle(...)
+                        end
+
+                        RefreshChams()
+                    end
+                end
+
+                local swatch = source.Picker.Items and source.Picker.Items.InnerObject
+
+                if swatch then
+                    swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(RefreshChams)
+                    swatch:GetPropertyChangedSignal("BackgroundTransparency"):Connect(RefreshChams)
+                end
+            end
+        end
+
+        RefreshChamsButtons()
+        RefreshChams()
+
+        -- 12 точек привязки вокруг бокса
+        local Slots = {}
+
+        local function MakeSlot(id, props)
+            local holder = Library:Create("Frame", {
+                Parent = Target;
+                Name = "\0";
+                AnchorPoint = props.Anchor;
+                Position = props.Position;
+                Size = props.Size;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                ZIndex = 10;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+
+            Library:Create("UIListLayout", {
+                Parent = holder;
+                Padding = dim(0, 1);
+                HorizontalAlignment = props.Horizontal;
+                VerticalAlignment = props.Vertical;
+                SortOrder = Enum.SortOrder.LayoutOrder;
+            })
+
+            local slot = {
+                Id = id;
+                Holder = holder;
+                Align = props.Align or Enum.TextXAlignment.Center;
+                BasePosition = props.Position;
+                Side = props.Side;
+            }
+
+            table.insert(Slots, slot)
+
+            return slot
+        end
+
+        local function FindSlot(id)
+            for _, slot in Slots do
+                if slot.Id == id then
+                    return slot
+                end
+            end
+        end
+
+        -- Сверху / снизу - по три точки
+        for _, side in {"Top", "Bottom"} do
+            local isTop = side == "Top"
+
+            for _, part in {"Left", "Center", "Right"} do
+                local anchorX = part == "Left" and 0 or (part == "Center" and 0.5 or 1)
+
+                MakeSlot(side .. part, {
+                    Side = side;
+                    Anchor = vec2(anchorX, isTop and 1 or 0);
+                    Position = dim2(part == "Left" and 0.10 or (part == "Center" and 0.5 or 0.90), 0, isTop and 0 or 1, isTop and -3 or 3);
+                    Size = dim2(0.55, 0, 0, isTop and 30 or 46);
+                    Horizontal = part == "Left" and Enum.HorizontalAlignment.Left
+                        or (part == "Center" and Enum.HorizontalAlignment.Center or Enum.HorizontalAlignment.Right);
+                    Vertical = isTop and Enum.VerticalAlignment.Bottom or Enum.VerticalAlignment.Top;
+                    Align = part == "Left" and Enum.TextXAlignment.Left
+                        or (part == "Center" and Enum.TextXAlignment.Center or Enum.TextXAlignment.Right);
+                })
+            end
+        end
+
+        -- Слева / справа - по три точки
+        for _, side in {"Left", "Right"} do
+            local isLeft = side == "Left"
+
+            for _, part in {"Top", "Middle", "Bottom"} do
+                local anchorY = part == "Top" and 0 or (part == "Middle" and 0.5 or 1)
+
+                MakeSlot(side .. part, {
+                    Side = side;
+                    Anchor = vec2(isLeft and 1 or 0, anchorY);
+                    Position = dim2(isLeft and 0 or 1, isLeft and -3 or 3, anchorY, 0);
+                    Size = dim2(0, 74, 0.34, 0);
+                    Horizontal = isLeft and Enum.HorizontalAlignment.Right or Enum.HorizontalAlignment.Left;
+                    Vertical = part == "Top" and Enum.VerticalAlignment.Top
+                        or (part == "Middle" and Enum.VerticalAlignment.Center or Enum.VerticalAlignment.Bottom);
+                    Align = isLeft and Enum.TextXAlignment.Right or Enum.TextXAlignment.Left;
+                })
+            end
+        end
+
+        SlotList = Slots
+
+        local function MakeText(text, slotId, color, order)
+            local slot = FindSlot(slotId)
+
+            return Library:Create("TextLabel", {
+                Parent = slot.Holder;
+                Name = "\0";
+                Text = text;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 12;
+                TextColor3 = color or rgb(235, 235, 235);
+                TextStrokeTransparency = 0;
+                BackgroundTransparency = 1;
+                Size = dim2(1, 0, 0, 13);
+                LayoutOrder = order or 1;
+                TextXAlignment = slot.Align;
+                BorderSizePixel = 0;
+                ZIndex = 11;
+                Visible = false;
+                BackgroundColor3 = rgb(255, 255, 255);
+            })
+        end
+
+        local Name = MakeText("Player", "TopCenter", rgb(235, 235, 235), 1)
+
+        -- Аватар над ником
+        local NameAvatar = Library:Create("Frame", {
+            Parent = Name;
+            Name = "\0";
+            AnchorPoint = vec2(0.5, 1);
+            Position = dim2(0.5, 0, 0, -2);
+            Size = dim2(0, 20, 0, 20);
+            ClipsDescendants = true;
+            BorderSizePixel = 0;
+            ZIndex = 11;
+            Visible = false;
+            BackgroundColor3 = rgb(30, 30, 30);
+        })
+
+        Library:Create("UICorner", {
+            Parent = NameAvatar;
+            CornerRadius = dim(1, 0);
+        })
+
+        Library:Create("UIStroke", {
+            Parent = NameAvatar;
+            Color = rgb(0, 0, 0);
+            Thickness = 1;
+        })
+
+        local NameAvatarImage = Library:Create("ImageLabel", {
+            Parent = NameAvatar;
+            Name = "\0";
+            Size = dim2(1, 0, 1, 0);
+            BackgroundTransparency = 1;
+            Image = "rbxassetid://6403436082";
+            ScaleType = Enum.ScaleType.Fit;
+            BorderSizePixel = 0;
+            ZIndex = 11;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        Library:Create("UICorner", {
+            Parent = NameAvatarImage;
+            CornerRadius = dim(1, 0);
+        })
+
+        task.spawn(function()
+            local path = Library.Directory .. "/avatar.png"
+            local asset = nil
+
+            pcall(function()
+                if isfile(path) then
+                    asset = getcustomasset(path)
+                end
+            end)
+
+            if asset then
+                NameAvatarImage.Image = asset
+            end
+        end)
+
+        local NameSettings = {Avatar = false, AvatarSize = 20}
+
+        local function RefreshName()
+            NameAvatar.Visible = Name.Visible and NameSettings.Avatar
+            NameAvatar.Size = dim2(0, NameSettings.AvatarSize, 0, NameSettings.AvatarSize)
+        end
+
+        local Distance = MakeText("12m", "BottomCenter", rgb(235, 235, 235), 1)
+
+        local DistanceSettings = {Unit = "Meters", Value = 12}
+
+        local function RefreshDistance()
+            if DistanceSettings.Unit == "Studs" then
+                Distance.Text = math.floor(DistanceSettings.Value * 3.571) .. " studs"
+            elseif DistanceSettings.Unit == "Feet" then
+                Distance.Text = math.floor(DistanceSettings.Value * 3.281) .. "ft"
+            else
+                Distance.Text = DistanceSettings.Value .. "m"
+            end
+        end
+
+        local Ping = MakeText("34ms", "BottomCenter", rgb(235, 235, 235), 2)
+
+        local PingSettings = {Checker = false, Color = rgb(235, 235, 235), Value = 34}
+
+        local function RefreshPing()
+            if PingSettings.Checker then
+                local value = PingSettings.Value
+
+                if value <= 50 then
+                    Ping.TextColor3 = rgb(88, 214, 74)
+                elseif value <= 120 then
+                    Ping.TextColor3 = rgb(230, 200, 80)
+                else
+                    Ping.TextColor3 = rgb(214, 79, 79)
+                end
+            else
+                Ping.TextColor3 = PingSettings.Color
+            end
+        end
+
+        local ItemName = MakeText("AK-47", "BottomCenter", rgb(190, 190, 190), 3)
+
+        local ItemIcon = Library:Create("ImageLabel", {
+            Parent = ItemName;
+            Name = "\0";
+            AnchorPoint = vec2(0.5, 0);
+            Position = dim2(0.5, 0, 1, 2);
+            Size = dim2(0, 14, 0, 14);
+            BackgroundTransparency = 1;
+            Image = "rbxassetid://8547258459";
+            ScaleType = Enum.ScaleType.Fit;
+            BorderSizePixel = 0;
+            ZIndex = 11;
+            Visible = false;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local ItemSettings = {Text = true, Icon = false}
+
+        local function PlaceItemIcon()
+            if not ItemIcon.Visible then
+                return
+            end
+
+            local align = ItemName.TextXAlignment
+            local anchorX = align == Enum.TextXAlignment.Left and 0
+                or (align == Enum.TextXAlignment.Right and 1 or 0.5)
+
+            ItemIcon.AnchorPoint = vec2(anchorX, ItemSettings.Text and 0 or 0.5)
+            ItemIcon.Position = dim2(anchorX, 0, ItemSettings.Text and 1 or 0.5, ItemSettings.Text and 2 or 0)
+        end
+
+        local function RefreshItem()
+            local visible = ESPFlags["Item"]
+
+            -- Текст реально скрываем, иначе он остаётся внутри иконки
+            ItemName.Text = ItemSettings.Text and "AK-47" or ""
+            ItemName.TextTransparency = ItemSettings.Text and 0 or 1
+
+            ItemIcon.Visible = visible and ItemSettings.Icon or false
+
+            PlaceItemIcon()
+        end
+
+        ItemName:GetPropertyChangedSignal("TextBounds"):Connect(PlaceItemIcon)
+        ItemName:GetPropertyChangedSignal("AbsoluteSize"):Connect(PlaceItemIcon)
+        ItemName:GetPropertyChangedSignal("TextXAlignment"):Connect(PlaceItemIcon)
+
+        -- Ресурсы: три строки в одном слоте
+        local ResWood = MakeText("W: 1250", "LeftTop", rgb(196, 148, 84), 1)
+        local ResMetal = MakeText("M: 430", "LeftTop", rgb(170, 170, 180), 2)
+        local ResScrap = MakeText("S: 88", "LeftTop", rgb(150, 190, 120), 3)
+
+        local ResourceParts = {
+            {Key = "Wood", Label = ResWood};
+            {Key = "Metal", Label = ResMetal};
+            {Key = "Scrap", Label = ResScrap};
+        }
+
+        local ResourceSettings = {Wood = true, Metal = false, Scrap = false}
+
+        local function RefreshResources()
+            local visible = ESPFlags["Resources"]
+
+            for _, part in ResourceParts do
+                part.Label.Visible = visible and ResourceSettings[part.Key] or false
+            end
+        end
+
+        local Hit = MakeText("Hit", "RightTop", rgb(214, 79, 79), 1)
+
+        -- Список элементов для чипов
+        local Elements = {
+            {Name = "Box", Objects = {Box}},
+            {Name = "Health", Objects = {Health}, Slot = "LeftMiddle", Bar = {Fill = HealthFill, Thickness = 4}},
+            {Name = "Ammo Bar", Objects = {Ammo}, Slot = "BottomCenter", Bar = {Fill = AmmoFill, Thickness = 4}},
+            {Name = "Name", Objects = {Name}, Slot = "TopCenter"},
+            {Name = "Distance", Objects = {Distance}, Slot = "BottomCenter"},
+            {Name = "Ping", Objects = {Ping}, Slot = "BottomCenter"},
+            {Name = "Resources", Objects = {ResWood, ResMetal, ResScrap}, Slot = "LeftTop"},
+            {Name = "Item", Objects = {ItemName}, Slot = "BottomCenter"},
+            {Name = "Hit", Objects = {Hit}, Slot = "RightTop"},
+        }
+
+        for _, element in Elements do
+            if element.Bar then
+                table.insert(Bars, {Element = element, Bar = element.Bar})
+            end
+        end
+
+        -- Drag & drop с магнитом к ближайшей точке
+        local Dragging = nil
+        local Ghost = nil
+
+        local function ClosestSlot()
+            local mousePos = InputService:GetMouseLocation()
+            local point = vec2(mousePos.X, mousePos.Y - gui_offset)
+
+            local best, bestDist = nil, math.huge
+
+            for _, slot in Slots do
+                local holder = slot.Holder
+                local center = holder.AbsolutePosition + (holder.AbsoluteSize / 2)
+                local distance = (center - point).Magnitude
+
+                if distance < bestDist then
+                    bestDist = distance
+                    best = slot
+                end
+            end
+
+            return best
+        end
+
+        for _, element in Elements do
+            if not element.Slot then
+                continue
+            end
+
+            local object = element.Objects[1]
+
+            object.Active = true
+            object.Selectable = false
+
+            local function BeginDrag(input)
+                if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                    return
+                end
+
+                if Dragging then
+                    return
+                end
+
+                if Ghost then
+                    Ghost:Destroy()
+                    Ghost = nil
+                end
+
+                Dragging = element
+                Library.DragLock = true
+
+                local mousePos = InputService:GetMouseLocation()
+                local origin = PreviewInline.AbsolutePosition
+
+                local position = dim2(
+                    0, mousePos.X - origin.X,
+                    0, mousePos.Y - gui_offset - origin.Y
+                )
+
+                if element.Bar then
+                    object.BackgroundTransparency = 0.65
+                    element.Bar.Fill.BackgroundTransparency = 0.65
+
+                    Ghost = Library:Create("Frame", {
+                        Parent = PreviewInline;
+                        Name = "\0";
+                        AnchorPoint = vec2(0.5, 0.5);
+                        Position = position;
+                        Size = dim2(0, object.AbsoluteSize.X, 0, object.AbsoluteSize.Y);
+                        BorderSizePixel = 0;
+                        Visible = false;
+                        ZIndex = 15;
+                        BackgroundColor3 = element.Bar.Fill.BackgroundColor3;
+                    })
+
+                    Ghost:SetAttribute("Short", element.Bar.Thickness)
+                else
+                    object.TextTransparency = 0.65
+
+                    Ghost = Library:Create("TextLabel", {
+                        Parent = PreviewInline;
+                        Name = "\0";
+                        Text = object.Text;
+                        FontFace = object.FontFace;
+                        TextSize = object.TextSize;
+                        TextColor3 = object.TextColor3;
+                        TextStrokeTransparency = 0;
+                        BackgroundTransparency = 1;
+                        AutomaticSize = Enum.AutomaticSize.XY;
+                        AnchorPoint = vec2(0.5, 0.5);
+                        Position = position;
+                        Visible = false;
+                        BorderSizePixel = 0;
+                        ZIndex = 15;
+                        BackgroundColor3 = rgb(255, 255, 255);
+                    })
+                end
+
+                Ghost.Visible = true
+            end
+
+            object.InputBegan:Connect(BeginDrag)
+
+            -- Item можно таскать и за иконку
+            if element.Name == "Item" then
+                ItemIcon.Active = true
+                ItemIcon.Selectable = false
+                ItemIcon.InputBegan:Connect(BeginDrag)
+            end
+        end
+
+        Library:Connection(InputService.InputChanged, function(input)
+            if not Dragging or not Ghost or input.UserInputType ~= Enum.UserInputType.MouseMovement then
+                return
+            end
+
+            local mousePos = InputService:GetMouseLocation()
+            local origin = PreviewInline.AbsolutePosition
+
+            Ghost.Position = dim2(
+                0, mousePos.X - origin.X,
+                0, mousePos.Y - gui_offset - origin.Y
+            )
+
+            -- Полоска сразу поворачивается под ближайшую сторону
+            if Dragging.Bar then
+                local target = ClosestSlot()
+
+                if target then
+                    local vertical = target.Id:match("^Left") or target.Id:match("^Right")
+                    local long = vertical and Target.AbsoluteSize.Y or Target.AbsoluteSize.X
+                    local short = Ghost:GetAttribute("Short")
+
+                    Ghost.Size = vertical and dim2(0, short, 0, long) or dim2(0, long, 0, short)
+                end
+            end
+        end)
+
+        Library:Connection(InputService.InputEnded, function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                return
+            end
+
+            if not Dragging then
+                if Ghost then
+                    Ghost:Destroy()
+                    Ghost = nil
+                end
+
+                return
+            end
+
+            local element = Dragging
+            local object = element.Objects[1]
+            local target = ClosestSlot()
+
+            if target then
+                element.Slot = target.Id
+
+                if element.Bar then
+                    LayoutBars()
+                else
+                    object.Parent = target.Holder
+                    object.TextXAlignment = target.Align
+                end
+            end
+
+            if Ghost then
+                Ghost:Destroy()
+                Ghost = nil
+            end
+
+            if element.Bar then
+                object.BackgroundTransparency = 0
+                element.Bar.Fill.BackgroundTransparency = 0
+            else
+                object.TextTransparency = 0
+            end
+
+            Dragging = nil
+            Library.DragLock = false
+        end)
+
+        -- Нижний блок: заголовок + чипы
+        local Bottom = Library:Create("Frame", {
+            Parent = Root;
+            Name = "\0";
+            AnchorPoint = vec2(0, 0);
+            Position = dim2(0, 0, 0, 0);
+            Size = dim2(1, 0, 0, 0);
+            AutomaticSize = Enum.AutomaticSize.Y;
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            ZIndex = 3;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        Library:Create("UIListLayout", {
+            Parent = Bottom;
+            Padding = dim(0, 5);
+            SortOrder = Enum.SortOrder.LayoutOrder;
+        })
+
+        Library:Create("TextLabel", {
+            Parent = Bottom;
+            Name = "\0";
+            Text = "Elements";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+            TextSize = 13;
+            TextColor3 = rgb(235, 235, 235);
+            TextXAlignment = Enum.TextXAlignment.Left;
+            BackgroundTransparency = 1;
+            Size = dim2(1, 0, 0, 14);
+            LayoutOrder = 1;
+            ZIndex = 3;
+            BorderSizePixel = 0;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local Pool = Library:Create("Frame", {
+            Parent = Bottom;
+            Name = "\0";
+            Size = dim2(1, 0, 0, 0);
+            AutomaticSize = Enum.AutomaticSize.Y;
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            LayoutOrder = 2;
+            ZIndex = 3;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        Library:Create("UIListLayout", {
+            Parent = Pool;
+            FillDirection = Enum.FillDirection.Horizontal;
+            Wraps = true;
+            Padding = dim(0, 4);
+            VerticalAlignment = Enum.VerticalAlignment.Top;
+            SortOrder = Enum.SortOrder.LayoutOrder;
+        })
+
+        local ContextMenu = Library:Create("Frame", {
+            Parent = Root;
+            Name = "\0";
+            Visible = false;
+            Size = dim2(0, 156, 0, 0);
+            AutomaticSize = Enum.AutomaticSize.Y;
+            BorderSizePixel = 0;
+            ZIndex = 30000;
+            BackgroundColor3 = rgb(12, 12, 12);
+        })
+
+        -- Рамка как у секций библиотеки
+        local ContextBorder = Library:Create("Frame", {
+            Parent = ContextMenu;
+            Name = "\0";
+            Position = dim2(0, 1, 0, 1);
+            Size = dim2(1, -2, 1, -2);
+            AutomaticSize = Enum.AutomaticSize.Y;
+            BorderSizePixel = 0;
+            ZIndex = 30001;
+            BackgroundColor3 = rgb(40, 40, 40);
+        })
+
+        local ContextInline = Library:Create("Frame", {
+            Parent = ContextBorder;
+            Name = "\0";
+            Position = dim2(0, 1, 0, 1);
+            Size = dim2(1, -2, 1, -2);
+            AutomaticSize = Enum.AutomaticSize.Y;
+            BorderSizePixel = 0;
+            ZIndex = 30002;
+            BackgroundColor3 = rgb(23, 23, 23);
+        })
+
+        Library:Create("UIListLayout", {
+            Parent = ContextInline;
+            Padding = dim(0, 6);
+            SortOrder = Enum.SortOrder.LayoutOrder;
+        })
+
+        Library:Create("UIPadding", {
+            Parent = ContextInline;
+            PaddingTop = dim(0, 7);
+            PaddingBottom = dim(0, 9);
+            PaddingLeft = dim(0, 8);
+            PaddingRight = dim(0, 8);
+        })
+
+        local ContextTitle = Library:Create("TextLabel", {
+            Parent = ContextInline;
+            Name = "\0";
+            Text = "Box";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+            TextSize = 13;
+            TextColor3 = themes.preset.accent;
+            TextXAlignment = Enum.TextXAlignment.Left;
+            BackgroundTransparency = 1;
+            Size = dim2(1, 0, 0, 13);
+            LayoutOrder = 1;
+            BorderSizePixel = 0;
+            ZIndex = 30002;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        -- Разделитель
+        Library:Create("Frame", {
+            Parent = ContextInline;
+            Name = "\0";
+            Size = dim2(1, 0, 0, 1);
+            LayoutOrder = 2;
+            BorderSizePixel = 0;
+            ZIndex = 30002;
+            BackgroundColor3 = rgb(45, 45, 45);
+        })
+
+        -- Секция настроек Box
+        local BoxSection = MakeSection(ContextInline)
+        local StyleCombo = MakeCombo(BoxSection, "Type", 3, {"Full", "Corner"}, Root, false, "Full")
+
+        StyleCombo.Callback = function(value)
+            BoxSettings.Style = value
+
+            RefreshBox()
+        end
+
+        local _, BoxHost = MakeColorRow(BoxSection, "Color", 6)
+        local BoxPicker = LiftPicker(BoxHost:Colorpicker({
+            Flag = "ESPBoxColor";
+            Color = PickerColor(rgb(255, 255, 255));
+        }))
+
+        do
+            local swatch = BoxPicker.Items and BoxPicker.Items.InnerObject
+
+            if swatch then
+                local function Sync()
+                    BoxSettings.Color = swatch.BackgroundColor3
+                    BoxSettings.Transparency = swatch.BackgroundTransparency
+
+                    RefreshBox()
+                end
+
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(Sync)
+                swatch:GetPropertyChangedSignal("BackgroundTransparency"):Connect(Sync)
+
+                Sync()
+            end
+        end
+
+        -- Секция настроек Health
+        local HealthSection = MakeSection(ContextInline)
+
+        MakeCheckbox(HealthSection, "Text", 1, function(state)
+            HealthSettings.Text = state
+            Flags.ESPHealthText = state
+
+            RefreshHealth()
+        end)
+
+        local _, HealthHost = MakeColorRow(HealthSection, "Color", 3, 44)
+        local HealthPicker = LiftPicker(HealthHost:Colorpicker({
+            Flag = "ESPHealthColor";
+            Color = PickerColor(rgb(88, 214, 74));
+        }))
+        local HealthPickerTo = LiftPicker(HealthHost:Colorpicker({
+            Flag = "ESPHealthColorTo";
+            Color = PickerColor(rgb(214, 79, 79));
+        }))
+
+        local function RefreshGradientVisibility()
+            local object = HealthPickerTo.Items and HealthPickerTo.Items.ColorpickerObject
+
+            if object then
+                object.Visible = HealthSettings.Gradient
+            end
+
+            if not HealthSettings.Gradient and HealthPickerTo.Open then
+                HealthPickerTo.Open = false
+                HealthPickerTo.SetVisible(false)
+            end
+        end
+
+        MakeCheckbox(HealthSection, "Gradient", 2, function(state)
+            HealthSettings.Gradient = state
+            Flags.ESPHealthGradient = state
+
+            RefreshGradientVisibility()
+            RefreshHealth()
+        end)
+
+        for _, entry in {{HealthPicker, "Color"}, {HealthPickerTo, "ColorTo"}} do
+            local swatch = entry[1].Items and entry[1].Items.InnerObject
+
+            if swatch then
+                local function Sync()
+                    HealthSettings[entry[2]] = swatch.BackgroundColor3
+                    RefreshHealth()
+                end
+
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(Sync)
+                Sync()
+            end
+        end
+
+        RefreshGradientVisibility()
+        RefreshHealth()
+
+        -- Секция настроек Ammo Bar
+        local AmmoSection = MakeSection(ContextInline)
+
+        MakeCheckbox(AmmoSection, "Text", 1, function(state)
+            AmmoSettings.Text = state
+            Flags.ESPAmmoText = state
+
+            RefreshAmmo()
+        end)
+
+        local _, AmmoHost = MakeColorRow(AmmoSection, "Color", 3, 44)
+        local AmmoPicker = LiftPicker(AmmoHost:Colorpicker({
+            Flag = "ESPAmmoColor";
+            Color = PickerColor(rgb(205, 205, 205));
+        }))
+        local AmmoPickerTo = LiftPicker(AmmoHost:Colorpicker({
+            Flag = "ESPAmmoColorTo";
+            Color = PickerColor(rgb(120, 120, 120));
+        }))
+
+        local function RefreshAmmoGradientVisibility()
+            local object = AmmoPickerTo.Items and AmmoPickerTo.Items.ColorpickerObject
+
+            if object then
+                object.Visible = AmmoSettings.Gradient
+            end
+
+            if not AmmoSettings.Gradient and AmmoPickerTo.Open then
+                AmmoPickerTo.Open = false
+                AmmoPickerTo.SetVisible(false)
+            end
+        end
+
+        MakeCheckbox(AmmoSection, "Gradient", 2, function(state)
+            AmmoSettings.Gradient = state
+            Flags.ESPAmmoGradient = state
+
+            RefreshAmmoGradientVisibility()
+            RefreshAmmo()
+        end)
+
+        for _, entry in {{AmmoPicker, "Color"}, {AmmoPickerTo, "ColorTo"}} do
+            local swatch = entry[1].Items and entry[1].Items.InnerObject
+
+            if swatch then
+                local function Sync()
+                    AmmoSettings[entry[2]] = swatch.BackgroundColor3
+                    RefreshAmmo()
+                end
+
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(Sync)
+                Sync()
+            end
+        end
+
+        RefreshAmmoGradientVisibility()
+        RefreshAmmo()
+
+        -- Секция настроек Resources
+        local ResSection = MakeSection(ContextInline)
+        local ResCombo = MakeCombo(ResSection, "Display", 1, {"Wood", "Metal", "Scrap"}, Root, true, {"Wood"})
+        local ResList = ResCombo.List
+        local ResPickers = {}
+
+        local function RefreshResourceMulti()
+            for _, entry in ResPickers do
+                entry.Row.Visible = ResourceSettings[entry.Key]
+
+                if not ResourceSettings[entry.Key] and entry.Picker.Open then
+                    entry.Picker.Open = false
+                    entry.Picker.SetVisible(false)
+                end
+            end
+        end
+
+        ResCombo.Callback = function(value, state)
+            ResourceSettings[value] = state
+
+            RefreshResourceMulti()
+            RefreshResources()
+        end
+
+        for order, part in ResourceParts do
+            local row, host = MakeColorRow(ResSection, part.Key, 2 + order)
+            local picker = LiftPicker(host:Colorpicker({
+                Flag = "ESPResource" .. part.Key;
+                Color = PickerColor(part.Label.TextColor3);
+            }))
+
+            local swatch = picker.Items and picker.Items.InnerObject
+
+            if swatch then
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                    part.Label.TextColor3 = swatch.BackgroundColor3
+                end)
+            end
+
+            table.insert(ResPickers, {Row = row, Picker = picker, Key = part.Key})
+        end
+
+        RefreshResourceMulti()
+
+        -- Секция настроек Name
+        local NameSection = MakeSection(ContextInline)
+        local AvatarSizeRow
+
+        MakeCheckbox(NameSection, "Visible avatar", 1, function(state)
+            NameSettings.Avatar = state
+            Flags.ESPNameAvatar = state
+
+            if AvatarSizeRow then
+                AvatarSizeRow.Visible = state
+            end
+
+            RefreshName()
+        end)
+
+        -- Слайдер размера аватара
+        AvatarSizeRow = Library:Create("Frame", {
+            Parent = NameSection;
+            Name = "\0";
+            Size = dim2(1, 0, 0, 26);
+            BackgroundTransparency = 1;
+            LayoutOrder = 2;
+            Visible = false;
+            BorderSizePixel = 0;
+            ZIndex = 30003;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local AvatarSizeLabel = Library:Create("TextLabel", {
+            Parent = AvatarSizeRow;
+            Name = "\0";
+            Text = "Avatar size: 20px";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 12;
+            TextColor3 = rgb(190, 190, 190);
+            TextXAlignment = Enum.TextXAlignment.Left;
+            BackgroundTransparency = 1;
+            Size = dim2(1, 0, 0, 12);
+            BorderSizePixel = 0;
+            ZIndex = 30004;
+            BackgroundColor3 = rgb(255, 255, 255);
+        })
+
+        local SliderOutline = Library:Create("TextButton", {
+            Parent = AvatarSizeRow;
+            Name = "\0";
+            Text = "";
+            AutoButtonColor = false;
+            Position = dim2(0, 0, 0, 15);
+            Size = dim2(1, 0, 0, 9);
+            BorderSizePixel = 0;
+            ZIndex = 30004;
+            BackgroundColor3 = rgb(12, 12, 12);
+        })
+
+        local SliderInner = Library:Create("Frame", {
+            Parent = SliderOutline;
+            Name = "\0";
+            Position = dim2(0, 1, 0, 1);
+            Size = dim2(1, -2, 1, -2);
+            BorderSizePixel = 0;
+            ZIndex = 30005;
+            BackgroundColor3 = rgb(28, 28, 28);
+        })
+
+        local SliderFill = Library:Create("Frame", {
+            Parent = SliderInner;
+            Name = "\0";
+            Size = dim2(0.2, 0, 1, 0);
+            BorderSizePixel = 0;
+            ZIndex = 30006;
+            BackgroundColor3 = themes.preset.accent;
+        })
+
+        local AvatarMin, AvatarMax = 10, 60
+
+        local function SetAvatarSize(value)
+            value = math.clamp(math.floor(value + 0.5), AvatarMin, AvatarMax)
+
+            NameSettings.AvatarSize = value
+            Flags.ESPNameAvatarSize = value
+
+            AvatarSizeLabel.Text = "Avatar size: " .. value .. "px"
+            SliderFill.Size = dim2((value - AvatarMin) / (AvatarMax - AvatarMin), 0, 1, 0)
+
+            RefreshName()
+        end
+
+        local DraggingAvatar = false
+
+        local function UpdateFromMouse()
+            local mouse = InputService:GetMouseLocation()
+            local point = mouse.X - SliderInner.AbsolutePosition.X
+            local ratio = math.clamp(point / math.max(1, SliderInner.AbsoluteSize.X), 0, 1)
+
+            SetAvatarSize(AvatarMin + ratio * (AvatarMax - AvatarMin))
+        end
+
+        SliderOutline.MouseButton1Down:Connect(function()
+            DraggingAvatar = true
+            UpdateFromMouse()
+        end)
+
+        Library:Connection(InputService.InputChanged, function(input)
+            if DraggingAvatar and input.UserInputType == Enum.UserInputType.MouseMovement then
+                UpdateFromMouse()
+            end
+        end)
+
+        Library:Connection(InputService.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                DraggingAvatar = false
+            end
+        end)
+
+        SetAvatarSize(20)
+
+        local _, NameHost = MakeColorRow(NameSection, "Color", 3)
+        local NamePicker = LiftPicker(NameHost:Colorpicker({
+            Flag = "ESPNameColor";
+            Color = PickerColor(rgb(235, 235, 235));
+        }))
+
+        do
+            local swatch = NamePicker.Items and NamePicker.Items.InnerObject
+
+            if swatch then
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                    Name.TextColor3 = swatch.BackgroundColor3
+                end)
+            end
+        end
+
+        RefreshName()
+
+        -- Секция настроек Distance
+        local DistSection = MakeSection(ContextInline)
+        local DistCombo = MakeCombo(DistSection, "Units", 1, {"Meters", "Studs", "Feet"}, Root, false, "Meters")
+        local DistList = DistCombo.List
+
+        DistCombo.Callback = function(value)
+            DistanceSettings.Unit = value
+            Flags.ESPDistanceUnit = value
+
+            RefreshDistance()
+        end
+
+        local _, DistHost = MakeColorRow(DistSection, "Color", 3)
+        local DistPicker = LiftPicker(DistHost:Colorpicker({
+            Flag = "ESPDistanceColor";
+            Color = PickerColor(rgb(235, 235, 235));
+        }))
+
+        do
+            local swatch = DistPicker.Items and DistPicker.Items.InnerObject
+
+            if swatch then
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                    Distance.TextColor3 = swatch.BackgroundColor3
+                end)
+            end
+        end
+
+        RefreshDistance()
+
+        -- Секция настроек Ping
+        local PingSection = MakeSection(ContextInline)
+        local PingColorRow, PingHost = MakeColorRow(PingSection, "Color", 2)
+
+        MakeCheckbox(PingSection, "Ping checker", 1, function(state)
+            PingSettings.Checker = state
+            Flags.ESPPingChecker = state
+
+            PingColorRow.Visible = not state
+
+            RefreshPing()
+        end)
+
+        local PingPicker = LiftPicker(PingHost:Colorpicker({
+            Flag = "ESPPingColor";
+            Color = PickerColor(rgb(235, 235, 235));
+        }))
+
+        do
+            local swatch = PingPicker.Items and PingPicker.Items.InnerObject
+
+            if swatch then
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                    PingSettings.Color = swatch.BackgroundColor3
+
+                    RefreshPing()
+                end)
+            end
+        end
+
+        RefreshPing()
+
+        -- Секция настроек Item
+        local ItemSection = MakeSection(ContextInline)
+        local ItemCombo = MakeCombo(ItemSection, "Display", 1, {"Text", "Icon"}, Root, true, {"Text"})
+        local ItemList = ItemCombo.List
+        local ItemPickers = {}
+
+        local function RefreshItemMulti()
+            for _, entry in ItemPickers do
+                entry.Row.Visible = ItemSettings[entry.Key]
+
+                if not ItemSettings[entry.Key] and entry.Picker.Open then
+                    entry.Picker.Open = false
+                    entry.Picker.SetVisible(false)
+                end
+            end
+        end
+
+        ItemCombo.Callback = function(value, state)
+            ItemSettings[value] = state
+            Flags["ESPItem" .. value] = state
+
+            RefreshItemMulti()
+            RefreshItem()
+        end
+
+        for order, key in {"Text", "Icon"} do
+            local row, host = MakeColorRow(ItemSection, key, 2 + order)
+            local picker = LiftPicker(host:Colorpicker({
+                Flag = "ESPItem" .. key .. "Color";
+                Color = PickerColor(rgb(190, 190, 190));
+            }))
+
+            local swatch = picker.Items and picker.Items.InnerObject
+
+            if swatch then
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                    if key == "Text" then
+                        ItemName.TextColor3 = swatch.BackgroundColor3
+                    else
+                        ItemIcon.ImageColor3 = swatch.BackgroundColor3
+                    end
+                end)
+            end
+
+            table.insert(ItemPickers, {Row = row, Picker = picker, Key = key})
+        end
+
+        RefreshItemMulti()
+        RefreshItem()
+
+        local ContextChip = nil
+
+        -- Закрывает все выпадающие списки внутри контекстного меню
+        local function CloseAllLists()
+            for _, combo in AllCombos do
+                combo.List.Visible = false
+            end
+        end
+
+        local function CloseContext()
+            ContextChip = nil
+            ContextMenu.Visible = false
+            CloseAllLists()
+
+            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, AmmoPicker, AmmoPickerTo, NamePicker, DistPicker, PingPicker} do
+                if picker.Open then
+                    picker.Open = false
+                    picker.SetVisible(false)
+                end
+            end
+
+            for _, entry in ResPickers do
+                if entry.Picker.Open then
+                    entry.Picker.Open = false
+                    entry.Picker.SetVisible(false)
+                end
+            end
+
+            for _, entry in ItemPickers do
+                if entry.Picker.Open then
+                    entry.Picker.Open = false
+                    entry.Picker.SetVisible(false)
+                end
+            end
+        end
+
+        -- Держим меню под чипом, но НЕ делаем его потомком (иначе чип растянется)
+        local function FollowChip()
+            if not ContextChip or not ContextMenu.Visible then
+                return
+            end
+
+            local rel = ContextChip.AbsolutePosition - Root.AbsolutePosition
+            local chipSize = ContextChip.AbsoluteSize
+
+            -- Левый верхний угол меню = левый нижний угол чипа
+            ContextMenu.Position = dim2(0, rel.X, 0, rel.Y + chipSize.Y)
+        end
+
+        local function OpenContext(name, chip)
+            ContextTitle.Text = name
+            ContextChip = chip
+
+            -- Показываем секцию нужного элемента
+            BoxSection.Visible = name == "Box"
+            HealthSection.Visible = name == "Health"
+            AmmoSection.Visible = name == "Ammo Bar"
+            ResSection.Visible = name == "Resources"
+            NameSection.Visible = name == "Name"
+            DistSection.Visible = name == "Distance"
+            PingSection.Visible = name == "Ping"
+            ItemSection.Visible = name == "Item"
+
+            CloseAllLists()
+
+            ContextMenu.AnchorPoint = vec2(0, 0)
+            ContextMenu.Visible = true
+
+            FollowChip()
+        end
+
+        Library:Connection(RunService.RenderStepped, FollowChip)
+
+        table.insert(Library.ExtraClosers, CloseContext)
+
+        Library:Connection(InputService.InputBegan, function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                return
+            end
+
+            if not ContextMenu.Visible then
+                return
+            end
+
+            -- Проверка попадания с запасом по краям
+            local function NearObject(object, padding)
+                if not object or not object.Visible then
+                    return false
+                end
+
+                local mouse = InputService:GetMouseLocation()
+                local point = vec2(mouse.X, mouse.Y - gui_offset)
+
+                local topLeft = object.AbsolutePosition - vec2(padding, padding)
+                local bottomRight = object.AbsolutePosition + object.AbsoluteSize + vec2(padding, padding)
+
+                return point.X >= topLeft.X and point.X <= bottomRight.X
+                    and point.Y >= topLeft.Y and point.Y <= bottomRight.Y
+            end
+
+            -- Клик по самому меню - не закрываем
+            if NearObject(ContextMenu, 6) then
+                return
+            end
+
+            -- Клик по раскрытому списку комбобокса
+            if NearObject(StyleList, 6) then
+                return
+            end
+
+            if NearObject(ResList, 6) then
+                return
+            end
+
+            if NearObject(DistList, 6) then
+                return
+            end
+
+            if NearObject(ItemList, 6) then
+                return
+            end
+
+            if DraggingAvatar then
+                return
+            end
+
+            -- Клик рядом с любым окном колорпикера - не закрываем
+            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, AmmoPicker, AmmoPickerTo, NamePicker, DistPicker, PingPicker} do
+                if picker.Open then
+                    return
+                end
+
+                if NearObject(picker.Items and picker.Items.Colorpicker, 14) then
+                    return
+                end
+            end
+
+            for _, entry in ResPickers do
+                if entry.Picker.Open then
+                    return
+                end
+
+                if NearObject(entry.Picker.Items and entry.Picker.Items.Colorpicker, 14) then
+                    return
+                end
+            end
+
+            for _, entry in ItemPickers do
+                if entry.Picker.Open then
+                    return
+                end
+
+                if NearObject(entry.Picker.Items and entry.Picker.Items.Colorpicker, 14) then
+                    return
+                end
+            end
+
+            CloseContext()
+        end)
+
+        RefreshBox()
+
+        for index, element in Elements do
+            local Chip = Library:Create("TextButton", {
+                Parent = Pool;
+                Name = "\0";
+                Text = element.Name;
+                AutoButtonColor = false;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 12;
+                TextColor3 = rgb(150, 150, 150);
+                AutomaticSize = Enum.AutomaticSize.X;
+                Size = dim2(0, 0, 0, 18);
+                LayoutOrder = index;
+                BorderSizePixel = 0;
+                ZIndex = 4;
+                BackgroundColor3 = rgb(26, 26, 26);
+            })
+
+            Library:Create("UIPadding", {
+                Parent = Chip;
+                PaddingLeft = dim(0, 6);
+                PaddingRight = dim(0, 6);
+            })
+
+            local Flag = "ESP" .. element.Name:gsub("%s", "")
+            Flags[Flag] = false
+
+            local function Set(bool)
+                ESPFlags[element.Name] = bool
+                Flags[Flag] = bool
+
+                for _, object in element.Objects do
+                    object.Visible = bool
+                end
+
+                LayoutBars()
+
+                if element.Name == "Health" then
+                    RefreshHealth()
+                elseif element.Name == "Ammo Bar" then
+                    RefreshAmmo()
+                elseif element.Name == "Resources" then
+                    RefreshResources()
+                elseif element.Name == "Name" then
+                    RefreshName()
+                elseif element.Name == "Item" then
+                    RefreshItem()
+                end
+
+                Chip.TextColor3 = bool and themes.preset.accent or rgb(150, 150, 150)
+                Chip.BackgroundColor3 = bool and rgb(34, 34, 34) or rgb(26, 26, 26)
+            end
+
+            Chip.MouseButton1Click:Connect(function()
+                Set(not ESPFlags[element.Name])
+            end)
+
+            if element.Name == "Box" or element.Name == "Health" or element.Name == "Ammo Bar" or element.Name == "Resources" or element.Name == "Name" or element.Name == "Distance" or element.Name == "Ping" or element.Name == "Item" then
+                Chip.MouseButton2Click:Connect(function()
+                    if ContextMenu.Visible and ContextTitle.Text == element.Name then
+                        CloseContext()
+                    else
+                        OpenContext(element.Name, Chip)
+                    end
+                end)
+            end
+
+            ConfigFlags[Flag] = Set
+            Set(false)
+        end
+
+        -- Превью занимает всё пространство над блоком чипов
+        local function ResizePreview()
+            -- превью занимает всё место над блоком чипов
+            Preview.Size = dim2(1, 0, 1, -(Bottom.AbsoluteSize.Y + 28))
+
+            -- блок чипов стоит вплотную под превью
+            Bottom.Position = dim2(0, 0, 0, Preview.Position.Y.Offset + Preview.AbsoluteSize.Y + 6)
+        end
+
+        Bottom:GetPropertyChangedSignal("AbsoluteSize"):Connect(ResizePreview)
+        Preview:GetPropertyChangedSignal("AbsoluteSize"):Connect(ResizePreview)
+        ResizePreview()
+
+        LayoutBars()
+
+        -- Включено по умолчанию
+        for _, name in {"Box", "Health"} do
+            if ConfigFlags["ESP" .. name:gsub("%s", "")] then
+                ConfigFlags["ESP" .. name:gsub("%s", "")](true)
+            end
+        end
+    end)
+
+    if not PreviewOk then
+        warn("[gamesense] Preview ESP error: " .. tostring(PreviewErr))
+    end
+
+    -- Effects
+    local Transparent = RightBottom:Toggle({Name = "Transparent", Flag = "VisTransparent"})
+
+    local TransparentWalls = RightBottom:Slider({
+        Name = "Transparent walls",
+        Min = 0,
+        Max = 100,
+        Default = 50,
+        Suffix = "%",
+        Flag = "VisTransparentWalls"
+    })
+
+    local TransparentProps = RightBottom:Slider({
+        Name = "Transparent props",
+        Min = 0,
+        Max = 100,
+        Default = 50,
+        Suffix = "%",
+        Flag = "VisTransparentProps"
+    })
+
+    BindVisibility(Transparent, {TransparentWalls, TransparentProps})
+
+    RightBottom:Toggle({Name = "Local bullet tracer", Flag = "VisLocalBulletTracer"})
+        :Colorpicker({Flag = "VisLocalBulletTracerColor", Color = rgb(142, 181, 39)})
+
+    RightBottom:Toggle({Name = "Enemy bullet tracer", Flag = "VisEnemyBulletTracer"})
+        :Colorpicker({Flag = "VisEnemyBulletTracerColor", Color = rgb(214, 79, 79)})
+
+    local Thirdperson = RightBottom:Toggle({
+        Name = "Thirdperson",
+        Flag = "VisThirdperson"
+    })
+    AddMenuBind(Thirdperson, "VisThirdpersonBind")
+
+    local ThirdpersonDistance = RightBottom:Slider({
+        Name = "Thirdperson distance",
+        Min = 0,
+        Max = 30,
+        Default = 10,
+        Decimal = 1,
+        Flag = "VisThirdpersonDistance"
+    })
+
+    BindVisibility(Thirdperson, {ThirdpersonDistance})
+
+    local FOVChanger = RightBottom:Toggle({Name = "FOV changer", Flag = "VisFOVChangerEnabled"})
+
+    local FOVSlider = RightBottom:Slider({
+        Min = 60,
+        Max = 120,
+        Default = 70,
+        Decimal = 1,
+        Suffix = "°",
+        Flag = "VisFOVChanger"
+    })
+
+    BindVisibility(FOVChanger, {FOVSlider})
+
+    -- Зум на клавишу: свой FOV, не зависящий от основного
+    local ZoomToggle = RightBottom:Toggle({Name = "Camera zoom", Flag = "VisCameraZoom"})
+    -- бинд зума не меняет чекбокс: только Flags.VisCameraZoomBind.Active
+    AddMenuBind(ZoomToggle, "VisCameraZoomBind", true)
+
+    local ZoomSlider = RightBottom:Slider({
+        Min = 10,
+        Max = 120,
+        Default = 40,
+        Decimal = 1,
+        Suffix = "°",
+        Flag = "VisCameraZoomValue"
+    })
+
+    BindVisibility(ZoomToggle, {ZoomSlider})
+
+    Tabs.Lighting.Visuals = {
+        LeftTop = LeftTop, LeftBottom = LeftBottom,
+        RightTop = RightTop, RightBottom = RightBottom,
+    }
+end
+
+-- Settings tab layout
+do
+    local Page = Tabs.Settings.Items.Page
+
+    -- Колонки 50/50 по ширине
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+
+    Tabs.Settings.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Settings.Items.Right.Size = dim2(0.5, -10, 1, 0)
+
+    for _, column in {Tabs.Settings.Items.Left, Tabs.Settings.Items.Right} do
+        for _, child in pairs(column:GetChildren()) do
+            if child:IsA("UIListLayout") then
+                child.VerticalFlex = Enum.UIFlexAlignment.None
+            end
+        end
+    end
+
+    -- Слева: Misc на всю высоту
+    local Misc = Tabs.Settings:Section({Name = "Misc", Side = "Left", Size = 1})
+    Misc.Items.Outline.Size = dim2(1, 0, 1, 0)
+
+    -- Misc
+    -- Misc: сначала с биндами, потом обычные
+    local FreecamToggle = Misc:Toggle({Name = "Freecam", Flag = "MiscFreecam"})
+    AddMenuBind(FreecamToggle, "MiscFreecamBind")
+
+    local FPSToggle = Misc:Toggle({Name = "FPS unlocker", Flag = "MiscFPSUnlocker"})
+
+    local FPSSlider = Misc:Slider({
+        Min = 60,
+        Max = 999,
+        Default = 240,
+        Decimal = 1,
+        Suffix = " fps",
+        Flag = "MiscFPSValue"
+    })
+
+    BindVisibility(FPSToggle, {FPSSlider})
+
+    local RemovalsToggle = Misc:Toggle({Name = "Removals", Flag = "MiscRemovals"})
+
+    local RemovalsList = Misc:Dropdown({
+        Options = {"Particles", "Textures", "Shadows", "Terrain decoration", "Post effects"},
+        Multi = true,
+        Default = {"Particles", "Shadows"},
+        Flag = "MiscRemovalsList"
+    })
+
+    BindVisibility(RemovalsToggle, {RemovalsList})
+
+    Misc:Toggle({Name = "Anti-fling", Flag = "MiscAntiFling"})
+    Misc:Toggle({Name = "Hide name", Flag = "MiscHideName"})
+
+    -- Справа: Movement 55% и Settings 45%
+    local Movement = Tabs.Settings:Section({Name = "Movement", Side = "Right", Size = 0.55})
+    Movement.Items.Outline.Size = dim2(1, 0, 0.55, -10)
+
+    local SettingsSection = Tabs.Settings:Section({Name = "Settings", Side = "Right", Size = 0.45})
+    SettingsSection.Items.Outline.Size = dim2(1, 0, 0.45, -9)
+
+    -- Movement: сначала всё с биндами, потом обычные чекбоксы
+    local FlyToggle = Movement:Toggle({Name = "Fly", Flag = "MovementFly"})
+    AddMenuBind(FlyToggle, "MovementFlyBind")
+
+    local FlySpeed = Movement:Slider({
+        Name = "Speed",
+        Min = 0,
+        Max = 200,
+        Default = 50,
+        Decimal = 1,
+        Flag = "MovementFlySpeed"
+    })
+
+    BindVisibility(FlyToggle, {FlySpeed})
+
+    local SpeedhackToggle = Movement:Toggle({Name = "Speedhack", Flag = "MovementSpeedhack"})
+    AddMenuBind(SpeedhackToggle, "MovementSpeedhackBind")
+
+    local SpeedhackSpeed = Movement:Slider({
+        Name = "Speed",
+        Min = 0,
+        Max = 200,
+        Default = 50,
+        Decimal = 1,
+        Flag = "MovementSpeedhackSpeed"
+    })
+
+    BindVisibility(SpeedhackToggle, {SpeedhackSpeed})
+
+    local ClickTPToggle = Movement:Toggle({Name = "Click teleport", Flag = "MovementClickTP"})
+    AddMenuBind(ClickTPToggle, "MovementClickTPBind")
+
+    Movement:Toggle({Name = "Infinite jump", Flag = "MovementInfJump"})
+
+    local JumpPowerToggle = Movement:Toggle({Name = "Jump power", Flag = "MovementJumpPower"})
+
+    local JumpPowerSlider = Movement:Slider({
+        Min = 0,
+        Max = 300,
+        Default = 50,
+        Decimal = 1,
+        Flag = "MovementJumpPowerValue"
+    })
+
+    BindVisibility(JumpPowerToggle, {JumpPowerSlider})
+
+    local GravityToggle = Movement:Toggle({Name = "Gravity", Flag = "MovementGravity"})
+
+    local GravitySlider = Movement:Slider({
+        Min = 0,
+        Max = 400,
+        Default = 196,
+        Decimal = 1,
+        Flag = "MovementGravityValue"
+    })
+
+    BindVisibility(GravityToggle, {GravitySlider})
+
+    local WalkOnToggle = Movement:Toggle({Name = "Walk on", Flag = "MovementWalkOn"})
+
+    local WalkOnMode = Movement:Dropdown({
+        Options = {"Always", "Water", "Void"},
+        Default = "Water",
+        Flag = "MovementWalkOnMode"
+    })
+
+    BindVisibility(WalkOnToggle, {WalkOnMode})
+
+    -- Settings
+    local MenuKeyToggle = SettingsSection:Toggle({
+        Name = "Menu key",
+        Flag = "MenuKeyEnabled",
+        Default = true
+    })
+
+    -- Прячем квадратик чекбокса, оставляем только подпись и бинд
+    MenuKeyToggle.Items.Holder.Visible = false
+    MenuKeyToggle.Items.Title.Position = dim2(0, 0, 0, -4)
+
+    do
+        local binding = false
+        local blockClick = false
+
+        local BindButton = Library:Create("TextButton", {
+            Active = true;
+            AutoButtonColor = false;
+            Parent = MenuKeyToggle.Items.Components;
+            Name = "\0";
+            Text = "[INS]";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextColor3 = rgb(170, 170, 170);
+            TextSize = 11;
+            Size = dim2(0, 32, 0, 9);
+            BorderSizePixel = 0;
+            BackgroundTransparency = 1;
+            BackgroundColor3 = rgb(12, 12, 12);
+            ZIndex = 2;
+        })
+
+        Library.MenuKey = Enum.KeyCode.Insert
+
+        BindButton.MouseButton1Click:Connect(function()
+            if blockClick then
+                blockClick = false
+
+                return
+            end
+
+            if binding then
+                return
+            end
+
+            binding = true
+            BindButton.Text = "[...]"
+
+            local armed = false
+
+            task.defer(function()
+                armed = true
+            end)
+
+            local connection
+            connection = Library:Connection(InputService.InputBegan, function(input)
+                if not binding or not armed then
+                    return
+                end
+
+                local key = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
+
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    blockClick = true
+                end
+
+                if key == Enum.KeyCode.Escape then
+                    Library.MenuKey = nil
+                    BindButton.Text = "[NONE]"
+                else
+                    Library.MenuKey = key
+
+                    local keyName = Keys[key] or tostring(key):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
+                    BindButton.Text = "[" .. keyName .. "]"
+                end
+
+                Flags.MenuKey = Library.MenuKey and tostring(Library.MenuKey) or "NONE"
+
+                -- Помечаем, что этим нажатием мы биндили - меню не трогаем
+                Library.MenuKeyJustBound = true
+
+                binding = false
+                connection:Disconnect()
+            end)
+        end)
+    end
+
+    local MenuColorLabel = SettingsSection:Label({Name = "Menu color"})
+    MenuColorLabel.Items.Title.Position = dim2(0, 0, 0, -2)
+
+    MenuColorLabel:Colorpicker({
+        Flag = "MenuColor",
+        Color = PickerColorGlobal(themes.preset.accent),
+        Callback = function(color)
+            pcall(function()
+                Library:RefreshTheme("accent", color)
+            end)
+        end
+    })
+
+    local DPIDropdown = SettingsSection:Dropdown({
+        Name = "DPI scale",
+        Options = {"100%", "125%", "150%", "175%", "200%"},
+        Default = "100%",
+        Flag = "DPIScale",
+        Callback = function(value)
+            local clean = tostring(value):gsub("%%", "")
+            local scale = tonumber(clean)
+
+            if not scale then
+                return
+            end
+
+            pcall(function()
+                local window = Library.Window
+
+                if not window then
+                    return
+                end
+
+                local ui = window:FindFirstChildOfClass("UIScale")
+
+                if not ui then
+                    ui = Library:Create("UIScale", {Parent = window})
+                end
+
+                ui.Scale = scale / 100
+            end)
+        end
+    })
+
+    -- Заголовок и поле дропдауна прижимаем к левому краю
+    DPIDropdown.Items.Title.Position = dim2(0, 0, 0, -2)
+    DPIDropdown.Items.Outline.Position = dim2(0, 0, 0, 13)
+    DPIDropdown.Items.Outline.Size = dim2(1, -20, 0, 20)
+
+    SettingsSection:Toggle({
+        Name = "Anti-untrusted",
+        Flag = "AntiUntrusted",
+        Default = true,
+        Callback = function(state)
+            -- Флаг читается логикой чита, интерфейс не трогаем
+            Flags.AntiUntrusted = state
+        end
+    })
+
+    -- Предупреждение о низком FPS
+    local LowFPSLabel = Library:Create("TextLabel", {
+        Parent = Library.Items;
+        Name = "\0";
+        Text = "LOW FPS";
+        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+        TextSize = 14;
+        TextColor3 = rgb(214, 79, 79);
+        TextStrokeTransparency = 0;
+        BackgroundTransparency = 1;
+        AnchorPoint = vec2(0.5, 0);
+        Position = dim2(0.5, 0, 0, 6);
+        Size = dim2(0, 120, 0, 16);
+        BorderSizePixel = 0;
+        ZIndex = 50000;
+        Visible = false;
+        BackgroundColor3 = rgb(255, 255, 255);
+    })
+
+    SettingsSection:Toggle({
+        Name = "Low FPS warning",
+        Flag = "LowFPSWarning",
+        Callback = function(state)
+            if not state then
+                LowFPSLabel.Visible = false
+            end
+        end
+    })
+
+    Library:Connection(RunService.RenderStepped, function(delta)
+        if not Flags.LowFPSWarning then
+            return
+        end
+
+        local fps = 1 / math.max(delta, 0.0001)
+
+        LowFPSLabel.Visible = fps < 30
+        LowFPSLabel.Text = string.format("LOW FPS: %d", math.floor(fps))
+    end)
+
+    SettingsSection:Toggle({
+        Name = "Lock menu layout",
+        Flag = "LockMenuLayout",
+        Callback = function(state)
+            -- Запрещаем таскать и ресайзить окно
+            Library.DragLock = state
+        end
+    })
+
+    SettingsSection:Button({
+        Name = "Reset menu layout",
+        Callback = function()
+            pcall(function()
+                if isfile(Library:LayoutPath()) then
+                    delfile(Library:LayoutPath())
+                end
+            end)
+
+            if Library.Window then
+                Library.Window.Size = dim2(0, 660, 0, 674)
+                Library.Window.Position = dim2(0.5, -330, 0.5, -337)
+            end
+        end
+    })
+
+    SettingsSection:Button({
+        Name = "Unload",
+        Callback = function()
+            Library:Unload()
+        end
+    })
+
+    Tabs.Settings.Sections = {
+        Misc = Misc,
+        Movement = Movement,
+        Settings = SettingsSection,
+    }
+end
+
+-- Players tab layout (иконка с ножом)
+do
+    local Page = Tabs.Skins.Items.Page
+
+    -- Колонки 50/50 по ширине
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+
+    Tabs.Skins.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Skins.Items.Right.Size = dim2(0.5, -10, 1, 0)
+
+    for _, column in {Tabs.Skins.Items.Left, Tabs.Skins.Items.Right} do
+        for _, child in pairs(column:GetChildren()) do
+            if child:IsA("UIListLayout") then
+                child.VerticalFlex = Enum.UIFlexAlignment.None
+            end
+        end
+    end
+
+    -- Слева: Players на всю высоту
+    local PlayersSection = Tabs.Skins:Section({Name = "Players", Side = "Left", Size = 1})
+    PlayersSection.Items.Outline.Size = dim2(1, 0, 1, 0)
+
+    -- Справа: Adjustments на всю высоту, внутри пусто
+    local Adjustments = Tabs.Skins:Section({Name = "Adjustments", Side = "Right", Size = 1})
+    Adjustments.Items.Outline.Size = dim2(1, 0, 1, 0)
+
+    Tabs.Skins.Sections = {
+        Players = PlayersSection,
+        Adjustments = Adjustments,
+    }
+
+    -- Список игроков (лист-бокс)
+    local ListOutline = Library:Create("Frame", {
+        Parent = PlayersSection.Items.Elements;
+        Name = "\0";
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        Size = dim2(1, 0, 0, 415);
+        LayoutOrder = 1;
+        BackgroundColor3 = themes.preset.outline;
+    }); Library:Themify(ListOutline, "outline", "BackgroundColor3")
+
+    local ListInline = Library:Create("Frame", {
+        Parent = ListOutline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = themes.preset.inline;
+    }); Library:Themify(ListInline, "inline", "BackgroundColor3")
+
+    local ListBackground = Library:Create("Frame", {
+        Parent = ListInline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = rgb(23, 23, 23);
+    })
+
+    local ListHolder = Library:Create("ScrollingFrame", {
+        Parent = ListBackground;
+        Name = "\0";
+        Active = true;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, 0, 0, 2);
+        Size = dim2(1, 0, 1, -4);
+        CanvasSize = dim2(0, 0, 0, 0);
+        AutomaticCanvasSize = Enum.AutomaticSize.Y;
+        ScrollBarThickness = 4;
+        ScrollBarImageColor3 = rgb(65, 65, 65);
+        MidImage = "rbxassetid://74268315755026";
+        TopImage = "rbxassetid://74268315755026";
+        BottomImage = "rbxassetid://74268315755026";
+        ZIndex = 2;
+    })
+
+    Library:Create("UIListLayout", {
+        Parent = ListHolder;
+        Padding = dim(0, 1);
+        SortOrder = Enum.SortOrder.LayoutOrder;
+    })
+
+    local SelectedPlayer = nil
+    local RefreshInfo -- объявляем заранее, используется в колбэках выше по коду
+    local Entries = {}
+
+    local function RefreshEntryVisuals()
+        for name, entry in Entries do
+            local selected = name == SelectedPlayer
+
+            entry.BackgroundTransparency = selected and 0 or 1
+            entry.BackgroundColor3 = themes.preset.accent
+            entry.TextColor3 = selected and rgb(255, 255, 255) or themes.preset.text_color
+        end
+    end
+
+    local function AddPlayer(player)
+        if Entries[player.Name] then
+            return
+        end
+
+        local entry = Library:Create("TextButton", {
+            Parent = ListHolder;
+            Name = "\0";
+            Text = player == lp and (player.Name .. " (you)") or player.Name;
+            AutoButtonColor = false;
+            LayoutOrder = player == lp and 0 or 1;
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", player == lp and Enum.FontWeight.SemiBold or Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 13;
+            TextXAlignment = Enum.TextXAlignment.Left;
+            TextColor3 = themes.preset.text_color;
+            BackgroundColor3 = themes.preset.accent;
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            Size = dim2(1, -2, 0, 14);
+            Position = dim2(0, 1, 0, 0);
+            ZIndex = 3;
+        })
+
+        Library:Create("UIPadding", {
+            Parent = entry;
+            PaddingLeft = dim(0, 4);
+        })
+
+        entry.MouseButton1Click:Connect(function()
+            SelectedPlayer = SelectedPlayer == player.Name and nil or player.Name
+
+            RefreshEntryVisuals()
+            RefreshInfo()
+        end)
+
+        Entries[player.Name] = entry
+
+        RefreshEntryVisuals()
+    end
+
+    local function RemovePlayer(player)
+        local entry = Entries[player.Name]
+
+        if not entry then
+            return
+        end
+
+        entry:Destroy()
+        Entries[player.Name] = nil
+
+        if SelectedPlayer == player.Name then
+            SelectedPlayer = nil
+
+            RefreshInfo()
+        end
+    end
+
+    -- локальный игрок тоже в списке, первым и подписан "(you)"
+    for _, player in pairs(Players:GetPlayers()) do
+        AddPlayer(player)
+    end
+
+    Library:Connection(Players.PlayerAdded, AddPlayer)
+
+    Library:Connection(Players.PlayerRemoving, RemovePlayer)
+
+    local ResetAll = PlayersSection:Button({
+        Name = "Reset all",
+        Callback = function()
+            SelectedPlayer = nil
+
+            RefreshEntryVisuals()
+            RefreshInfo()
+        end
+    })
+
+    -- кнопка всегда под списком
+    ResetAll.Items.Button.LayoutOrder = 2
+
+    -- === Adjustments: инфо по выбранному игроку (пока чисто визуально) ===
+    -- Такой же лист-бокс, как список игроков слева
+    local InfoOutline = Library:Create("Frame", {
+        Parent = Adjustments.Items.Elements;
+        Name = "\0";
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        Size = dim2(1, 0, 0, 415);
+        LayoutOrder = 1;
+        BackgroundColor3 = themes.preset.outline;
+    }); Library:Themify(InfoOutline, "outline", "BackgroundColor3")
+
+    local InfoInline = Library:Create("Frame", {
+        Parent = InfoOutline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = themes.preset.inline;
+    }); Library:Themify(InfoInline, "inline", "BackgroundColor3")
+
+    local InfoBackground = Library:Create("Frame", {
+        Parent = InfoInline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = rgb(23, 23, 23);
+    })
+
+    local InfoHolder = Library:Create("ScrollingFrame", {
+        Parent = InfoBackground;
+        Name = "\0";
+        Active = true;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, 0, 0, 2);
+        Size = dim2(1, 0, 1, -4);
+        CanvasSize = dim2(0, 0, 0, 0);
+        AutomaticCanvasSize = Enum.AutomaticSize.Y;
+        ScrollBarThickness = 4;
+        ScrollBarImageColor3 = rgb(65, 65, 65);
+        MidImage = "rbxassetid://74268315755026";
+        TopImage = "rbxassetid://74268315755026";
+        BottomImage = "rbxassetid://74268315755026";
+        ZIndex = 2;
+    })
+
+    Library:Create("UIListLayout", {
+        Parent = InfoHolder;
+        Padding = dim(0, 1);
+        SortOrder = Enum.SortOrder.LayoutOrder;
+    })
+
+    local InfoRows = {}
+
+    local function MakeInfoRow(text, order, color)
+        local row = Library:Create("Frame", {
+            Parent = InfoHolder;
+            Name = "\0";
+            BackgroundTransparency = 1;
+            BackgroundColor3 = rgb(28, 28, 28);
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            Size = dim2(1, 0, 0, 22);
+            Position = dim2(0, 0, 0, 0);
+            LayoutOrder = order;
+        })
+
+        local title = Library:Create("TextLabel", {
+            Parent = row;
+            Name = "\0";
+            Text = text;
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 14;
+            TextXAlignment = Enum.TextXAlignment.Left;
+            TextYAlignment = Enum.TextYAlignment.Center;
+            TextColor3 = color or rgb(205, 205, 205);
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            Position = dim2(0, 10, 0, 0);
+            Size = dim2(0.55, -10, 1, 0);
+            ZIndex = 3;
+        })
+
+        local value = Library:Create("TextLabel", {
+            Parent = row;
+            Name = "\0";
+            Text = "-";
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+            TextSize = 14;
+            TextXAlignment = Enum.TextXAlignment.Right;
+            TextYAlignment = Enum.TextYAlignment.Center;
+            TextTruncate = Enum.TextTruncate.AtEnd;
+            TextColor3 = themes.preset.text_color;
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            AnchorPoint = vec2(1, 0);
+            Position = dim2(1, -10, 0, 0);
+            Size = dim2(0.45, 0, 1, 0);
+            ZIndex = 3;
+        })
+
+        Library:Create("UIStroke", {
+            Parent = value;
+            Transparency = 0.6;
+            LineJoinMode = Enum.LineJoinMode.Miter;
+        })
+
+        local self = {Row = row, Title = title, Value = value}
+
+        function self.Set(text, textColor)
+            value.Text = text
+            value.TextColor3 = textColor or themes.preset.text_color
+        end
+
+        table.insert(InfoRows, self)
+
+        return self
+    end
+
+    local function MakeInfoHeader(text, order)
+        local holder = Library:Create("Frame", {
+            Parent = InfoHolder;
+            Name = "\0";
+            BackgroundTransparency = 1;
+            BackgroundColor3 = rgb(255, 255, 255);
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            Size = dim2(1, 0, 0, 26);
+            Position = dim2(0, 0, 0, 0);
+            LayoutOrder = order;
+        })
+
+        local label = Library:Create("TextLabel", {
+            Parent = holder;
+            Name = "\0";
+            Text = string.upper(text);
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+            TextSize = 13;
+            TextXAlignment = Enum.TextXAlignment.Left;
+            TextYAlignment = Enum.TextYAlignment.Bottom;
+            TextColor3 = themes.preset.accent;
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            Position = dim2(0, 10, 0, 0);
+            Size = dim2(1, -20, 1, -5);
+            ZIndex = 3;
+        }); Library:Themify(label, "accent", "TextColor3")
+
+        return label
+    end
+
+    -- Ресурсы
+    MakeInfoHeader("Resources", 1)
+
+    local WoodRow  = MakeInfoRow("Wood",  2, rgb(160, 122, 72))
+    local StoneRow = MakeInfoRow("Stone", 3, rgb(150, 150, 150))
+    local MetalRow = MakeInfoRow("Metal", 4, rgb(120, 156, 190))
+
+    -- Состояние
+    MakeInfoHeader("State", 8)
+
+    local HealthRow = MakeInfoRow("Health", 9)
+    local WeaponRow = MakeInfoRow("Weapon", 11)
+    local TeamRow = MakeInfoRow("Team", 12)
+
+    -- Позиция
+    MakeInfoHeader("Position", 13)
+
+    local CoordsRow = MakeInfoRow("Coordinates", 14)
+    local DistanceRow = MakeInfoRow("Distance", 15)
+    local VelocityRow = MakeInfoRow("Velocity", 16)
+    local StateRow = MakeInfoRow("Movement", 17)
+
+    -- Пока данные фейковые и стабильные для каждого ника
+    local FakeWeapons = {"Assault Rifle", "Bolt Action", "MP5A4", "Custom SMG", "Python", "Rock", "Hatchet", "Semi Rifle"}
+    local FakeMoves = {"Standing", "Running", "Crouching", "Falling", "Swimming"}
+    local FakeCache = {}
+
+    local function Seeded(name)
+        if FakeCache[name] then
+            return FakeCache[name]
+        end
+
+        local seed = 0
+
+        for i = 1, #name do
+            seed += string.byte(name, i) * i
+        end
+
+        local rng = Random.new(seed)
+
+        local data = {
+            Wood = rng:NextInteger(0, 20000);
+            Stone = rng:NextInteger(0, 15000);
+            Metal = rng:NextInteger(0, 8000);
+            Health = rng:NextInteger(5, 100);
+            Weapon = FakeWeapons[rng:NextInteger(1, #FakeWeapons)];
+            Move = FakeMoves[rng:NextInteger(1, #FakeMoves)];
+            X = rng:NextInteger(-2000, 2000);
+            Y = rng:NextInteger(0, 400);
+            Z = rng:NextInteger(-2000, 2000);
+            Distance = rng:NextInteger(5, 900);
+            Velocity = rng:NextInteger(0, 30);
+        }
+
+        FakeCache[name] = data
+
+        return data
+    end
+
+    local function Commas(number)
+        local text = tostring(number)
+
+        while true do
+            local replaced
+
+            text, replaced = string.gsub(text, "^(-?%d+)(%d%d%d)", "%1 %2")
+
+            if replaced == 0 then
+                break
+            end
+        end
+
+        return text
+    end
+
+    local function HealthColor(hp)
+        return hsv((hp / 100) * 0.33, 0.75, 1)
+    end
+
+    local function ClearInfo()
+        for _, row in InfoRows do
+            row.Set("-")
+        end
+    end
+
+    function RefreshInfo()
+        if not SelectedPlayer then
+            ClearInfo()
+
+            return
+        end
+
+        local data = Seeded(SelectedPlayer)
+        local player = Players:FindFirstChild(SelectedPlayer)
+
+        WoodRow.Set(Commas(data.Wood))
+        StoneRow.Set(Commas(data.Stone))
+        MetalRow.Set(Commas(data.Metal))
+
+        HealthRow.Set(data.Health .. " hp", HealthColor(data.Health))
+        WeaponRow.Set(data.Weapon)
+
+        TeamRow.Set(player and player.Team and player.Team.Name or "None")
+
+        CoordsRow.Set(string.format("%d, %d, %d", data.X, data.Y, data.Z))
+        DistanceRow.Set(data.Distance .. " m")
+        VelocityRow.Set(data.Velocity .. " m/s")
+        StateRow.Set(data.Move)
+    end
+
+    ClearInfo()
+
+    Tabs.Skins.PlayerList = {
+        Holder = ListHolder;
+        Entries = Entries;
+        GetSelected = function()
+            return SelectedPlayer
+        end;
+        RefreshInfo = function()
+            RefreshInfo()
+        end;
+    }
+end
+
+
+-- Config tab layout (Presets / Lua)
+do
+    local Page = Tabs.Saving.Items.Page
+
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+
+    Tabs.Saving.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Saving.Items.Right.Size = dim2(0.5, -10, 1, 0)
+
+    for _, column in {Tabs.Saving.Items.Left, Tabs.Saving.Items.Right} do
+        for _, child in pairs(column:GetChildren()) do
+            if child:IsA("UIListLayout") then
+                child.VerticalFlex = Enum.UIFlexAlignment.None
+            end
+        end
+    end
+
+    local Presets = Tabs.Saving:Section({Name = "Presets", Side = "Left", Size = 1})
+    Presets.Items.Outline.Size = dim2(1, 0, 1, 0)
+
+    local LuaSection = Tabs.Saving:Section({Name = "Lua", Side = "Right", Size = 1})
+    LuaSection.Items.Outline.Size = dim2(1, 0, 1, 0)
+
+    Tabs.Saving.Sections = {
+        Presets = Presets,
+        Lua = LuaSection,
+    }
+
+    -- === Presets: список конфигов ===
+    local ConfigOutline = Library:Create("Frame", {
+        Parent = Presets.Items.Elements;
+        Name = "\0";
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        Size = dim2(1, 0, 0, 220);
+        LayoutOrder = 1;
+        BackgroundColor3 = themes.preset.outline;
+    }); Library:Themify(ConfigOutline, "outline", "BackgroundColor3")
+
+    local ConfigInline = Library:Create("Frame", {
+        Parent = ConfigOutline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = themes.preset.inline;
+    }); Library:Themify(ConfigInline, "inline", "BackgroundColor3")
+
+    local ConfigBackground = Library:Create("Frame", {
+        Parent = ConfigInline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = rgb(23, 23, 23);
+    })
+
+    local ConfigList = Library:Create("ScrollingFrame", {
+        Parent = ConfigBackground;
+        Name = "\0";
+        Active = true;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, 0, 0, 2);
+        Size = dim2(1, 0, 1, -4);
+        CanvasSize = dim2(0, 0, 0, 0);
+        AutomaticCanvasSize = Enum.AutomaticSize.Y;
+        ScrollBarThickness = 4;
+        ScrollBarImageColor3 = rgb(65, 65, 65);
+        MidImage = "rbxassetid://74268315755026";
+        TopImage = "rbxassetid://74268315755026";
+        BottomImage = "rbxassetid://74268315755026";
+        ZIndex = 2;
+    })
+
+    Library:Create("UIListLayout", {
+        Parent = ConfigList;
+        Padding = dim(0, 1);
+        SortOrder = Enum.SortOrder.LayoutOrder;
+    })
+
+    local SelectedConfig = nil
+    local ConfigEntries = {}
+    local NameBox
+
+    -- Снимок дефолтных значений всех элементов (для кнопки Reset).
+    -- Делаем копию до того, как пользователь что-то трогал.
+    local ConfigActions -- заполняется ниже, используется в обработчиках списка
+    local DefaultFlags = {}
+
+    for flag, value in Flags do
+        if type(value) == "table" then
+            local copy = {}
+
+            for key, sub in value do
+                copy[key] = sub
+            end
+
+            DefaultFlags[flag] = copy
+        else
+            DefaultFlags[flag] = value
+        end
+    end
+
+    local function CleanName(name)
+        if type(name) ~= "string" then
+            return nil
+        end
+
+        -- режем пробелы по краям и запрещённые в имени файла символы
+        name = name:gsub("^%s+", ""):gsub("%s+$", ""):gsub("[\\/:%*%?\"<>|]", "")
+
+        return name ~= "" and name or nil
+    end
+
+    local function ConfigPath(name)
+        return Library.Directory .. "/configs/" .. name .. ".cfg"
+    end
+
+    local function RefreshConfigVisuals()
+        for name, entry in ConfigEntries do
+            local selected = name == SelectedConfig
+
+            entry.BackgroundTransparency = selected and 0 or 1
+            entry.BackgroundColor3 = rgb(12, 12, 12)
+            entry.TextColor3 = selected and rgb(255, 255, 255) or themes.preset.text_color
+        end
+    end
+
+    local function RefreshConfigList()
+        for _, entry in ConfigEntries do
+            entry:Destroy()
+        end
+
+        table.clear(ConfigEntries)
+
+        local files = {}
+
+        pcall(function()
+            files = listfiles(Library.Directory .. "/configs")
+        end)
+
+        for _, file in files do
+            local name = file:gsub("%.cfg$", "")
+            name = name:match("[^/\\]+$") or name
+
+            local entry = Library:Create("TextButton", {
+                Parent = ConfigList;
+                Name = "\0";
+                Text = name;
+                AutoButtonColor = false;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 13;
+                TextXAlignment = Enum.TextXAlignment.Left;
+                TextColor3 = themes.preset.text_color;
+                BackgroundColor3 = themes.preset.accent;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                BorderColor3 = rgb(0, 0, 0);
+                Size = dim2(1, -2, 0, 14);
+                Position = dim2(0, 1, 0, 0);
+                ZIndex = 3;
+            })
+
+            Library:Create("UIPadding", {
+                Parent = entry;
+                PaddingLeft = dim(0, 4);
+            })
+
+            local lastClick = 0
+
+            entry.MouseButton1Click:Connect(function()
+                local now = os.clock()
+                local double = (now - lastClick) < 0.35
+
+                lastClick = now
+
+                SelectedConfig = name
+
+                if NameBox then
+                    NameBox.Set(name)
+                end
+
+                RefreshConfigVisuals()
+
+                -- двойной клик сразу грузит конфиг
+                if double and ConfigActions and ConfigActions.Load then
+                    ConfigActions.Load()
+                end
+            end)
+
+            ConfigEntries[name] = entry
+        end
+
+        if SelectedConfig and not ConfigEntries[SelectedConfig] then
+            SelectedConfig = nil
+        end
+
+        RefreshConfigVisuals()
+    end
+
+    -- textbox по ширине как лист-бокс
+    local function WidenTextbox(box)
+        box.Items.Textbox.Size = dim2(1, 0, 0, 20)
+        box.Items.Textbox.Position = dim2(0, 0, 0, -1)
+
+        return box
+    end
+
+    NameBox = Presets:Textbox({
+        Flag = "ConfigPresetName",
+        PlaceHolder = "config name...",
+        Callback = function(text)
+            SelectedConfig = text ~= "" and text or nil
+        end
+    })
+
+    NameBox.Items.List.LayoutOrder = 2
+    WidenTextbox(NameBox)
+
+    local function CurrentName()
+        return CleanName(Flags.ConfigPresetName) or CleanName(SelectedConfig)
+    end
+
+    local Buttons = {
+        {"Load", function()
+            local name = CurrentName()
+
+            if not name then
+                Notifications:Create({Name = "Enter or select a config name"})
+
+                return
+            end
+
+            if not isfile(ConfigPath(name)) then
+                Notifications:Create({Name = "Config \"" .. name .. "\" doesn't exist"})
+
+                return
+            end
+
+            local ok, err = pcall(function()
+                Library:LoadConfig(readfile(ConfigPath(name)))
+            end)
+
+            if not ok then
+                Notifications:Create({Name = "Failed to load: " .. tostring(err)})
+
+                return
+            end
+
+            SelectedConfig = name
+
+            RefreshConfigVisuals()
+            Notifications:Create({Name = "Loaded config (" .. name .. ")"})
+        end},
+        {"Save", function()
+            local name = CurrentName()
+
+            if not name then
+                Notifications:Create({Name = "Enter a config name"})
+
+                return
+            end
+
+            local existed = isfile(ConfigPath(name))
+
+            local ok, err = pcall(function()
+                writefile(ConfigPath(name), Library:GetConfig())
+            end)
+
+            if not ok then
+                Notifications:Create({Name = "Failed to save: " .. tostring(err)})
+
+                return
+            end
+
+            SelectedConfig = name
+
+            RefreshConfigList()
+            Notifications:Create({Name = (existed and "Overwrote config (" or "Saved config (") .. name .. ")"})
+        end},
+        {"Delete", function()
+            local name = CurrentName()
+
+            if not name then
+                Notifications:Create({Name = "Enter or select a config name"})
+
+                return
+            end
+
+            if not isfile(ConfigPath(name)) then
+                Notifications:Create({Name = "Config \"" .. name .. "\" doesn't exist"})
+
+                return
+            end
+
+            local ok, err = pcall(function()
+                delfile(ConfigPath(name))
+            end)
+
+            if not ok then
+                Notifications:Create({Name = "Failed to delete: " .. tostring(err)})
+
+                return
+            end
+
+            SelectedConfig = nil
+
+            if NameBox then
+                NameBox.Set("")
+            end
+
+            RefreshConfigList()
+            Notifications:Create({Name = "Deleted config (" .. name .. ")"})
+        end},
+        {"Reset", function()
+            -- сбрасываем все элементы меню к дефолтам, снятым при загрузке
+            local restored = 0
+
+            for flag, default in DefaultFlags do
+                local setter = ConfigFlags[flag]
+
+                if setter then
+                    local ok = pcall(setter, default)
+
+                    if ok then
+                        restored += 1
+                    end
+                end
+            end
+
+            SelectedConfig = nil
+
+            if NameBox then
+                NameBox.Set("")
+            end
+
+            RefreshConfigVisuals()
+            Notifications:Create({Name = "Reset " .. restored .. " settings to default"})
+        end},
+        {"Import from clipboard", function()
+            local ok, data = pcall(function()
+                return getclipboard and getclipboard() or ""
+            end)
+
+            if not ok or type(data) ~= "string" or data == "" then
+                Notifications:Create({Name = "Clipboard is empty"})
+
+                return
+            end
+
+            local loaded, err = pcall(function()
+                Library:LoadConfig(data)
+            end)
+
+            if not loaded then
+                Notifications:Create({Name = "Invalid config data"})
+
+                return
+            end
+
+            -- сразу сохраняем импортированное под именем из текстбокса, если оно есть
+            local name = CurrentName()
+
+            if name then
+                pcall(function()
+                    writefile(ConfigPath(name), data)
+                end)
+
+                SelectedConfig = name
+
+                RefreshConfigList()
+            end
+
+            Notifications:Create({Name = name and ("Imported into (" .. name .. ")") or "Imported from clipboard"})
+        end},
+        {"Export to clipboard", function()
+            local name = CurrentName()
+            local data
+
+            -- если выбран существующий конфиг - копируем его, иначе текущие настройки
+            if name and isfile(ConfigPath(name)) then
+                local ok, contents = pcall(readfile, ConfigPath(name))
+
+                data = ok and contents or nil
+            end
+
+            data = data or Library:GetConfig()
+
+            local ok = pcall(function()
+                setclipboard(data)
+            end)
+
+            Notifications:Create({Name = ok and "Exported to clipboard" or "Clipboard unavailable"})
+        end},
+    }
+
+    ConfigActions = {}
+
+    for index, data in Buttons do
+        local button = Presets:Button({Name = data[1], Callback = data[2]})
+
+        button.Items.Button.LayoutOrder = 2 + index
+        ConfigActions[data[1]] = data[2]
+    end
+
+    -- Enter в поле имени = Load, если такой конфиг есть, иначе Save
+    NameBox.Items.Background.FocusLost:Connect(function(enter)
+        if not enter then
+            return
+        end
+
+        local name = CurrentName()
+
+        if not name then
+            return
+        end
+
+        if isfile(ConfigPath(name)) then
+            ConfigActions.Load()
+        else
+            ConfigActions.Save()
+        end
+    end)
+
+    RefreshConfigList()
+
+    Tabs.Saving.Configs = {
+        Refresh = RefreshConfigList;
+        GetSelected = function()
+            return SelectedConfig
+        end;
+    }
+
+    -- === Lua ===
+    local LUA_DIR    = Library.Directory .. "/lua"
+    local EDITOR_FILE = Library.Directory .. "/lua_editor.lua"
+    local EDITOR_URL  = "https://raw.githubusercontent.com/i77lhm/storage/refs/heads/main/lua_editor.lua"
+
+    pcall(function()
+        if not isfolder(LUA_DIR) then
+            makefolder(LUA_DIR)
+        end
+    end)
+
+    local function LuaPath(name)
+        return LUA_DIR .. "/" .. name .. ".lua"
+    end
+
+    local SelectedScript = nil
+    local ScriptEntries = {}
+    local RefreshScriptList
+    local OpenScriptInEditor -- задаётся ниже, при создании редактора
+
+    local LuaEnabled = LuaSection:Toggle({Name = "Enabled", Flag = "LuaEnabled", Default = true})
+    local LuaUnsafe = LuaSection:Toggle({Name = "Allow unsafe scripts", Flag = "LuaAllowUnsafe"})
+
+    LuaEnabled.Items.Toggle.LayoutOrder = 1
+    LuaUnsafe.Items.Toggle.LayoutOrder = 2
+
+    local ReloadButton = LuaSection:Button({
+        Name = "Reload active scripts",
+        Callback = function()
+            Notifications:Create({Name = "Reloaded active scripts"})
+        end
+    })
+
+    ReloadButton.Items.Button.LayoutOrder = 3
+
+    local ScriptBox = LuaSection:Textbox({
+        Flag = "LuaScriptName",
+        PlaceHolder = "script name...",
+    })
+
+    WidenTextbox(ScriptBox)
+    ScriptBox.Items.List.LayoutOrder = 4
+
+    -- Пустой лист-бокс под скрипты
+    local ScriptOutline = Library:Create("Frame", {
+        Parent = LuaSection.Items.Elements;
+        Name = "\0";
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        Size = dim2(1, 0, 0, 300);
+        LayoutOrder = 5;
+        BackgroundColor3 = themes.preset.outline;
+    }); Library:Themify(ScriptOutline, "outline", "BackgroundColor3")
+
+    local ScriptInline = Library:Create("Frame", {
+        Parent = ScriptOutline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = themes.preset.inline;
+    }); Library:Themify(ScriptInline, "inline", "BackgroundColor3")
+
+    local ScriptBackground = Library:Create("Frame", {
+        Parent = ScriptInline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = rgb(23, 23, 23);
+    })
+
+    local ScriptList = Library:Create("ScrollingFrame", {
+        Parent = ScriptBackground;
+        Name = "\0";
+        Active = true;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, 0, 0, 2);
+        Size = dim2(1, 0, 1, -4);
+        CanvasSize = dim2(0, 0, 0, 0);
+        AutomaticCanvasSize = Enum.AutomaticSize.Y;
+        ScrollBarThickness = 4;
+        ScrollBarImageColor3 = rgb(65, 65, 65);
+        MidImage = "rbxassetid://74268315755026";
+        TopImage = "rbxassetid://74268315755026";
+        BottomImage = "rbxassetid://74268315755026";
+        ZIndex = 2;
+    })
+
+    Library:Create("UIListLayout", {
+        Parent = ScriptList;
+        Padding = dim(0, 1);
+        SortOrder = Enum.SortOrder.LayoutOrder;
+    })
+
+    local function RefreshScriptVisuals()
+        for name, entry in ScriptEntries do
+            local selected = name == SelectedScript
+
+            entry.BackgroundTransparency = selected and 0 or 1
+            entry.BackgroundColor3 = rgb(12, 12, 12)
+            entry.TextColor3 = selected and rgb(255, 255, 255) or themes.preset.text_color
+        end
+    end
+
+    function RefreshScriptList()
+        for _, entry in ScriptEntries do
+            entry:Destroy()
+        end
+
+        table.clear(ScriptEntries)
+
+        local files = {}
+
+        pcall(function()
+            files = listfiles(LUA_DIR)
+        end)
+
+        for index, file in files do
+            if file:sub(-4) == ".lua" then
+                local name = file:gsub("%.lua$", "")
+                name = name:match("[^/\\]+$") or name
+
+                local entry = Library:Create("TextButton", {
+                    Parent = ScriptList;
+                    Name = "\0";
+                    Text = name;
+                    AutoButtonColor = false;
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextSize = 13;
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    TextColor3 = themes.preset.text_color;
+                    BackgroundColor3 = rgb(12, 12, 12);
+                    BackgroundTransparency = 1;
+                    BorderSizePixel = 0;
+                    BorderColor3 = rgb(0, 0, 0);
+                    Size = dim2(1, -2, 0, 14);
+                    Position = dim2(0, 1, 0, 0);
+                    LayoutOrder = index;
+                    ZIndex = 3;
+                })
+
+                Library:Create("UIPadding", {
+                    Parent = entry;
+                    PaddingLeft = dim(0, 4);
+                })
+
+                local lastClick = 0
+
+                entry.MouseButton1Click:Connect(function()
+                    local now = os.clock()
+                    local double = (now - lastClick) < 0.35
+
+                    lastClick = now
+                    SelectedScript = name
+
+                    ScriptBox.Set(name)
+                    RefreshScriptVisuals()
+
+                    -- двойной клик открывает файл в редакторе
+                    if double and OpenScriptInEditor then
+                        OpenScriptInEditor(name)
+                    end
+                end)
+
+                ScriptEntries[name] = entry
+            end
+        end
+
+        RefreshScriptVisuals()
+    end
+
+    RefreshScriptList()
+
+    local StartupToggle = LuaSection:Toggle({Name = "Load on startup", Flag = "LuaLoadOnStartup"})
+    StartupToggle.Items.Toggle.LayoutOrder = 7
+
+    -- ============================================================
+    -- Встроенный Lua editor (визуальная часть)
+    -- ============================================================
+    local Editor = {Open = false, Running = false, Script = nil, Unsaved = false}
+
+    -- жёсткий лимит Roblox на TextBox.Text
+    local MAX_EDITOR_CHARS = 190000
+
+    -- Отдельный ScreenGui поверх меню (вкладывать ScreenGui друг в друга нельзя)
+    local EditorScreen = Library:Create("ScreenGui", {
+        Name = "\0";
+        Enabled = true;
+        IgnoreGuiInset = true;
+        ZIndexBehavior = Enum.ZIndexBehavior.Global;
+        DisplayOrder = 999;
+    })
+
+    pcall(function()
+        EditorScreen.Parent = gethui and gethui() or CoreGui
+    end)
+
+    if not EditorScreen.Parent then
+        EditorScreen.Parent = CoreGui
+    end
+
+    -- В NoDrag кладём именно фрейм окна: у ScreenGui нет AbsolutePosition/AbsoluteSize
+
+    local EDIT_W, EDIT_H = 700, 480
+
+    local EditorOutline = Library:Create("Frame", {
+        Parent = EditorScreen;
+        Name = "\0";
+        Visible = false;
+        Size = dim2(0, EDIT_W, 0, EDIT_H);
+        Position = dim2(0.5, -EDIT_W / 2, 0.5, -EDIT_H / 2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = themes.preset.outline;
+    }); Library:Themify(EditorOutline, "outline", "BackgroundColor3")
+
+    -- окно редактора не должно таскать меню под собой
+    table.insert(Library.NoDrag, EditorOutline)
+
+    local EditorInline = Library:Create("Frame", {
+        Parent = EditorOutline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = themes.preset.inline;
+    }); Library:Themify(EditorInline, "inline", "BackgroundColor3")
+
+    -- Ловим все клики по окну, чтобы они не проходили в меню под ним
+    local EditorBlocker = Library:Create("TextButton", {
+        Parent = EditorInline;
+        Name = "\0";
+        Text = "";
+        AutoButtonColor = false;
+        Active = true;
+        Selectable = false;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Size = dim2(1, 0, 1, 0);
+        ZIndex = 0;
+    })
+
+    local EditorBody = Library:Create("Frame", {
+        Parent = EditorInline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        ClipsDescendants = true;
+        BackgroundColor3 = rgb(23, 23, 23);
+    })
+
+    -- Заголовок с крестиком
+    local EditorBar = Library:Create("Frame", {
+        Parent = EditorBody;
+        Name = "\0";
+        Size = dim2(1, 0, 0, 24);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = rgb(16, 16, 16);
+    })
+
+    Library:Create("Frame", {
+        Parent = EditorBar;
+        Name = "\0";
+        Size = dim2(1, 0, 0, 1);
+        Position = dim2(0, 0, 1, -1);
+        BorderSizePixel = 0;
+        BackgroundColor3 = themes.preset.accent;
+    })
+
+    local EditorTitle = Library:Create("TextLabel", {
+        Parent = EditorBar;
+        Name = "\0";
+        Text = "lua editor";
+        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+        TextSize = 13;
+        TextXAlignment = Enum.TextXAlignment.Left;
+        TextColor3 = themes.preset.text_color;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, 9, 0, 0);
+        Size = dim2(1, -60, 1, 0);
+        ZIndex = 2;
+    })
+
+    local function RefreshTitle()
+        local base = Editor.Script and ("lua editor  -  " .. Editor.Script .. ".lua") or "lua editor"
+
+        EditorTitle.Text = Editor.Unsaved and (base .. "*") or base
+    end
+
+    local EditorClose = Library:Create("TextButton", {
+        Parent = EditorBar;
+        Name = "\0";
+        Text = "X";
+        AutoButtonColor = false;
+        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+        TextSize = 13;
+        TextColor3 = rgb(150, 150, 150);
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Size = dim2(0, 24, 1, 0);
+        Position = dim2(1, -24, 0, 0);
+        ZIndex = 2;
+    })
+
+    EditorClose.MouseEnter:Connect(function()
+        EditorClose.TextColor3 = rgb(220, 90, 90)
+    end)
+
+    EditorClose.MouseLeave:Connect(function()
+        EditorClose.TextColor3 = rgb(150, 150, 150)
+    end)
+
+    -- Перетаскивание за заголовок
+    do
+        local dragging, startPos, startMouse = false, nil, nil
+
+        EditorBar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                startPos = EditorOutline.Position
+                startMouse = input.Position
+            end
+        end)
+
+        Library:Connection(InputService.InputChanged, function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Position - startMouse
+
+                EditorOutline.Position = dim2(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+
+        Library:Connection(InputService.InputEnded, function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+    end
+
+    -- Область кода
+    local CodeOutline = Library:Create("Frame", {
+        Parent = EditorBody;
+        Name = "\0";
+        Position = dim2(0, 8, 0, 32);
+        Size = dim2(1, -16, 1, -70);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = rgb(12, 12, 12);
+    })
+
+    local CodeArea = Library:Create("Frame", {
+        Parent = CodeOutline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        ClipsDescendants = true;
+        BackgroundColor3 = rgb(18, 18, 18);
+    })
+
+    local GUTTER, CODE_SIZE = 34, 13
+    -- LineHeight - это множитель НАТУРАЛЬНОЙ высоты строки шрифта,
+    -- а не TextSize. Поэтому реальный шаг = natural_height * LINE_MULT,
+    -- и его нельзя задать произвольным числом - иначе текст "плывёт"
+    -- относительно сетки тем сильнее, чем ниже строка.
+    local LINE_MULT = 1.35
+
+    -- Реальный шаг строки. Считается ниже, после замера шрифта.
+    local LINE_H = 18
+
+    -- Единая точка отсчёта для ВСЕХ слоёв редактора: текста, подсветки,
+    -- выделения и каретки. Меняешь тут - двигается всё сразу, рассинхрона нет.
+    local ORIGIN_X, ORIGIN_Y = 6, 4
+
+    -- Тонкая подстройка текста относительно сетки выделения (в пикселях).
+    -- 0 = текст ровно в своей ячейке.
+    local TEXT_NUDGE_Y = 0
+
+    local Gutter = Library:Create("Frame", {
+        Parent = CodeArea;
+        Name = "\0";
+        Size = dim2(0, GUTTER, 1, 0);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        ClipsDescendants = true;
+        BackgroundColor3 = rgb(22, 22, 22);
+        ZIndex = 4;
+    })
+
+    Library:Create("Frame", {
+        Parent = Gutter;
+        Name = "\0";
+        Size = dim2(0, 1, 1, 0);
+        Position = dim2(1, -1, 0, 0);
+        BorderSizePixel = 0;
+        BackgroundColor3 = rgb(38, 38, 38);
+        ZIndex = 4;
+    })
+
+    local LineNumbers = Library:Create("TextLabel", {
+        Parent = Gutter;
+        Name = "\0";
+        Text = "1";
+        FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+        TextSize = CODE_SIZE;
+        LineHeight = LINE_MULT;
+        TextColor3 = rgb(90, 90, 90);
+        TextXAlignment = Enum.TextXAlignment.Right;
+        TextYAlignment = Enum.TextYAlignment.Top;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, -6, 0, ORIGIN_Y + TEXT_NUDGE_Y);
+        Size = dim2(1, 0, 0, 0);
+        AutomaticSize = Enum.AutomaticSize.Y;
+        ZIndex = 5;
+    })
+
+    local CodeScroll = Library:Create("ScrollingFrame", {
+        Parent = CodeArea;
+        Name = "\0";
+        Active = true;
+        Position = dim2(0, GUTTER, 0, 0);
+        Size = dim2(1, -GUTTER, 1, 0);
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        CanvasSize = dim2(0, 1600, 0, 0);
+        ScrollBarThickness = 4;
+        ScrollBarImageColor3 = rgb(65, 65, 65);
+        MidImage = "rbxassetid://74268315755026";
+        TopImage = "rbxassetid://74268315755026";
+        BottomImage = "rbxassetid://74268315755026";
+        ZIndex = 2;
+    })
+
+    -- подсветка лежит под прозрачным текстбоксом
+    local CodeHighlight = Library:Create("TextLabel", {
+        Parent = CodeScroll;
+        Name = "\0";
+        Text = "";
+        RichText = true;
+        FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+        TextSize = CODE_SIZE;
+        LineHeight = LINE_MULT;
+        TextColor3 = rgb(220, 220, 220);
+        TextXAlignment = Enum.TextXAlignment.Left;
+        TextYAlignment = Enum.TextYAlignment.Top;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, ORIGIN_X, 0, ORIGIN_Y + TEXT_NUDGE_Y);
+        Size = dim2(0, 1600, 1, 0);
+        ZIndex = 2;
+    })
+
+    -- слой выделения (рисуем сами, т.к. глифы текстбокса прозрачные)
+    local SelectionLayer = Library:Create("Frame", {
+        Parent = CodeScroll;
+        Name = "\0";
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, ORIGIN_X, 0, ORIGIN_Y);
+        Size = dim2(0, 1600, 1, 0);
+        ZIndex = 1;
+    })
+
+    local CodeBox = Library:Create("TextBox", {
+        Parent = CodeScroll;
+        Name = "\0";
+        Text = "";
+        PlaceholderText = "-- write your lua here";
+        PlaceholderColor3 = rgb(90, 90, 90);
+        MultiLine = true;
+        ClearTextOnFocus = false;
+        TextWrapped = false;
+        FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+        TextSize = CODE_SIZE;
+        LineHeight = LINE_MULT;
+        TextColor3 = rgb(220, 220, 220);
+        TextTransparency = 1;
+        TextXAlignment = Enum.TextXAlignment.Left;
+        TextYAlignment = Enum.TextYAlignment.Top;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, ORIGIN_X, 0, ORIGIN_Y + TEXT_NUDGE_Y);
+        Size = dim2(0, 1600, 1, 0);
+        ZIndex = 3;
+    })
+
+    -- Статус снизу
+    local EditorStatus = Library:Create("TextLabel", {
+        Parent = EditorBody;
+        Name = "\0";
+        Text = "Ln 1, Col 1";
+        FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+        TextSize = 12;
+        TextColor3 = rgb(130, 130, 130);
+        TextXAlignment = Enum.TextXAlignment.Right;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, -10, 1, -28);
+        Size = dim2(1, 0, 0, 24);
+        ZIndex = 2;
+    })
+
+    -- === Выделение текста ===
+    local CHAR_W = 0
+
+    -- Меряем ширину моноширинного символа через TextService.
+    -- Невидимый TextLabel часто возвращает TextBounds = 0, поэтому так надёжнее.
+    local function MeasureChar()
+        local ok, size = pcall(function()
+            return TextService:GetTextSize(
+                string.rep("M", 100),
+                CODE_SIZE,
+                Enum.Font.RobotoMono,
+                vec2(100000, 100000)
+            )
+        end)
+
+        if ok and size and size.X > 0 then
+            CHAR_W = size.X / 100
+        else
+            CHAR_W = CODE_SIZE * 0.6
+        end
+    end
+
+    MeasureChar()
+
+    -- Замеряем ФАКТИЧЕСКИЙ шаг строки: рисуем 21 строку и делим высоту на 20.
+    -- Только так можно узнать, во что Roblox превратил LINE_MULT.
+    -- Двигаем ТЕКСТОВЫЕ слои относительно сетки выделения.
+    -- Выделение и каретка живут на чистой сетке (line * LINE_H),
+    -- а текст подгоняется под них - так ничего не рассинхронится.
+    local function ApplyTextOffset()
+        CodeHighlight.Position = dim2(0, ORIGIN_X, 0, ORIGIN_Y + TEXT_NUDGE_Y)
+        CodeBox.Position = dim2(0, ORIGIN_X, 0, ORIGIN_Y + TEXT_NUDGE_Y)
+        LineNumbers.Position = dim2(0, -6, 0, ORIGIN_Y + TEXT_NUDGE_Y)
+    end
+
+    -- Ручная подстройка на лету: Editor.SetTextOffset(-1) сдвинет текст вверх.
+    Editor.SetTextOffset = function(value)
+        TEXT_NUDGE_Y = value or 0
+
+        ApplyTextOffset()
+
+        -- функции объявлены ниже по файлу, поэтому вызываем через pcall
+        pcall(function()
+            RenderVisible(true)
+            RefreshCaret()
+            RefreshSelection()
+        end)
+    end
+
+    -- Шрифт грузится асинхронно: пока он не готов, метрики другие.
+    -- Перемеряем по реальному лейблу подсветки, чтобы попасть символ в символ.
+    task.defer(function()
+        local probe = Library:Create("TextLabel", {
+            Parent = CodeScroll;
+            Name = "\0";
+            Text = string.rep("M", 100);
+            FontFace = CodeHighlight.FontFace;
+            TextSize = CODE_SIZE;
+            BackgroundTransparency = 1;
+            TextTransparency = 1;
+            AutomaticSize = Enum.AutomaticSize.XY;
+            Position = dim2(0, 0, 0, -9999);
+        })
+
+        for _ = 1, 10 do
+            task.wait(0.1)
+
+            if probe.TextBounds.X > 0 then
+                CHAR_W = probe.TextBounds.X / 100
+
+                break
+            end
+        end
+
+        probe:Destroy()
+    end)
+
+    -- CursorPosition/SelectionStart считаются в БАЙТАХ, а кириллица занимает
+    -- 2 байта на символ. Для позиции на экране нужна длина в символах.
+    local function DisplayLen(str)
+        local ok, count = pcall(utf8.len, str)
+
+        if ok and count then
+            return count
+        end
+
+        return #str
+    end
+
+    -- Каретка: у TextBox TextTransparency = 1, поэтому родной курсор не виден
+    local Caret = Library:Create("Frame", {
+        Parent = SelectionLayer;
+        Name = "\0";
+        BackgroundColor3 = rgb(230, 230, 230);
+        BorderSizePixel = 0;
+        Visible = false;
+        Size = dim2(0, 1, 0, LINE_H);
+        ZIndex = 6;
+    })
+
+    local function RefreshCaret()
+        local pos = CodeBox.CursorPosition
+
+        if pos < 1 or not CodeBox:IsFocused() then
+            Caret.Visible = false
+
+            return
+        end
+
+        local before = string.sub(CodeBox.Text, 1, pos - 1)
+        local line = 0
+
+        for _ in string.gmatch(before, "\n") do
+            line += 1
+        end
+
+        local lastBreak = string.match(before, ".*()\n") or 0
+        -- часть текущей строки слева от курсора, в символах а не в байтах
+        local column = DisplayLen(string.sub(before, lastBreak + 1))
+
+        Caret.Visible = true
+        Caret.Position = dim2(0, column * CHAR_W, 0, line * LINE_H)
+    end
+
+    -- мигание каретки
+    task.spawn(function()
+        while Caret and Caret.Parent do
+            if CodeBox:IsFocused() then
+                Caret.BackgroundTransparency = Caret.BackgroundTransparency > 0.5 and 0 or 1
+            end
+
+            task.wait(0.5)
+        end
+    end)
+
+    local SelectionBars = {}
+
+    local function ClearSelection()
+        for _, bar in SelectionBars do
+            bar.Visible = false
+        end
+    end
+
+    local function GetBar(index)
+        local bar = SelectionBars[index]
+
+        if not bar then
+            bar = Library:Create("Frame", {
+                Parent = SelectionLayer;
+                Name = "\0";
+                BorderSizePixel = 0;
+                BorderColor3 = rgb(0, 0, 0);
+                BackgroundColor3 = rgb(38, 79, 120);
+                BackgroundTransparency = 0.15;
+                ZIndex = 1;
+            })
+
+            SelectionBars[index] = bar
+        end
+
+        return bar
+    end
+
+    local function RefreshSelection()
+        local selStart = CodeBox.SelectionStart
+        local cursor = CodeBox.CursorPosition
+
+        -- нет выделения
+        if selStart < 1 or cursor < 1 or selStart == cursor or CHAR_W <= 0 then
+            ClearSelection()
+
+            return
+        end
+
+        local from = math.min(selStart, cursor)
+        local to = math.max(selStart, cursor) - 1
+
+        local text = CodeBox.Text
+        local barIndex = 0
+        local lineIndex = 0
+        local pos = 1
+
+        while true do
+            local lineEnd = text:find("\n", pos, true)
+            local stop = (lineEnd or (#text + 1)) - 1
+
+            -- пересечение строки [pos..stop] с диапазоном [from..to]
+            local a = math.max(pos, from)
+            local b = math.min(stop, to)
+
+            if a <= b then
+                barIndex += 1
+
+                local bar = GetBar(barIndex)
+
+                -- смещение и ширину считаем в СИМВОЛАХ, иначе кириллица
+                -- (2 байта) растягивает выделение вправо
+                local offset = DisplayLen(string.sub(text, pos, a - 1))
+                local width = DisplayLen(string.sub(text, a, b))
+
+                local top = math.floor(lineIndex * LINE_H)
+                local bottom = math.floor((lineIndex + 1) * LINE_H)
+
+                local left = math.floor(offset * CHAR_W)
+                local right = math.floor((offset + width) * CHAR_W + 0.5)
+
+                bar.Visible = true
+                bar.Position = dim2(0, left, 0, top)
+                bar.Size = dim2(0, right - left, 0, bottom - top)
+            elseif lineEnd and from <= lineEnd and to >= lineEnd then
+                -- выделен перенос строки: узкая метка в конце строки
+                barIndex += 1
+
+                local bar = GetBar(barIndex)
+                local lineLen = DisplayLen(string.sub(text, pos, stop))
+
+                local top = math.floor(lineIndex * LINE_H)
+                local bottom = math.floor((lineIndex + 1) * LINE_H)
+
+                bar.Visible = true
+                bar.Position = dim2(0, math.floor(lineLen * CHAR_W), 0, top)
+                bar.Size = dim2(0, math.ceil(CHAR_W * 0.5), 0, bottom - top)
+            end
+
+            if not lineEnd then
+                break
+            end
+
+            pos = lineEnd + 1
+            lineIndex += 1
+        end
+
+        for index = barIndex + 1, #SelectionBars do
+            SelectionBars[index].Visible = false
+        end
+    end
+
+
+    -- === Подсветка синтаксиса ===
+    local Keywords = {
+        ["and"]=1,["break"]=1,["do"]=1,["else"]=1,["elseif"]=1,["end"]=1,["false"]=1,
+        ["for"]=1,["function"]=1,["if"]=1,["in"]=1,["local"]=1,["nil"]=1,["not"]=1,
+        ["or"]=1,["repeat"]=1,["return"]=1,["then"]=1,["true"]=1,["until"]=1,
+        ["while"]=1,["continue"]=1,
+    }
+
+    local GlobalWords = {
+        ["print"]=1,["warn"]=1,["error"]=1,["assert"]=1,["pcall"]=1,["pairs"]=1,
+        ["ipairs"]=1,["tonumber"]=1,["tostring"]=1,["type"]=1,["typeof"]=1,
+        ["setmetatable"]=1,["string"]=1,["table"]=1,["math"]=1,["task"]=1,
+        ["game"]=1,["workspace"]=1,["Instance"]=1,["Vector2"]=1,["Vector3"]=1,
+        ["UDim2"]=1,["Color3"]=1,["CFrame"]=1,["Enum"]=1,["self"]=1,["api"]=1,
+    }
+
+    local function EscapeXml(str)
+        str = str:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+        str = str:gsub('"', "&quot;"):gsub("'", "&apos;")
+
+        return str
+    end
+
+    local function Span(color, text)
+        return '<font color="' .. color .. '">' .. EscapeXml(text) .. "</font>"
+    end
+
+    local function Highlight(code)
+        local out, i, n = {}, 1, #code
+
+        while i <= n do
+            local char = code:sub(i, i)
+
+            if code:sub(i, i + 3) == "--[[" then
+                local close = code:find("]]", i + 4, true)
+                local stop = close and (close + 1) or n
+
+                table.insert(out, Span("#6A9955", code:sub(i, stop)))
+                i = stop + 1
+            elseif code:sub(i, i + 1) == "--" then
+                local stop = (code:find("\n", i) or (n + 1)) - 1
+
+                table.insert(out, Span("#6A9955", code:sub(i, stop)))
+                i = stop + 1
+            elseif char == '"' or char == "'" then
+                local j = i + 1
+
+                while j <= n do
+                    local c = code:sub(j, j)
+
+                    if c == "\\" then
+                        j += 2
+                    elseif c == char or c == "\n" then
+                        break
+                    else
+                        j += 1
+                    end
+                end
+
+                table.insert(out, Span("#CE9178", code:sub(i, math.min(j, n))))
+                i = j + 1
+            elseif char:match("%d") then
+                local num = code:match("^%d*%.?%d+", i) or char
+
+                table.insert(out, Span("#B5CEA8", num))
+                i += #num
+            elseif char:match("[%a_]") then
+                local word = code:match("^[%w_]+", i)
+                local nextChar = code:match("^%s*(.)", i + #word)
+                local color
+
+                if Keywords[word] then
+                    color = "#569CD6"
+                elseif nextChar == "(" then
+                    color = "#DCDCAA"
+                elseif GlobalWords[word] then
+                    color = "#4EC9B0"
+                else
+                    color = "#E6E6E6"
+                end
+
+                table.insert(out, Span(color, word))
+                i += #word
+            else
+                table.insert(out, EscapeXml(char))
+                i += 1
+            end
+        end
+
+        return table.concat(out)
+    end
+
+    local CodeDirty = true
+    local CodeLines = {""}
+    local RenderedFirst = -1
+    local RenderedLast = -1
+
+    -- сколько строк держим отрисованными сверх видимой области
+    local OVERSCAN = 6
+
+    local function SplitLines()
+        local text = CodeBox.Text
+        local ok, result = pcall(string.split, text, "\n")
+
+        if not ok or type(result) ~= "table" or #result == 0 then
+            -- ручной разбор на случай, если string.split недоступен
+            result = {}
+
+            local pos = 1
+
+            while true do
+                local lineEnd = string.find(text, "\n", pos, true)
+
+                if not lineEnd then
+                    result[#result + 1] = string.sub(text, pos)
+
+                    break
+                end
+
+                result[#result + 1] = string.sub(text, pos, lineEnd - 1)
+                pos = lineEnd + 1
+            end
+        end
+
+        if #result == 0 then
+            result = {""}
+        end
+
+        CodeLines = result
+    end
+
+    local function RefreshGutter()
+        local lines = #CodeLines
+        local height = math.max(lines * LINE_H + 20, CodeArea.AbsoluteSize.Y)
+
+        CodeScroll.CanvasSize = dim2(0, 1600, 0, height)
+        CodeBox.Size = dim2(0, 1600, 0, height)
+        SelectionLayer.Size = dim2(0, 1600, 0, height)
+    end
+
+    -- Рисуем только видимый кусок: RichText ломается на больших текстах
+    -- (лимит на количество тегов), поэтому целиком файл никогда не подсвечиваем.
+    local function RenderVisible(force)
+        local viewHeight = CodeArea.AbsoluteSize.Y
+
+        if viewHeight <= 0 then
+            viewHeight = 400
+        end
+
+        local top = CodeScroll.CanvasPosition.Y
+        local firstLine = math.max(1, math.floor(top / LINE_H) - OVERSCAN)
+        local visibleCount = math.ceil(viewHeight / LINE_H) + OVERSCAN * 2
+        local lastLine = math.min(#CodeLines, firstLine + visibleCount)
+
+        if not force and firstLine == RenderedFirst and lastLine == RenderedLast then
+            return
+        end
+
+        RenderedFirst = firstLine
+        RenderedLast = lastLine
+
+        local chunk = table.create(lastLine - firstLine + 1)
+
+        for index = firstLine, lastLine do
+            local ok, result = pcall(Highlight, CodeLines[index] or "")
+
+            chunk[#chunk + 1] = ok and result or EscapeXml(CodeLines[index] or "")
+        end
+
+        CodeHighlight.Text = table.concat(chunk, "\n")
+        CodeHighlight.Position = dim2(0, ORIGIN_X, 0, ORIGIN_Y + TEXT_NUDGE_Y + (firstLine - 1) * LINE_H)
+        CodeHighlight.Size = dim2(0, 1600, 0, (lastLine - firstLine + 2) * LINE_H)
+
+        -- Нумерация тоже виртуальная: один TextLabel не тянет тысячи строк
+        local numbers = table.create(lastLine - firstLine + 1)
+
+        for index = firstLine, lastLine do
+            numbers[#numbers + 1] = tostring(index)
+        end
+
+        LineNumbers.Text = table.concat(numbers, "\n")
+        LineNumbers.Position = dim2(0, -6, 0, ORIGIN_Y + TEXT_NUDGE_Y + (firstLine - 1) * LINE_H - CodeScroll.CanvasPosition.Y)
+    end
+
+    local function MeasureLineStep()
+        local single = Library:Create("TextLabel", {
+            Parent = CodeScroll;
+            Name = "\0";
+            Text = "M";
+            FontFace = CodeHighlight.FontFace;
+            TextSize = CODE_SIZE;
+            LineHeight = LINE_MULT;
+            BackgroundTransparency = 1;
+            TextTransparency = 1;
+            TextXAlignment = Enum.TextXAlignment.Left;
+            TextYAlignment = Enum.TextYAlignment.Top;
+            AutomaticSize = Enum.AutomaticSize.XY;
+            Position = dim2(0, 0, 0, -99999);
+        })
+
+        local probe = Library:Create("TextLabel", {
+            Parent = CodeScroll;
+            Name = "\0";
+            Text = string.rep("M\n", 20) .. "M";
+            FontFace = CodeHighlight.FontFace;
+            TextSize = CODE_SIZE;
+            LineHeight = LINE_MULT;
+            BackgroundTransparency = 1;
+            TextTransparency = 1;
+            TextXAlignment = Enum.TextXAlignment.Left;
+            TextYAlignment = Enum.TextYAlignment.Top;
+            AutomaticSize = Enum.AutomaticSize.XY;
+            Position = dim2(0, 0, 0, -99999);
+        })
+
+        task.defer(function()
+            for _ = 1, 30 do
+                local bounds = probe.TextBounds
+
+                -- 21 строка -> 20 промежутков между базовыми линиями
+                if bounds.Y > 0 and single.TextBounds.Y > 0 then
+                    -- разница высот 21-строчного и 1-строчного = ровно 20 шагов
+                    local step = (bounds.Y - single.TextBounds.Y) / 20
+
+                    if step > 1 and math.abs(step - LINE_H) > 0.01 then
+                        LINE_H = step
+
+                        Caret.Size = dim2(0, 1, 0, LINE_H)
+
+                        RefreshGutter()
+                        RenderVisible(true)
+                        RefreshCaret()
+                        RefreshSelection()
+                    end
+
+                    break
+                end
+
+                task.wait(0.05)
+            end
+
+            probe:Destroy()
+            single:Destroy()
+        end)
+    end
+
+    CodeBox:GetPropertyChangedSignal("Text"):Connect(function()
+        CodeDirty = true
+
+        if not Editor.Unsaved then
+            Editor.Unsaved = true
+
+            RefreshTitle()
+        end
+
+        SplitLines()
+        RefreshGutter()
+        RefreshSelection()
+        RefreshCaret()
+    end)
+
+    CodeBox:GetPropertyChangedSignal("SelectionStart"):Connect(function()
+        RefreshSelection()
+        RefreshCaret()
+    end)
+
+    CodeBox:GetPropertyChangedSignal("CursorPosition"):Connect(function()
+        local pos = CodeBox.CursorPosition
+
+        if pos < 1 then
+            return
+        end
+
+        local text = CodeBox.Text
+        local before = text:sub(1, pos - 1)
+        local line = 1
+
+        for _ in before:gmatch("\n") do
+            line += 1
+        end
+
+        local lastBreak = before:match(".*()\n") or 0
+
+        -- считаем строки по самому тексту, кэш может быть ещё не обновлён
+        local total = 1
+
+        for _ in text:gmatch("\n") do
+            total += 1
+        end
+
+        EditorStatus.Text = string.format("Ln %d, Col %d   |   %d lines", line, pos - lastBreak, total)
+
+        RefreshSelection()
+        RefreshCaret()
+    end)
+
+    CodeBox.Focused:Connect(function()
+        RefreshSelection()
+        RefreshCaret()
+    end)
+
+    CodeBox.FocusLost:Connect(function()
+        ClearSelection()
+
+        Caret.Visible = false
+    end)
+
+    Library:Connection(RunService.Heartbeat, function()
+        if CodeDirty then
+            CodeDirty = false
+
+            RenderVisible(true)
+        end
+    end)
+
+    CodeScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+        RenderVisible(false)
+
+        -- держим номера строк приклеенными к своему куску кода
+        LineNumbers.Position = dim2(0, -6, 0, ORIGIN_Y + TEXT_NUDGE_Y + (RenderedFirst - 1) * LINE_H - CodeScroll.CanvasPosition.Y)
+    end)
+
+    -- === Выполнение / выгрузка ===
+    local RunSession = nil
+
+    local function UnloadScript()
+        if RunSession then
+            for _, fn in RunSession.unload do
+                pcall(fn)
+            end
+
+            for _, connection in RunSession.connections do
+                pcall(function()
+                    connection:Disconnect()
+                end)
+            end
+
+            for _, object in RunSession.instances do
+                pcall(function()
+                    object:Destroy()
+                end)
+            end
+
+            RunSession = nil
+        end
+
+        Editor.Running = false
+    end
+
+    local function RunScript(source)
+        UnloadScript()
+
+        local loader = loadstring or load
+
+        if not loader then
+            Notifications:Create({Name = "loadstring unavailable"})
+
+            return false
+        end
+
+        local func, err = loader(source, "@gamesense_lua")
+
+        if not func then
+            Notifications:Create({Name = "Syntax error: " .. tostring(err)})
+
+            return false
+        end
+
+        RunSession = {connections = {}, instances = {}, unload = {}, render = {}, key = {}, binds = {}}
+
+        local session = RunSession
+
+        --====================================================================
+        -- LUA API  (стиль gamesense / neverlose)
+        --====================================================================
+        local api = {}
+
+        api.library = Library
+        api.flags = Flags
+        api.player = lp
+        api.camera = Camera
+        api.game = game
+        api.version = "1.0"
+
+        ------------------------------------------------------------------
+        -- client
+        ------------------------------------------------------------------
+        local client = {}
+
+        local function Join(...)
+            local parts = {}
+
+            for index = 1, select("#", ...) do
+                parts[index] = tostring(select(index, ...))
+            end
+
+            return table.concat(parts, " ")
+        end
+
+        function client.log(...)
+            Notifications:Create({Name = Join(...)})
+        end
+
+        function client.color_log(r, g, b, ...)
+            Notifications:Create({Name = Join(...)})
+        end
+
+        function client.error_log(...)
+            Notifications:Create({Name = "[error] " .. Join(...)})
+        end
+
+        function client.userid_to_entindex(id)
+            local player = Players:GetPlayerByUserId(id)
+
+            return player
+        end
+
+        function client.screen_size()
+            local size = Camera.ViewportSize
+
+            return size.X, size.Y
+        end
+
+        function client.timestamp()
+            return os.clock() * 1000
+        end
+
+        function client.system_time()
+            local date = os.date("*t")
+
+            return date.hour, date.min, date.sec, 0
+        end
+
+        function client.unix_time()
+            return os.time()
+        end
+
+        function client.delay_call(delay, fn, ...)
+            local args = table.pack(...)
+
+            task.delay(delay, function()
+                pcall(fn, table.unpack(args, 1, args.n))
+            end)
+        end
+
+        function client.exec(cmd)
+            client.log("exec: " .. tostring(cmd))
+        end
+
+        client.set_event_callback = function(event, fn)
+            api.on(event, fn)
+        end
+
+        api.client = client
+
+        ------------------------------------------------------------------
+        -- ui  (кастомные элементы в любых вкладках)
+        ------------------------------------------------------------------
+        local ui = {}
+
+        local Elements = {}
+        local ElementId = 0
+
+        -- Короткие псевдонимы -> реальные имена секций в меню
+        local ContainerAliases = {
+            -- Visuals / Lighting
+            esp            = "preview esp",
+            preview        = "preview esp",
+            player_esp     = "preview esp",
+            models         = "colored models",
+            chams          = "colored models",
+            world          = "world",
+            effects        = "effects",
+
+            -- Rage
+            aimbot         = "aimbot",
+            ragebot        = "aimbot",
+            aa             = "anti-aimbot angles",
+            antiaim        = "anti-aimbot angles",
+            anti_aim       = "anti-aimbot angles",
+            fakelag        = "other",
+
+            -- Legit
+            triggerbot     = "triggerbot",
+            trigger        = "triggerbot",
+
+            -- Misc / Settings
+            misc           = "misc",
+            movement       = "movement",
+            settings       = "settings",
+
+            -- прочее
+            players        = "players",
+            adjustments    = "adjustments",
+            presets        = "presets",
+            lua            = "lua",
+            other          = "other",
+        }
+
+        local function ResolveSection(tabName, containerName)
+            tabName = string.lower(tostring(tabName or ""))
+            containerName = string.lower(tostring(containerName or ""))
+
+            tabName = Library.TabAliases[tabName] or tabName
+
+            local registry = Library.Registry[tabName]
+
+            if not registry then
+                local known = {}
+
+                for name in Library.Registry do
+                    table.insert(known, name)
+                end
+
+                error("unknown tab '" .. tabName .. "' (available: " .. table.concat(known, ", ") .. ")", 3)
+            end
+
+            -- 1) точное совпадение полного имени
+            local section = registry[containerName]
+
+            -- 2) псевдоним ("esp" -> "preview esp")
+            if not section then
+                local alias = ContainerAliases[containerName]
+
+                if alias then
+                    section = registry[alias]
+                end
+            end
+
+            -- 3) частичное совпадение ("esp" найдёт "preview esp")
+            if not section then
+                for name, candidate in registry do
+                    if string.find(name, containerName, 1, true) then
+                        section = candidate
+
+                        break
+                    end
+                end
+            end
+
+            if not section then
+                local known = {}
+
+                for name in registry do
+                    table.insert(known, "'" .. name .. "'")
+                end
+
+                error(
+                    "unknown container '" .. containerName .. "' in tab '" .. tabName ..
+                    "' (available: " .. table.concat(known, ", ") .. ")",
+                    3
+                )
+            end
+
+            return section
+        end
+
+        local function Register(kind, object, extra)
+            ElementId += 1
+
+            local handle = ElementId
+
+            Elements[handle] = {
+                kind = kind,
+                object = object,
+                extra = extra or {},
+                visible = true,
+                enabled = true,
+            }
+
+            return handle
+        end
+
+        local function Get(handle)
+            local data = Elements[handle]
+
+            if not data then
+                error("invalid ui element", 3)
+            end
+
+            return data
+        end
+
+        function ui.new_checkbox(tab, container, name, default)
+            local section = ResolveSection(tab, container)
+            local element = section:Toggle({
+                Name = name,
+                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
+                Default = default or false,
+            })
+
+            return Register("checkbox", element)
+        end
+
+        function ui.new_slider(tab, container, name, min, max, init, showTooltip, unit, scale)
+            local section = ResolveSection(tab, container)
+            local element = section:Slider({
+                Name = name,
+                Min = min or 0,
+                Max = max or 100,
+                Default = init or min or 0,
+                Suffix = unit or "",
+                Decimal = scale or 1,
+                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
+            })
+
+            return Register("slider", element)
+        end
+
+        function ui.new_combobox(tab, container, name, ...)
+            local section = ResolveSection(tab, container)
+            local options = {...}
+
+            if type(options[1]) == "table" then
+                options = options[1]
+            end
+
+            local element = section:Dropdown({
+                Name = name,
+                Options = options,
+                Default = options[1],
+                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
+            })
+
+            return Register("combobox", element)
+        end
+
+        function ui.new_multiselect(tab, container, name, ...)
+            local section = ResolveSection(tab, container)
+            local options = {...}
+
+            if type(options[1]) == "table" then
+                options = options[1]
+            end
+
+            local element = section:Dropdown({
+                Name = name,
+                Options = options,
+                Multi = true,
+                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
+            })
+
+            return Register("multiselect", element)
+        end
+
+        function ui.new_button(tab, container, name, callback)
+            local section = ResolveSection(tab, container)
+            local element = section:Button({
+                Name = name,
+                Callback = function()
+                    pcall(callback)
+                end,
+            })
+
+            return Register("button", element)
+        end
+
+        function ui.new_label(tab, container, name)
+            local section = ResolveSection(tab, container)
+            local element = section:Label({Name = name})
+
+            return Register("label", element)
+        end
+
+        function ui.new_color_picker(tab, container, name, r, g, b, a)
+            local section = ResolveSection(tab, container)
+            local label = section:Label({Name = name or "color"})
+
+            local picker = label:Colorpicker({
+                Flag = "lua_color_" .. tostring(ElementId + 1),
+                Color = rgb(r or 255, g or 255, b or 255),
+                Alpha = a and (1 - a / 255) or 0,
+            })
+
+            return Register("color_picker", picker, {label = label})
+        end
+
+        function ui.new_textbox(tab, container, name)
+            local section = ResolveSection(tab, container)
+            local element = section:Textbox({
+                Name = name,
+                Flag = "lua_text_" .. tostring(ElementId + 1),
+            })
+
+            return Register("textbox", element)
+        end
+
+        function ui.new_hotkey(tab, container, name)
+            local section = ResolveSection(tab, container)
+            local label = section:Label({Name = name or "hotkey"})
+            local keybind = label:Keybind({Name = name or "hotkey"})
+
+            return Register("hotkey", keybind, {label = label})
+        end
+
+        function ui.get(handle)
+            local data = Get(handle)
+            local object = data.object
+
+            if data.kind == "color_picker" then
+                local value = Flags[object.Flag]
+
+                if type(value) == "table" and value.Color then
+                    local color = value.Color
+
+                    return math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255),
+                        math.floor((1 - (value.Transparency or 0)) * 255)
+                end
+
+                return 255, 255, 255, 255
+            end
+
+            if object.Flag then
+                return Flags[object.Flag]
+            end
+
+            return nil
+        end
+
+        function ui.set(handle, ...)
+            local data = Get(handle)
+            local object = data.object
+
+            if data.kind == "color_picker" then
+                local r, g, b, a = ...
+
+                if object.Set then
+                    object.Set(rgb(r or 255, g or 255, b or 255), a and (1 - a / 255) or 0)
+                end
+
+                return
+            end
+
+            if data.kind == "button" then
+                if object.Callback then
+                    pcall(object.Callback)
+                end
+
+                return
+            end
+
+            if object.Set then
+                object.Set((...))
+            end
+        end
+
+        function ui.set_callback(handle, callback)
+            local data = Get(handle)
+
+            data.object.Callback = function(...)
+                pcall(callback, handle, ...)
+            end
+        end
+
+        local function ElementInstance(data)
+            local object = data.object
+            local items = object.Items or {}
+
+            return items.Toggle or items.Slider or items.Dropdown or items.Label
+                or items.List or items.Button or (data.extra and data.extra.label and data.extra.label.Items.Label)
+        end
+
+        function ui.set_visible(handle, visible)
+            local data = Get(handle)
+            local instance = ElementInstance(data)
+
+            data.visible = visible and true or false
+
+            if instance then
+                instance.Visible = data.visible
+            end
+        end
+
+        function ui.set_enabled(handle, enabled)
+            local data = Get(handle)
+            local instance = ElementInstance(data)
+
+            data.enabled = enabled and true or false
+
+            if instance then
+                for _, child in instance:GetDescendants() do
+                    if child:IsA("TextLabel") or child:IsA("TextButton") then
+                        child.TextTransparency = data.enabled and 0 or 0.6
+                    end
+                end
+            end
+        end
+
+        -- перекраска элемента: ui.set_color(handle, 255, 0, 0)
+        function ui.set_color(handle, r, g, b)
+            local data = Get(handle)
+            local object = data.object
+            local items = object.Items or {}
+            local color = rgb(r or 255, g or 255, b or 255)
+
+            local target = items.Title or items.Name
+
+            if target then
+                target.TextColor3 = color
+            end
+
+            if data.extra and data.extra.label then
+                data.extra.label.Items.Title.TextColor3 = color
+            end
+        end
+
+        function ui.name(handle)
+            local data = Get(handle)
+            local items = data.object.Items or {}
+            local target = items.Title or items.Name
+
+            return target and target.Text or ""
+        end
+
+        function ui.type(handle)
+            return Get(handle).kind
+        end
+
+        function ui.is_menu_open()
+            return Library.Window and Library.Window.Visible or false
+        end
+
+        ui.is_menu_opened = ui.is_menu_open
+
+        function ui.mouse_position()
+            local pos = InputService:GetMouseLocation()
+
+            return pos.X, pos.Y
+        end
+
+        function ui.reference(tab, container, name)
+            local section = ResolveSection(tab, container)
+
+            -- ищем существующий элемент по имени
+            for _, child in section.Items.Elements:GetDescendants() do
+                if child:IsA("TextLabel") and child.Text == name then
+                    return Register("reference", {Items = {Title = child}})
+                end
+            end
+
+            return nil
+        end
+
+        function ui.new_tab_section(tab, container)
+            local tabName = string.lower(tostring(tab))
+
+            tabName = Library.TabAliases[tabName] or tabName
+
+            local target = Library.TabsByName[tabName]
+
+            if not target then
+                error("unknown tab: " .. tabName, 2)
+            end
+
+            local section = target:Section({Name = container, Side = "Right"})
+
+            Library.Registry[tabName] = Library.Registry[tabName] or {}
+            Library.Registry[tabName][string.lower(container)] = section
+
+            return Register("section", section)
+        end
+
+        -- Список всех вкладок и секций: ui.dump() -> печатает в нотификации,
+        -- ui.list() -> возвращает таблицу {tab = {section1, section2}}
+        function ui.list()
+            local out = {}
+
+            for tabName, sections in Library.Registry do
+                local names = {}
+
+                for sectionName in sections do
+                    table.insert(names, sectionName)
+                end
+
+                table.sort(names)
+
+                out[tabName] = names
+            end
+
+            return out
+        end
+
+        function ui.dump()
+            for tabName, sections in ui.list() do
+                Notifications:Create({Name = tabName .. ": " .. table.concat(sections, ", ")})
+            end
+        end
+
+        api.ui = ui
+
+        ------------------------------------------------------------------
+        -- entity
+        ------------------------------------------------------------------
+        local entity = {}
+
+        function entity.get_local_player()
+            return lp
+        end
+
+        function entity.get_players(enemiesOnly)
+            local out = {}
+
+            for _, player in Players:GetPlayers() do
+                if player == lp then
+                    continue
+                end
+
+                if enemiesOnly and player.Team and lp.Team and player.Team == lp.Team then
+                    continue
+                end
+
+                table.insert(out, player)
+            end
+
+            return out
+        end
+
+        function entity.get_all(className)
+            local out = {}
+
+            for _, object in workspace:GetDescendants() do
+                if not className or object:IsA(className) then
+                    table.insert(out, object)
+                end
+            end
+
+            return out
+        end
+
+        function entity.get_prop(player, prop)
+            local character = player and player.Character
+
+            if not character then
+                return nil
+            end
+
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            local root = character:FindFirstChild("HumanoidRootPart")
+
+            if prop == "health" then
+                return humanoid and humanoid.Health
+            elseif prop == "max_health" then
+                return humanoid and humanoid.MaxHealth
+            elseif prop == "origin" then
+                return root and root.Position
+            elseif prop == "velocity" then
+                return root and root.AssemblyLinearVelocity
+            elseif prop == "name" then
+                return player.Name
+            end
+
+            return nil
+        end
+
+        function entity.hitbox_position(player, hitbox)
+            local character = player and player.Character
+
+            if not character then
+                return nil
+            end
+
+            local part = character:FindFirstChild(hitbox or "Head")
+
+            return part and part.Position
+        end
+
+        function entity.is_alive(player)
+            local humanoid = player
+                and player.Character
+                and player.Character:FindFirstChildOfClass("Humanoid")
+
+            return humanoid ~= nil and humanoid.Health > 0
+        end
+
+        function entity.is_enemy(player)
+            if not (player and lp) then
+                return false
+            end
+
+            if player.Team and lp.Team then
+                return player.Team ~= lp.Team
+            end
+
+            return player ~= lp
+        end
+
+        function entity.get_distance(player)
+            local root = player
+                and player.Character
+                and player.Character:FindFirstChild("HumanoidRootPart")
+
+            if not root then
+                return math.huge
+            end
+
+            return (Camera.CFrame.Position - root.Position).Magnitude
+        end
+
+        api.entity = entity
+
+        ------------------------------------------------------------------
+        -- render
+        ------------------------------------------------------------------
+        local render = {}
+
+        local RenderGui = Instance.new("ScreenGui")
+
+        RenderGui.Name = "\0"
+        RenderGui.IgnoreGuiInset = true
+        RenderGui.ResetOnSpawn = false
+        RenderGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        RenderGui.DisplayOrder = 100
+
+        pcall(function()
+            RenderGui.Parent = gethui and gethui() or CoreGui
+        end)
+
+        if not RenderGui.Parent then
+            RenderGui.Parent = lp:WaitForChild("PlayerGui")
+        end
+
+        table.insert(session.instances, RenderGui)
+
+        local drawPool = {}
+        local drawIndex = 0
+
+        -- Прячем нарисованное в КОНЦЕ кадра (Heartbeat), а рисуют скрипты
+        -- в RenderStepped. Если чистить тоже в RenderStepped, порядок
+        -- коннектов не гарантирован и рисунок может гаситься сразу же.
+        table.insert(session.connections, RunService.Heartbeat:Connect(function()
+            for index = 1, drawIndex do
+                local item = drawPool[index]
+
+                if item then
+                    item.Visible = false
+                end
+            end
+
+            drawIndex = 0
+        end))
+
+        local function AcquireFrame(class)
+            drawIndex += 1
+
+            local item = drawPool[drawIndex]
+
+            if not item or not item:IsA(class) then
+                if item then
+                    item:Destroy()
+                end
+
+                item = Instance.new(class)
+                item.BorderSizePixel = 0
+                item.Parent = RenderGui
+
+                drawPool[drawIndex] = item
+            end
+
+            item.Visible = true
+
+            return item
+        end
+
+        function render.rect_filled(x, y, w, h, r, g, b, a)
+            local frame = AcquireFrame("Frame")
+
+            frame.AnchorPoint = vec2(0, 0)
+            frame.Rotation = 0
+            frame.ZIndex = 1
+            frame.Position = dim2(0, x, 0, y)
+            frame.Size = dim2(0, w, 0, h)
+            frame.BackgroundColor3 = rgb(r or 255, g or 255, b or 255)
+            frame.BackgroundTransparency = 1 - ((a or 255) / 255)
+
+            return frame
+        end
+
+        function render.rect(x, y, w, h, r, g, b, a, thickness)
+            thickness = thickness or 1
+
+            render.rect_filled(x, y, w, thickness, r, g, b, a)
+            render.rect_filled(x, y + h - thickness, w, thickness, r, g, b, a)
+            render.rect_filled(x, y, thickness, h, r, g, b, a)
+            render.rect_filled(x + w - thickness, y, thickness, h, r, g, b, a)
+        end
+
+        function render.line(x1, y1, x2, y2, r, g, b, a, thickness)
+            local frame = AcquireFrame("Frame")
+            local dx, dy = x2 - x1, y2 - y1
+            local length = math.sqrt(dx * dx + dy * dy)
+
+            frame.AnchorPoint = vec2(0, 0.5)
+            frame.Position = dim2(0, x1, 0, y1)
+            frame.Size = dim2(0, length, 0, thickness or 1)
+            frame.Rotation = math.deg(math.atan2(dy, dx))
+            frame.BackgroundColor3 = rgb(r or 255, g or 255, b or 255)
+            frame.BackgroundTransparency = 1 - ((a or 255) / 255)
+
+            return frame
+        end
+
+        function render.text(x, y, r, g, b, a, size, text, centered)
+            local label = AcquireFrame("TextLabel")
+
+            label.BackgroundTransparency = 1
+            label.Position = dim2(0, x, 0, y)
+            label.Size = dim2(0, 0, 0, 0)
+            label.AutomaticSize = Enum.AutomaticSize.XY
+            label.ZIndex = 10
+            label.Font = Enum.Font.Code
+            label.TextSize = size or 13
+            label.Text = tostring(text)
+            label.TextColor3 = rgb(r or 255, g or 255, b or 255)
+            label.TextTransparency = 1 - ((a or 255) / 255)
+            label.TextXAlignment = centered and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
+
+            return label
+        end
+
+        function render.circle(x, y, radius, r, g, b, a)
+            local frame = AcquireFrame("Frame")
+
+            frame.AnchorPoint = vec2(0.5, 0.5)
+            frame.Position = dim2(0, x, 0, y)
+            frame.Size = dim2(0, radius * 2, 0, radius * 2)
+            frame.BackgroundColor3 = rgb(r or 255, g or 255, b or 255)
+            frame.BackgroundTransparency = 1 - ((a or 255) / 255)
+
+            local corner = frame:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
+
+            corner.CornerRadius = dim(1, 0)
+            corner.Parent = frame
+
+            return frame
+        end
+
+        function render.world_to_screen(position)
+            local screen, visible = Camera:WorldToViewportPoint(position)
+
+            if not visible then
+                return nil
+            end
+
+            return screen.X, screen.Y
+        end
+
+        function render.screen_size()
+            local size = Camera.ViewportSize
+
+            return size.X, size.Y
+        end
+
+        api.render = render
+
+        ------------------------------------------------------------------
+        -- protection  (анти-детект слой)
+        ------------------------------------------------------------------
+        local protection = {}
+
+        local hiddenNames = {}
+
+        -- прячем инстанс от обхода дерева: случайное имя + вынос из PlayerGui
+        function protection.hide_instance(object)
+            if typeof(object) ~= "Instance" then
+                return false
+            end
+
+            local ok = pcall(function()
+                object.Name = "\0"
+
+                if gethui then
+                    object.Parent = gethui()
+                elseif syn and syn.protect_gui then
+                    syn.protect_gui(object)
+                end
+            end)
+
+            hiddenNames[object] = true
+
+            return ok
+        end
+
+        -- защита от палевных вызовов: оборачивает функцию в pcall + рандомная задержка
+        function protection.safe_call(fn, ...)
+            local args = table.pack(...)
+
+            local ok, result = pcall(function()
+                return fn(table.unpack(args, 1, args.n))
+            end)
+
+            return ok, result
+        end
+
+        -- рандомизация значения, чтобы не палиться идеальными числами
+        function protection.humanize(value, spread)
+            spread = spread or 0.05
+
+            return value * (1 + (math.random() - 0.5) * 2 * spread)
+        end
+
+        -- задержка со случайным разбросом (антипаттерн-детект)
+        function protection.random_delay(base, spread)
+            local jitter = (math.random() - 0.5) * 2 * (spread or base * 0.3)
+
+            task.wait(math.max(0, base + jitter))
+        end
+
+        -- проверка на подозрительные глобалы (античит-хуки)
+        function protection.is_hooked(fn)
+            if not fn then
+                return false
+            end
+
+            local ok, info = pcall(debug.info, fn, "s")
+
+            if not ok then
+                return true
+            end
+
+            return info ~= nil and tostring(info):find("C") == nil
+        end
+
+        function protection.clean_logs()
+            pcall(function()
+                if setclipboard then
+                    setclipboard("")
+                end
+            end)
+        end
+
+        api.protection = protection
+
+        ------------------------------------------------------------------
+        -- events / utils
+        ------------------------------------------------------------------
+        function api.on(event, fn)
+            event = string.lower(tostring(event))
+
+            if event == "render" or event == "update" or event == "paint" then
+                table.insert(session.render, fn)
+            elseif event == "unload" or event == "shutdown" then
+                table.insert(session.unload, fn)
+            elseif event == "key" or event == "input" then
+                table.insert(session.key, fn)
+            end
+        end
+
+        api.set_event_callback = api.on
+
+        function api.connect(signal, fn)
+            local connection = signal:Connect(fn)
+
+            table.insert(session.connections, connection)
+
+            return connection
+        end
+
+        function api.track(object)
+            table.insert(session.instances, object)
+
+            return object
+        end
+
+        function api.bind(keyCode, fn)
+            table.insert(session.binds, {Key = keyCode, Fn = fn})
+        end
+
+        function api.print(...)
+            Notifications:Create({Name = Join(...)})
+        end
+
+        api.notify = api.print
+        api.warn = api.print
+        api.log = api.print
+
+        -- диспетчер render-колбэков скрипта
+        table.insert(session.connections, RunService.RenderStepped:Connect(function(delta)
+            for _, fn in session.render do
+                local okRender, renderErr = pcall(fn, delta)
+
+                if not okRender then
+                    Notifications:Create({Name = "render error: " .. tostring(renderErr)})
+
+                    session.render = {}
+
+                    break
+                end
+            end
+        end))
+
+        -- хоткеи скрипта
+        table.insert(session.connections, InputService.InputBegan:Connect(function(input, processed)
+            if processed then
+                return
+            end
+
+            for _, bind in session.binds do
+                if input.KeyCode == bind.Key then
+                    pcall(bind.Fn)
+                end
+            end
+
+            for _, fn in session.key do
+                pcall(fn, input.KeyCode)
+            end
+        end))
+
+        local ok, runtimeErr = pcall(func, api)
+
+        if not ok then
+            Notifications:Create({Name = "Runtime error: " .. tostring(runtimeErr)})
+
+            UnloadScript()
+
+            return false
+        end
+
+        Editor.Running = true
+
+        return true
+    end
+
+    -- === Кнопки редактора: Save / Load-Unload ===
+    local function MakeEditorButton(text, order, callback)
+        local outline = Library:Create("Frame", {
+            Parent = EditorBody;
+            Name = "\0";
+            Size = dim2(0, 100, 0, 20);
+            Position = dim2(0, 8 + (order - 1) * 108, 1, -28);
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            BackgroundColor3 = themes.preset.outline;
+        }); Library:Themify(outline, "outline", "BackgroundColor3")
+
+        local inline = Library:Create("Frame", {
+            Parent = outline;
+            Name = "\0";
+            Position = dim2(0, 1, 0, 1);
+            Size = dim2(1, -2, 1, -2);
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            BackgroundColor3 = rgb(38, 38, 38);
+        })
+
+        local button = Library:Create("TextButton", {
+            Parent = inline;
+            Name = "\0";
+            Text = text;
+            AutoButtonColor = false;
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 13;
+            TextColor3 = themes.preset.text_color;
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            Size = dim2(1, 0, 1, 0);
+            ZIndex = 2;
+        })
+
+        button.MouseEnter:Connect(function()
+            inline.BackgroundColor3 = rgb(52, 52, 52)
+        end)
+
+        button.MouseLeave:Connect(function()
+            inline.BackgroundColor3 = rgb(38, 38, 38)
+        end)
+
+        button.MouseButton1Click:Connect(function()
+            task.spawn(callback)
+        end)
+
+        return button
+    end
+
+    local EditorLoadButton
+    local MenuLoadButton
+
+    -- синхронизация подписи Load <-> Unload в обоих местах
+    local function SyncRunState()
+        local label = Editor.Running and "Unload script" or "Load script"
+
+        if EditorLoadButton then
+            EditorLoadButton.Text = Editor.Running and "Unload" or "Load"
+        end
+
+        if MenuLoadButton then
+            MenuLoadButton.Items.Name.Text = label
+        end
+    end
+
+    local function ToggleRun()
+        if Editor.Running then
+            UnloadScript()
+            SyncRunState()
+            Notifications:Create({Name = "Script unloaded"})
+
+            return
+        end
+
+        local source = CodeBox.Text
+
+        -- если в редакторе пусто - берём выбранный в списке файл
+        if source:gsub("%s", "") == "" then
+            local name = CleanName(Flags.LuaScriptName) or SelectedScript
+
+            if not name or not isfile(LuaPath(name)) then
+                Notifications:Create({Name = "Nothing to load"})
+
+                return
+            end
+
+            source = readfile(LuaPath(name))
+
+            -- TextBox не принимает больше ~200k символов: большой файл
+            -- выполняем с диска, в редактор кладём только заглушку
+            if #source <= MAX_EDITOR_CHARS then
+                CodeBox.Text = source
+            else
+                CodeBox.Text = string.format(
+                    "-- %s.lua (%d KB)\n-- Файл слишком большой для редактора, запущен напрямую с диска.\n",
+                    name, math.floor(#source / 1024)
+                )
+
+                Notifications:Create({Name = "File too large to edit - running from disk"})
+            end
+        end
+
+        if RunScript(source) then
+            SyncRunState()
+            Notifications:Create({Name = "Script loaded"})
+        end
+    end
+
+    MakeEditorButton("Save", 1, function()
+        local name = CleanName(Flags.LuaScriptName) or SelectedScript
+
+        if not name then
+            Notifications:Create({Name = "Enter a script name"})
+
+            return
+        end
+
+        local ok = pcall(function()
+            writefile(LuaPath(name), CodeBox.Text)
+        end)
+
+        if not ok then
+            Notifications:Create({Name = "Failed to save"})
+
+            return
+        end
+
+        SelectedScript = name
+        Editor.Script = name
+        Editor.Unsaved = false
+
+        RefreshTitle()
+        RefreshScriptList()
+        Notifications:Create({Name = "Saved script (" .. name .. ")"})
+    end)
+
+    EditorLoadButton = MakeEditorButton("Load", 2, ToggleRun)
+
+    EditorClose.MouseButton1Click:Connect(function()
+        Editor.Open = false
+        EditorOutline.Visible = false
+    end)
+
+    -- открыть файл в редакторе (двойной клик по списку)
+    OpenScriptInEditor = function(name)
+        local ok, source = pcall(readfile, LuaPath(name))
+
+        source = ok and source or ""
+
+        if #source > MAX_EDITOR_CHARS then
+            Notifications:Create({Name = "File too large to open in editor"})
+
+            source = string.format(
+                "-- %s.lua (%d KB)\n-- Слишком большой файл, откройте его вне редактора.\n",
+                name, math.floor(#source / 1024)
+            )
+        end
+
+        CodeBox.Text = source
+
+        Editor.Script = name
+        Editor.Unsaved = false
+
+        RefreshTitle()
+
+        Editor.Open = true
+        EditorOutline.Visible = true
+    end
+
+    -- === Кнопки в самом меню ===
+    MenuLoadButton = LuaSection:Button({
+        Name = "Load script",
+        Callback = ToggleRun
+    })
+
+    MenuLoadButton.Items.Button.LayoutOrder = 8
+
+    local CreateScript = LuaSection:Button({
+        Name = "Create",
+        Callback = function()
+            local name = CleanName(Flags.LuaScriptName)
+
+            if not name then
+                Notifications:Create({Name = "Enter a script name"})
+
+                return
+            end
+
+            if isfile(LuaPath(name)) then
+                Notifications:Create({Name = "Script \"" .. name .. "\" already exists"})
+
+                return
+            end
+
+            -- Файл на диск НЕ пишем: только готовим буфер в редакторе.
+            -- Скрипт появится в списке после нажатия Save.
+            CodeBox.Text = "-- " .. name .. "\n\nlocal api = ...\n\napi.print(\"hello from " .. name .. "\")\n"
+
+            Editor.Script = name
+            Editor.Unsaved = true
+
+            RefreshTitle()
+
+            Editor.Open = true
+            EditorOutline.Visible = true
+
+            Notifications:Create({Name = "New script (unsaved) - press Save"})
+        end
+    })
+
+    CreateScript.Items.Button.LayoutOrder = 9
+
+    local DeleteScript = LuaSection:Button({
+        Name = "Delete",
+        Callback = function()
+            local name = CleanName(Flags.LuaScriptName) or SelectedScript
+
+            if not name then
+                Notifications:Create({Name = "Enter or select a script"})
+
+                return
+            end
+
+            if not isfile(LuaPath(name)) then
+                Notifications:Create({Name = "Script \"" .. name .. "\" doesn't exist"})
+
+                return
+            end
+
+            local ok = pcall(function()
+                delfile(LuaPath(name))
+            end)
+
+            if not ok then
+                Notifications:Create({Name = "Failed to delete script"})
+
+                return
+            end
+
+            if SelectedScript == name then
+                SelectedScript = nil
+            end
+
+            ScriptBox.Set("")
+
+            RefreshScriptList()
+            Notifications:Create({Name = "Deleted script (" .. name .. ")"})
+        end
+    })
+
+    DeleteScript.Items.Button.LayoutOrder = 10
+
+    local OpenEditor = LuaSection:Button({
+        Name = "Open lua editor",
+        Callback = function()
+            Editor.Open = not Editor.Open
+            EditorOutline.Visible = Editor.Open
+        end
+    })
+
+    OpenEditor.Items.Button.LayoutOrder = 11
+
+    -- Меню закрыли -> прячем и редактор, но ЗАПОМИНАЕМ что он был открыт
+    table.insert(Library.ExtraClosers, function()
+        Editor.WasOpen = Editor.Open
+
+        if Editor.Open then
+            EditorOutline.Visible = false
+        end
+    end)
+
+    -- Меню открыли -> возвращаем редактор, если он был открыт
+    table.insert(Library.OpenHooks, function()
+        if Editor.WasOpen and Editor.Open then
+            EditorOutline.Visible = true
+        end
+    end)
+
+    -- === Порядок слоёв: что тронул - то и сверху ===
+    local MENU_ORDER, EDITOR_ORDER = 500, 999
+
+    local function FocusEditor()
+        EditorScreen.DisplayOrder = EDITOR_ORDER
+
+        if Library.Items then
+            Library.Items.DisplayOrder = MENU_ORDER
+        end
+
+        Editor.Focused = true
+    end
+
+    local function FocusMenu()
+        -- редактор уходит на второй план и перестаёт перехватывать клики
+        EditorScreen.DisplayOrder = MENU_ORDER - 1
+
+        if Library.Items then
+            Library.Items.DisplayOrder = MENU_ORDER
+        end
+
+        Editor.Focused = false
+    end
+
+    Editor.FocusEditor = FocusEditor
+    Editor.FocusMenu = FocusMenu
+
+    -- клик по окну редактора -> редактор наверх
+    EditorBlocker.MouseButton1Down:Connect(FocusEditor)
+    EditorBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            FocusEditor()
+        end
+    end)
+
+    CodeBox.Focused:Connect(FocusEditor)
+
+    -- клик по меню -> меню наверх, редактор на второй план
+    Library:Connection(InputService.InputBegan, function(input, processed)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+            return
+        end
+
+        if not (Library.Window and Library.Window.Visible) then
+            return
+        end
+
+        -- курсор над окном редактора? тогда это его клик
+        if EditorOutline.Visible and Library:Hovering(EditorOutline) then
+            return
+        end
+
+        if Library:Hovering(Library.Window) then
+            FocusMenu()
+        end
+    end)
+
+    FocusEditor()
+
+    -- редактор живёт в своём ScreenGui - убираем его при выгрузке меню
+    Library.UnloadHooks = Library.UnloadHooks or {}
+
+    table.insert(Library.UnloadHooks, function()
+        UnloadScript()
+
+        pcall(function()
+            EditorScreen:Destroy()
+        end)
+    end)
+
+    SplitLines()
+    RefreshGutter()
+    RenderVisible(true)
+    MeasureLineStep()
+    SyncRunState()
+
+end
+
+-- Toggle клавишей Insert (открыть/закрыть)
+local menuOpen = true
+
+-- Удерживаем мышь разблокированной пока меню открыто
+Library:Connection(RunService.RenderStepped, function()
+    if menuOpen then
+        InputService.MouseBehavior = Enum.MouseBehavior.Default
+        InputService.MouseIconEnabled = true
+    end
+end)
+
+-- Блокируем Escape когда меню открыто (через ContextActionService)
+local ContextActionService = game:GetService("ContextActionService")
+
+-- Патчим ToggleMenu чтобы блокировать/разблокировать Escape
+local origToggle = Window.ToggleMenu
+Window.ToggleMenu = function(bool)
+    origToggle(bool)
+    if bool then
+        ContextActionService:BindCoreAction("BlockEscape", function() 
+            return Enum.ContextActionResult.Sink 
+        end, false, Enum.KeyCode.Escape)
+    else
+        ContextActionService:UnbindCoreAction("BlockEscape")
+    end
+end
+
+-- Блокируем Escape сразу (меню открыто)
+ContextActionService:BindCoreAction("BlockEscape", function() 
+    return Enum.ContextActionResult.Sink 
+end, false, Enum.KeyCode.Escape)
+
+Library:Connection(InputService.InputBegan, function(input, ge)
+    local key = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
+
+    if key ~= (Library.MenuKey or Enum.KeyCode.Insert) then
+        return
+    end
+
+    -- Нажатие, которым только что назначили клавишу, меню не переключает
+    if Library.MenuKeyJustBound then
+        Library.MenuKeyJustBound = false
+
+        return
+    end
+
+    menuOpen = not menuOpen
+    Window.ToggleMenu(menuOpen)
+end)
