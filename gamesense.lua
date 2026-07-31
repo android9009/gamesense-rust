@@ -448,7 +448,7 @@ getgenv().Loaded = true
                     
                     Library:Create( "UIGradient" , {
                         Rotation = 90;
-                        Parent = Items.Inner;
+                        Parent = Items.InnerObject;
                         Color = rgbseq{rgbkey(0, rgb(255, 255, 255)), rgbkey(1, rgb(208, 208, 208))}
                     });
                 --
@@ -815,9 +815,13 @@ getgenv().Loaded = true
             local Config = {}
             
             for Idx, Value in Flags do
-                if type(Value) == "table" and Value.key then
-                    Config[Idx] = {active = Value.Active, mode = Value.Mode, key = tostring(Value.Key)}
-                elseif type(Value) == "table" and Value["Transparency"] and Value["Color"] then
+                if type(Value) == "table" and (Value.key ~= nil or Value.Key ~= nil) then
+                    local Key = Value.key ~= nil and Value.key or Value.Key
+                    local Mode = Value.mode ~= nil and Value.mode or Value.Mode
+                    local Active = Value.active ~= nil and Value.active or Value.Active
+
+                    Config[Idx] = {active = Active, mode = Mode, key = tostring(Key or "NONE")}
+                elseif type(Value) == "table" and Value["Transparency"] ~= nil and Value["Color"] then
                     Config[Idx] = {Transparency = Value["Transparency"], Color = Value["Color"]:ToHex()}
                 else
                     Config[Idx] = Value
@@ -842,7 +846,7 @@ getgenv().Loaded = true
                         -- Colorpicker.Set инвертирует hue/saturation, поэтому
                         -- компенсируем инверсию, иначе цвета "уплывают" при каждой загрузке
                         Function(PickerColorGlobal(hex(Value["Color"])), Value["Transparency"])
-                    elseif type(Value) == "table" and Value["Active"] then 
+                    elseif type(Value) == "table" and (Value["active"] ~= nil or Value["Active"] ~= nil or Value["key"] ~= nil or Value["Key"] ~= nil) then 
                         Function(Value)
                     else
                         Function(Value)
@@ -1166,7 +1170,7 @@ getgenv().Loaded = true
                         BackgroundColor3 = rgb(12, 12, 12)
                     });
                     
-                    Library:Create( "ImageLabel" , {
+                    Items.ImageLabel = Library:Create( "ImageLabel" , {
                         BorderColor3 = rgb(0, 0, 0);
                         Parent = Items.InnerPage;
                         Size = dim2(1, -2, 0, 2);
@@ -2487,7 +2491,7 @@ getgenv().Loaded = true
                 Items = {};
             }
 
-            Flags[Cfg.Flag] = Cfg.default
+            Flags[Cfg.Flag] = Cfg.Default
 
             local Items = Cfg.Items; do 
                 Items.List = Library:Create( "TextButton" , {
@@ -2771,140 +2775,195 @@ getgenv().Loaded = true
                 --
             end 
 
-            function Cfg.SetMode(mode) 
-                Cfg.Mode = mode 
+            local function UpdateModeVisuals()
+                for _, mode in {"Always", "Toggle", "Hold"} do
+                    if Items[mode] then
+                        Items[mode].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", mode == Cfg.Mode and Enum.FontWeight.Bold or Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                        Items[mode].BackgroundTransparency = mode == Cfg.Mode and 1 or 0
+                        Items[mode].TextColor3 = mode == Cfg.Mode and themes.preset.accent or rgb(205, 205, 205)
+                    end
+                end
+            end
 
-                if mode == "Always" then
-                    Cfg.Set(true)
-                elseif mode == "Hold" then
-                    Cfg.Set(false)
+            local function KeyText(key)
+                if key == nil or key == "NONE" or key == Enum.KeyCode.Escape then
+                    return "NONE"
                 end
 
-                Flags[Cfg.Flag].Mode = mode
+                local text = Keys[key] or tostring(key):gsub("Enum.", "")
+
+                return tostring(text):gsub("KeyCode.", ""):gsub("UserInputType.", "")
+            end
+
+            local function NormalizeKey(key)
+                if key == nil or key == "NONE" then
+                    return "NONE"
+                end
+
+                if typeof(key) == "EnumItem" then
+                    return key == Enum.KeyCode.Escape and "NONE" or key
+                end
+
+                if type(key) == "string" then
+                    if key == "Escape" or key == "Enum.KeyCode.Escape" then
+                        return "NONE"
+                    end
+
+                    if key:find("Enum", 1, true) then
+                        local success, enumItem = pcall(function()
+                            return Library:ConvertEnum(key)
+                        end)
+
+                        if success and enumItem then
+                            return enumItem == Enum.KeyCode.Escape and "NONE" or enumItem
+                        end
+                    end
+                end
+
+                return key
+            end
+
+            function Cfg.SetMode(mode)
+                if not table.find({"Toggle", "Hold", "Always"}, mode) then
+                    mode = "Toggle"
+                end
+
+                Cfg.Mode = mode
+
+                if Cfg.Mode == "Always" then
+                    Cfg.Active = true
+                elseif Cfg.Mode == "Hold" then
+                    Cfg.Active = false
+                end
+
+                UpdateModeVisuals()
             end
 
             function Cfg.Set(input)
-                if type(input) == "boolean" then 
+                if type(input) == "boolean" then
                     Cfg.Active = input
 
-                    if Cfg.Mode == "Always" then 
+                    if Cfg.Mode == "Always" then
                         Cfg.Active = true
                     end
-                elseif tostring(input):find("Enum") then 
-                    input = input.Name == "Escape" and "NONE" or input
-                    
-                    Cfg.Key = input or "NONE"	
-                elseif table.find({"Toggle", "Hold", "Always"}, input) then 
-                    if input == "Always" then 
-                        Cfg.Active = true 
-                    end 
-
-                    Cfg.Mode = input
-                    Cfg.SetMode(Cfg.Mode) 
+                elseif typeof(input) == "EnumItem" then
+                    Cfg.Key = NormalizeKey(input)
+                elseif table.find({"Toggle", "Hold", "Always"}, input) then
+                    Cfg.SetMode(input)
                 elseif type(input) == "table" then
-                    input.Key = type(input.Key) == "string" and input.Key ~= "NONE" and Library:ConvertEnum(input.key) or input.Key
-                    input.Key = input.Key == Enum.KeyCode.Escape and "NONE" or input.Key
+                    local key = input.key ~= nil and input.key or input.Key
+                    local mode = input.mode ~= nil and input.mode or input.Mode
+                    local active = input.active ~= nil and input.active or input.Active
 
-                    Cfg.Key = input.Key or "NONE"
-                    Cfg.Mode = input.Mode or "Toggle"
+                    Cfg.Key = NormalizeKey(key)
+                    Cfg.SetMode(mode or Cfg.Mode or "Toggle")
 
-                    if input.Active then
-                        Cfg.Active = input.Active
+                    if active ~= nil then
+                        Cfg.Active = active and true or false
                     end
 
-                    Cfg.SetMode(Cfg.Mode) 
-                end 
+                    if Cfg.Mode == "Always" then
+                        Cfg.Active = true
+                    elseif Cfg.Mode == "Hold" and active == nil then
+                        Cfg.Active = false
+                    end
+                elseif type(input) == "string" then
+                    Cfg.Key = NormalizeKey(input)
+                end
 
-                Cfg.Callback(Cfg.Active)
-
-                local text = (tostring(Cfg.Key) ~= "Enums" and (Keys[Cfg.Key] or tostring(Cfg.Key):gsub("Enum.", "")) or nil)
-                local __text = text and tostring(text):gsub("KeyCode.", ""):gsub("UserInputType.", "")
-
-                Items.Key.Text = __text
+                local __text = KeyText(Cfg.Key)
+                Items.Keybind.Text = "[" .. __text .. "]"
 
                 if Items.Keybinds then
                     Items.Keybinds.TextTransparency = 1
                     Library:Tween(Items.Keybinds, {TextTransparency = 0})
 
-                    Items.KeybindsStroke.Transparency = 1
-                    Library:Tween(Items.KeybindsStroke, {Transparency = 0})
+                    if Items.KeybindsStroke then
+                        Items.KeybindsStroke.Transparency = 1
+                        Library:Tween(Items.KeybindsStroke, {Transparency = 0})
+                    end
 
                     Items.Keybinds.Visible = Cfg.Active
                     Items.Keybinds.Text = string.format("[%s]: %s", __text, Cfg.Name or Cfg.Flag or "Key")
-                end 
+                end
 
                 Flags[Cfg.Flag] = {
                     mode = Cfg.Mode,
-                    key = Cfg.Key, 
+                    key = Cfg.Key,
                     active = Cfg.Active
                 }
+
+                Cfg.Callback(Cfg.Active)
             end
             
             function Cfg.SetVisible(bool)
-                Items.KeybindOutline.Visible = bool 
-                Items.KeybindOutline.Position = dim2(0, Items.KeybindOutline.AbsolutePosition.X + 2, 0, Items.KeybindOutline.AbsolutePosition.Y + 74)
+                Items.KeybindOutline.Visible = bool
+                Items.KeybindOutline.Parent = bool and Library.Items or Library.Other
+                Items.KeybindOutline.Position = dim2(0, Items.Keybind.AbsolutePosition.X + 2, 0, Items.Keybind.AbsolutePosition.Y + 74)
             end
 
             Items.Keybind.MouseButton1Down:Connect(function()
                 task.wait()
-                Items.Key.Text = "..."	
+                Items.Keybind.Text = "[...]"
 
-                Cfg.Binding = Library:Connection(InputService.InputBegan, function(keycode, game_event)  
-                    Cfg.Set(keycode.KeyCode ~= Enum.KeyCode.Unknown and keycode.KeyCode or keycode.UserInputType)
-                    
-                    Cfg.Binding:Disconnect() 
+                if Cfg.Binding then
+                    Cfg.Binding:Disconnect()
                     Cfg.Binding = nil
+                end
+
+                Cfg.Binding = Library:Connection(InputService.InputBegan, function(keycode, game_event)
+                    local selected = keycode.KeyCode ~= Enum.KeyCode.Unknown and keycode.KeyCode or keycode.UserInputType
+                    Cfg.Set(selected)
+                    
+                    if Cfg.Binding then
+                        Cfg.Binding:Disconnect()
+                        Cfg.Binding = nil
+                    end
                 end)
             end)
 
             Items.Keybind.MouseButton2Down:Connect(function()
-                Cfg.Open = not Cfg.Open 
-
+                Cfg.Open = not Cfg.Open
                 Cfg.SetVisible(Cfg.Open)
             end)
 
-            Library:Connection(InputService.InputBegan, function(input, game_event) 
+            Library:Connection(InputService.InputBegan, function(input, game_event)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    if not (Library:Hovering(Items.Dropdown.Items.DropdownElements) or Library:Hovering(Items.ModeHolder)) then 
-                        Items.Dropdown.SetVisible(false)
-                        Items.Dropdown.Visible = false
-
+                    if Cfg.Open and not Library:Hovering({Items.KeybindOutline, Items.Keybind}) then
                         Cfg.SetVisible(false)
-                        Cfg.Open = false;
-                    end 
-                end 
+                        Cfg.Open = false
+                    end
+                end
                 
                 if not game_event then
                     local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
 
-                    if selected_key == Cfg.Key then 
-                        if Cfg.Mode == "Toggle" then 
-                            Cfg.Active = not Cfg.Active
-                            Cfg.Set(Cfg.Active)
-                        elseif Cfg.Mode == "Hold" then 
+                    if selected_key == Cfg.Key then
+                        if Cfg.Mode == "Toggle" then
+                            Cfg.Set(not Cfg.Active)
+                        elseif Cfg.Mode == "Hold" then
                             Cfg.Set(true)
                         end
                     end
                 end
-            end)    
+            end)   
 
-            Library:Connection(InputService.InputEnded, function(input, game_event) 
-                if game_event then 
-                    return 
-                end 
+            Library:Connection(InputService.InputEnded, function(input, game_event)
+                if game_event then
+                    return
+                end
 
                 local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
     
                 if selected_key == Cfg.Key then
-                    if Cfg.Mode == "Hold" then 
+                    if Cfg.Mode == "Hold" then
                         Cfg.Set(false)
                     end
                 end
             end)
             
-            Cfg.Set({Mode = Cfg.Mode, Active = Cfg.Active, Key = Cfg.Key})           
+            Cfg.Set({mode = Cfg.Mode, active = Cfg.Active, key = Cfg.Key})
             ConfigFlags[Cfg.Flag] = Cfg.Set
-            Items.Dropdown.Set(Cfg.Mode)
 
             return setmetatable(Cfg, Library)
         end
