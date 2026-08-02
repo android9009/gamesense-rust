@@ -6782,8 +6782,8 @@ do
 
     -- Зум на клавишу: свой FOV, не зависящий от основного
     local ZoomToggle = RightBottom:Toggle({Name = "Camera zoom", Flag = "VisCameraZoom"})
-    -- зум-бинд работает как обычный тоггл: переключает чекбокс и Flags.VisCameraZoom
-    AddMenuBind(ZoomToggle, "VisCameraZoomBind")
+    -- зум-бинд НЕ трогает чекбокс: только пишет активность в Flags.VisCameraZoomBind.Active
+    AddMenuBind(ZoomToggle, "VisCameraZoomBind", true)
 
     local ZoomSlider = RightBottom:Slider({
         Min = 10,
@@ -10479,5 +10479,3 @@ Library:Connection(InputService.InputBegan, function(input, ge)
     menuOpen = not menuOpen
     Window.ToggleMenu(menuOpen)
 end)
-
-
