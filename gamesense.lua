@@ -4395,15 +4395,17 @@ do
 
     UpdateBrightnessPicker(Flags.VisBrightnessMode)
 
-    LeftBottom:Label({Name = "Ambient"}):Colorpicker({
-        Flag = "VisAmbientColor",
-        Color = rgb(128, 128, 128)
-    })
+    LeftBottom:Toggle({Name = "Ambient", Flag = "VisAmbientEnabled"})
+        :Colorpicker({
+            Flag = "VisAmbientColor",
+            Color = rgb(128, 128, 128)
+        })
 
-    LeftBottom:Label({Name = "Color correction"}):Colorpicker({
-        Flag = "VisColorCorrection",
-        Color = rgb(255, 255, 255)
-    })
+    LeftBottom:Toggle({Name = "Color correction", Flag = "VisColorCorrectionEnabled"})
+        :Colorpicker({
+            Flag = "VisColorCorrection",
+            Color = rgb(255, 255, 255)
+        })
 
     LeftBottom:Slider({
         Name = "Time changer",
