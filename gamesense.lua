@@ -10483,4 +10483,3 @@ Library:Connection(InputService.InputBegan, function(input, ge)
     menuOpen = not menuOpen
     Window.ToggleMenu(menuOpen)
 end)
-
