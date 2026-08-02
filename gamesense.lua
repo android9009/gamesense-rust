@@ -3713,7 +3713,12 @@ do
         local bindMode = "Toggle"
         -- Keep a dedicated state for Toggle mode. It must not depend solely on
         -- a UI object's stale Enabled field after config loading.
-        local bindActive = NoToggleState and false or (TargetToggle.Enabled == true)
+        local bindActive
+        if NoToggleState then
+            bindActive = false
+        else
+            bindActive = TargetToggle.Enabled == true
+        end
 
         local function ApplyState(state)
             bindActive = state == true
@@ -3945,7 +3950,12 @@ do
             if key ~= boundKey then return end
 
             if bindMode == "Toggle" then
-                local current = NoToggleState and bindActive or TargetToggle.Enabled
+                local current
+                if NoToggleState then
+                    current = bindActive
+                else
+                    current = TargetToggle.Enabled
+                end
 
                 ApplyState(not current)
             else
@@ -6776,8 +6786,8 @@ do
 
     -- Зум на клавишу: свой FOV, не зависящий от основного
     local ZoomToggle = RightBottom:Toggle({Name = "Camera zoom", Flag = "VisCameraZoom"})
-    -- бинд зума не меняет чекбокс: только Flags.VisCameraZoomBind.Active
-    AddMenuBind(ZoomToggle, "VisCameraZoomBind", true)
+    -- зум-бинд работает как обычный тоггл: переключает чекбокс и Flags.VisCameraZoom
+    AddMenuBind(ZoomToggle, "VisCameraZoomBind")
 
     local ZoomSlider = RightBottom:Slider({
         Min = 10,
