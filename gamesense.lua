@@ -4344,7 +4344,7 @@ do
 
     local Brightness = LeftBottom:Dropdown({
         Name = "Brightness adjustment",
-        Options = {"Off", "Fullbright"},
+        Options = {"Off", "Fullbright", "Night mode"},
         Default = "Off",
         Flag = "VisBrightnessMode"
     })
@@ -4376,12 +4376,12 @@ do
 
     local BrightnessColor = BrightnessHost:Colorpicker({
         Flag = "VisBrightnessColor",
-        Color = rgb(255, 255, 255)
+        Color = rgb(60, 80, 140)
     })
 
-    -- Колорпикер виден только при Fullbright.
+    -- Колорпикер виден только при Night mode.
     local function UpdateBrightnessPicker(mode)
-        local visible = (mode == "Fullbright")
+        local visible = (mode == "Night mode")
         BrightnessComponents.Visible = visible
 
         if not visible and BrightnessColor.SetVisible then
