@@ -4401,9 +4401,12 @@ do
         Name = "Time changer",
         Min = 0,
         Max = 24,
-        Default = 12,
+        Default = 0,
         Decimal = 1,
         Suffix = "h",
+        Formatter = function(v)
+            return v == 0 and "Auto" or (tostring(v) .. "h")
+        end,
         Flag = "VisTimeChanger"
     })
 
