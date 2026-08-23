@@ -4410,6 +4410,28 @@ do
         Flag = "VisTimeChanger"
     })
 
+    local WeatherNames = {
+        [0] = "Off",
+        [1] = "Rain",
+        [2] = "Hail",
+        [3] = "Snow",
+        [4] = "Thunderstorm",
+        [5] = "Ashfall",
+        [6] = "Dust storm"
+    }
+
+    LeftBottom:Slider({
+        Name = "Weather",
+        Min = 0,
+        Max = 6,
+        Default = 0,
+        Decimal = 1,
+        Formatter = function(v)
+            return WeatherNames[math.floor(v + 0.5)] or "Off"
+        end,
+        Flag = "VisWeather"
+    })
+
     -- Preview ESP (интерактивный превью)
     local PreviewOk, PreviewErr = pcall(function()
         local ESPFlags = {}
