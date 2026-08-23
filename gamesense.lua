@@ -642,7 +642,7 @@ getgenv().Loaded = true
                     });
                     
                     Library:Create( "UIGradient" , {
-                        Rotation = 270;
+                        Rotation = 90;
                         Parent = Items.HueInline;
                         Color = rgbseq{rgbkey(0, rgb(255, 0, 0)), rgbkey(0.17, rgb(255, 255, 0)), rgbkey(0.33, rgb(0, 255, 0)), rgbkey(0.5, rgb(0, 255, 255)), rgbkey(0.67, rgb(0, 0, 255)), rgbkey(0.83, rgb(255, 0, 255)), rgbkey(1, rgb(255, 0, 0))}
                     });
@@ -4413,17 +4413,16 @@ do
     local WeatherNames = {
         [0] = "Off",
         [1] = "Rain",
-        [2] = "Hail",
-        [3] = "Snow",
-        [4] = "Thunderstorm",
-        [5] = "Ashfall",
-        [6] = "Dust storm"
+        [2] = "Snow",
+        [3] = "Thunderstorm",
+        [4] = "Ashfall",
+        [5] = "Dust storm"
     }
 
     LeftBottom:Slider({
         Name = "Weather",
         Min = 0,
-        Max = 6,
+        Max = 5,
         Default = 0,
         Decimal = 1,
         Formatter = function(v)
