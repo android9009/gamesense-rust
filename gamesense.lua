@@ -75,11 +75,8 @@ getgenv().Loaded = true
         }
     end 
 
-    -- Keypicker.Set инвертирует hue/saturation - компенсируем при задании дефолта
     local function PickerColorGlobal(color)
-        local h, sat, v = color:ToHSV()
-
-        return hsv(1 - h, 1 - sat, v)
+        return color
     end
 
     local Keys = {
@@ -711,13 +708,13 @@ getgenv().Loaded = true
                     a = alpha
                 end 
                 
-                local Color = hsv(1 - h, 1 - s, v)
+                local Color = hsv(h, s, v)
 
                 Items.SatValPicker.Position = dim2(s, 0, 1 - v, 0)
                 Items.AlphaPicker.Position = dim2(a, 0, 0, 0)
                 Items.HuePicker.Position = dim2(0, 1, h, -1)
                 
-                Items.Inner.BackgroundColor3 = hsv(1 - h, 1, 1)
+                Items.Inner.BackgroundColor3 = hsv(h, 1, 1)
                 Items.AlphaInline.BackgroundColor3 = Color
                 Items.InnerObject.BackgroundColor3 = Color
                 Items.InnerObject.BackgroundTransparency = a
@@ -1003,9 +1000,8 @@ getgenv().Loaded = true
                     local cfg = Library.ActiveColorContextCfg
                     local colorVal = Flags[cfg.Flag] and Flags[cfg.Flag].Color or cfg.Color
                     local alphaVal = Flags[cfg.Flag] and Flags[cfg.Flag].Transparency or cfg.Alpha or 0
-                    local h, s, v = colorVal:ToHSV()
                     Library.ColorClipboard = {
-                        Color = hsv(1 - h, 1 - s, v),
+                        Color = colorVal,
                         Alpha = alphaVal
                     }
                 end
@@ -4415,11 +4411,8 @@ do
     local PreviewOk, PreviewErr = pcall(function()
         local ESPFlags = {}
 
-        -- Keypicker.Set инвертирует hue/saturation, компенсируем это
         local function PickerColor(color)
-            local h, sat, v = color:ToHSV()
-
-            return hsv(1 - h, 1 - sat, v)
+            return color
         end
 
         -- ── Хелперы контекстного меню ──────────────────────────────
