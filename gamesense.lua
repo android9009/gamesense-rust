@@ -4896,6 +4896,7 @@ do
             local target = ClosestSlot()
             if target then
                 element.Slot = target.Id
+                Flags["ESP" .. element.Name:gsub("%s", "") .. "Slot"] = target.Id
                 if element.Bar then
                     LayoutBars()
                 else
@@ -5419,7 +5420,9 @@ do
                 PaddingRight = dim(0, 6);
             })
             local Flag = "ESP" .. element.Name:gsub("%s", "")
+            element.Slot = Flags[Flag .. "Slot"] or element.Slot
             Flags[Flag] = false
+            if Flags[Flag .. "Slot"] == nil then Flags[Flag .. "Slot"] = element.Slot end
             local function Set(bool)
                 ESPFlags[element.Name] = bool
                 Flags[Flag] = bool
@@ -5455,6 +5458,13 @@ do
             end
             ConfigFlags[Flag] = Set
             Set(false)
+            local slot = FindSlot(element.Slot)
+            if slot and not element.Bar then
+                for _, object in element.Objects do
+                    object.Parent = slot.Holder
+                    object.TextXAlignment = slot.Align
+                end
+            end
         end
         local function ResizePreview()
             Preview.Size = dim2(1, 0, 1, -(Bottom.AbsoluteSize.Y + 28))
