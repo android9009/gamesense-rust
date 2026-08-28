@@ -4583,14 +4583,14 @@ do
             end
         end
         SlotList = Slots
-        local function MakeText(text, slotId, color, order)
+        local function MakeText(text, slotId, color, order, textSize)
             local slot = FindSlot(slotId)
             return Library:Create("TextLabel", {
                 Parent = slot.Holder;
                 Name = "\0";
                 Text = text;
                 FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                TextSize = 12;
+                TextSize = textSize or 12;
                 TextColor3 = color or rgb(235, 235, 235);
                 TextStrokeTransparency = 0;
                 BackgroundTransparency = 1;
@@ -4634,7 +4634,8 @@ do
                 Ping.TextColor3 = PingSettings.Color
             end
         end
-        local ItemName = MakeText("AK-47", "BottomCenter", rgb(190, 190, 190), 3)
+        -- название оружия мельче остальных флагов — вокруг него свободное место
+        local ItemName = MakeText("AK-47", "BottomCenter", rgb(190, 190, 190), 3, 10)
         local ItemIcon = Library:Create("ImageLabel", {
             Parent = ItemName;
             Name = "\0";
