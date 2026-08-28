@@ -4646,24 +4646,6 @@ do
             ItemName.Text = ItemSettings.Text and "AK-47" or ""
             ItemName.TextTransparency = ItemSettings.Text and 0 or 1
         end
-        local ResWood = MakeText("W: 1250", "LeftTop", rgb(196, 148, 84), 1)
-        local ResMetal = MakeText("M: 430", "LeftTop", rgb(170, 170, 180), 2)
-        local ResScrap = MakeText("S: 88", "LeftTop", rgb(150, 190, 120), 3)
-        local ResourceParts = {
-            {Key = "Wood", Label = ResWood};
-            {Key = "Metal", Label = ResMetal};
-            {Key = "Scrap", Label = ResScrap};
-        }
-        -- все ресурсы включены по умолчанию: иначе выглядело как "не работает",
-        -- когда у игрока нет дерева, но есть металл/скрап
-        local ResourceSettings = {Wood = true, Metal = true, Scrap = true}
-        Flags.ESPResourceWood, Flags.ESPResourceMetal, Flags.ESPResourceScrap = true, true, true
-        local function RefreshResources()
-            local visible = ESPFlags["Resources"]
-            for _, part in ResourceParts do
-                part.Label.Visible = visible and ResourceSettings[part.Key] or false
-            end
-        end
         local Hit = MakeText("Hit", "RightTop", rgb(214, 79, 79), 1)
         local Elements = {
             {Name = "Box", Objects = {Box}},
@@ -4671,7 +4653,6 @@ do
             {Name = "Name", Objects = {Name}, Slot = "TopCenter"},
             {Name = "Distance", Objects = {Distance}, Slot = "BottomCenter"},
             {Name = "Ping", Objects = {Ping}, Slot = "BottomCenter"},
-            {Name = "Resources", Objects = {ResWood, ResMetal, ResScrap}, Slot = "LeftTop"},
             {Name = "Item", Objects = {ItemName}, Slot = "BottomCenter"},
             {Name = "Hit", Objects = {Hit}, Slot = "RightTop"},
         }
@@ -5006,39 +4987,6 @@ do
         end
         RefreshGradientVisibility()
         RefreshHealth()
-        local ResSection = MakeSection(ContextInline)
-        local ResCombo = MakeCombo(ResSection, "Display", 1, {"Wood", "Metal", "Scrap"}, Root, true, {"Wood", "Metal", "Scrap"})
-        local ResList = ResCombo.List
-        local ResPickers = {}
-        local function RefreshResourceMulti()
-            for _, entry in ResPickers do
-                entry.Row.Visible = ResourceSettings[entry.Key]
-                if not ResourceSettings[entry.Key] and entry.Picker.Open then
-                    entry.Picker.Open = false
-                    entry.Picker.SetVisible(false)
-                end
-            end
-        end
-        ResCombo.Callback = function(value, state)
-            ResourceSettings[value] = state
-            RefreshResourceMulti()
-            RefreshResources()
-        end
-        for order, part in ResourceParts do
-            local row, host = MakeColorRow(ResSection, part.Key, 2 + order)
-            local picker = LiftPicker(host:Colorpicker({
-                Flag = "ESPResource" .. part.Key;
-                Color = PickerColor(part.Label.TextColor3);
-            }))
-            local swatch = picker.Items and picker.Items.InnerObject
-            if swatch then
-                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
-                    part.Label.TextColor3 = swatch.BackgroundColor3
-                end)
-            end
-            table.insert(ResPickers, {Row = row, Picker = picker, Key = part.Key})
-        end
-        RefreshResourceMulti()
         local NameSection = MakeSection(ContextInline)
         local DraggingAvatar = false -- avatar slider removed, оставлено для обработчика закрытия контекста
         local _, NameHost = MakeColorRow(NameSection, "Color", 1)
@@ -5149,12 +5097,6 @@ do
                     picker.SetVisible(false)
                 end
             end
-            for _, entry in ResPickers do
-                if entry.Picker.Open then
-                    entry.Picker.Open = false
-                    entry.Picker.SetVisible(false)
-                end
-            end
             for _, entry in ItemPickers do
                 if entry.Picker.Open then
                     entry.Picker.Open = false
@@ -5175,7 +5117,6 @@ do
             ContextChip = chip
             BoxSection.Visible = name == "Box"
             HealthSection.Visible = name == "Health"
-            ResSection.Visible = name == "Resources"
             NameSection.Visible = name == "Name"
             DistSection.Visible = name == "Distance"
             PingSection.Visible = name == "Ping"
@@ -5211,9 +5152,6 @@ do
             if NearObject(StyleList, 6) then
                 return
             end
-            if NearObject(ResList, 6) then
-                return
-            end
             if NearObject(DistList, 6) then
                 return
             end
@@ -5225,14 +5163,6 @@ do
                     return
                 end
                 if NearObject(picker.Items and picker.Items.Colorpicker, 14) then
-                    return
-                end
-            end
-            for _, entry in ResPickers do
-                if entry.Picker.Open then
-                    return
-                end
-                if NearObject(entry.Picker.Items and entry.Picker.Items.Colorpicker, 14) then
                     return
                 end
             end
@@ -5281,8 +5211,6 @@ do
                 LayoutBars()
                 if element.Name == "Health" then
                     RefreshHealth()
-                elseif element.Name == "Resources" then
-                    RefreshResources()
                 elseif element.Name == "Name" then
                     RefreshName()
                 elseif element.Name == "Item" then
@@ -5294,7 +5222,7 @@ do
             Chip.MouseButton1Click:Connect(function()
                 Set(not ESPFlags[element.Name])
             end)
-            if element.Name == "Box" or element.Name == "Health" or element.Name == "Resources" or element.Name == "Name" or element.Name == "Distance" or element.Name == "Ping" or element.Name == "Item" then
+            if element.Name == "Box" or element.Name == "Health" or element.Name == "Name" or element.Name == "Distance" or element.Name == "Ping" or element.Name == "Item" then
                 Chip.MouseButton2Click:Connect(function()
                     if ContextMenu.Visible and ContextTitle.Text == element.Name then
                         CloseContext()
@@ -5321,7 +5249,7 @@ do
         Preview:GetPropertyChangedSignal("AbsoluteSize"):Connect(ResizePreview)
         ResizePreview()
         LayoutBars()
-        for _, name in {"Box", "Health", "Resources"} do
+        for _, name in {"Box", "Health"} do
             if ConfigFlags["ESP" .. name:gsub("%s", "")] then
                 ConfigFlags["ESP" .. name:gsub("%s", "")](true)
             end
