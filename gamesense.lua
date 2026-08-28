@@ -3547,8 +3547,6 @@ do
     })
     ColoredModel("Local player fake", "VisLocalPlayerFake", rgb(20, 20, 20))
     ColoredModel("On shot", "VisOnShot", rgb(110, 110, 110))
-    ColoredModel("Hands", "VisHands", rgb(255, 255, 255))
-    ColoredModel("Weapon viewmodel", "VisViewmodel", rgb(85, 0, 255))
     ColoredModel("Weapons", "VisWeapons", rgb(85, 0, 255))
     ColoredModel("Backtrack", "VisBacktrack", rgb(255, 255, 255))
     local WorldEnabled = LeftBottom:Toggle({
