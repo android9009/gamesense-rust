@@ -4654,8 +4654,10 @@ do
             {Key = "Metal", Label = ResMetal};
             {Key = "Scrap", Label = ResScrap};
         }
-        local ResourceSettings = {Wood = true, Metal = false, Scrap = false}
-        Flags.ESPResourceWood, Flags.ESPResourceMetal, Flags.ESPResourceScrap = true, false, false
+        -- все ресурсы включены по умолчанию: иначе выглядело как "не работает",
+        -- когда у игрока нет дерева, но есть металл/скрап
+        local ResourceSettings = {Wood = true, Metal = true, Scrap = true}
+        Flags.ESPResourceWood, Flags.ESPResourceMetal, Flags.ESPResourceScrap = true, true, true
         local function RefreshResources()
             local visible = ESPFlags["Resources"]
             for _, part in ResourceParts do
@@ -5005,7 +5007,7 @@ do
         RefreshGradientVisibility()
         RefreshHealth()
         local ResSection = MakeSection(ContextInline)
-        local ResCombo = MakeCombo(ResSection, "Display", 1, {"Wood", "Metal", "Scrap"}, Root, true, {"Wood"})
+        local ResCombo = MakeCombo(ResSection, "Display", 1, {"Wood", "Metal", "Scrap"}, Root, true, {"Wood", "Metal", "Scrap"})
         local ResList = ResCombo.List
         local ResPickers = {}
         local function RefreshResourceMulti()
@@ -5319,7 +5321,7 @@ do
         Preview:GetPropertyChangedSignal("AbsoluteSize"):Connect(ResizePreview)
         ResizePreview()
         LayoutBars()
-        for _, name in {"Box", "Health"} do
+        for _, name in {"Box", "Health", "Resources"} do
             if ConfigFlags["ESP" .. name:gsub("%s", "")] then
                 ConfigFlags["ESP" .. name:gsub("%s", "")](true)
             end
