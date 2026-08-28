@@ -577,7 +577,19 @@ getgenv().Loaded = true
                         Size = dim2(1, -18, 0, 12);
                         Selectable = false;
                         BorderSizePixel = 0;
-                        BackgroundColor3 = rgb(0, 0, 0)
+                        BackgroundColor3 = rgb(255, 255, 255)
+                    });
+
+                    Items.AlphaChecker = Library:Create( "ImageLabel" , {
+                        Parent = Items.Alpha;
+                        Name = "\0";
+                        Position = dim2(0, 1, 0, 1);
+                        Size = dim2(1, -2, 1, -2);
+                        BackgroundTransparency = 1;
+                        BorderSizePixel = 0;
+                        Image = "rbxassetid://3887014357";
+                        ScaleType = Enum.ScaleType.Tile;
+                        TileSize = dim2(0, 6, 0, 6);
                     });
                     
                     Items.AlphaInline = Library:Create( "Frame" , {
