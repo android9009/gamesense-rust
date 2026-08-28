@@ -577,19 +577,7 @@ getgenv().Loaded = true
                         Size = dim2(1, -18, 0, 12);
                         Selectable = false;
                         BorderSizePixel = 0;
-                        BackgroundColor3 = rgb(255, 255, 255)
-                    });
-
-                    Items.AlphaChecker = Library:Create( "ImageLabel" , {
-                        Parent = Items.Alpha;
-                        Name = "\0";
-                        Position = dim2(0, 1, 0, 1);
-                        Size = dim2(1, -2, 1, -2);
                         BackgroundTransparency = 1;
-                        BorderSizePixel = 0;
-                        Image = "rbxassetid://3887014357";
-                        ScaleType = Enum.ScaleType.Tile;
-                        TileSize = dim2(0, 6, 0, 6);
                     });
                     
                     Items.AlphaInline = Library:Create( "Frame" , {
@@ -599,14 +587,13 @@ getgenv().Loaded = true
                         BorderColor3 = rgb(0, 0, 0);
                         Size = dim2(1, -2, 1, -2);
                         BorderSizePixel = 0;
-                        BackgroundColor3 = rgb(0, 221, 255)
+                        BackgroundColor3 = rgb(255, 255, 255);
                     });
 
-                    -- Градиент прозрачности: слева непрозрачно, справа пусто
+                    -- Градиент прозрачности: слева виден цвет, справа плавно уходит в 100% прозрачность
                     Items.AlphaGradient = Library:Create( "UIGradient" , {
                         Parent = Items.AlphaInline;
                         Transparency = numseq{numkey(0, 0), numkey(1, 1)};
-                        Color = rgbseq{rgbkey(0, rgb(255, 255, 255)), rgbkey(1, rgb(255, 255, 255))}
                     });
                     
                     Items.AlphaPicker = Library:Create( "Frame" , {
