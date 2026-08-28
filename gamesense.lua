@@ -6783,7 +6783,8 @@ do
         Name = "Thirdperson",
         Flag = "VisThirdperson"
     })
-    AddMenuBind(Thirdperson, "VisThirdpersonBind")
+    -- бинд НЕ трогает чекбокс: только пишет активность в Flags.VisThirdpersonBind.Active
+    AddMenuBind(Thirdperson, "VisThirdpersonBind", true)
 
     local ThirdpersonDistance = RightBottom:Slider({
         Name = "Thirdperson distance",
