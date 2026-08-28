@@ -4352,74 +4352,6 @@ do
                 HealthFill.BackgroundColor3 = HealthSettings.Color
             end
         end
-        local Ammo = Library:Create("Frame", {
-            Parent = Target;
-            Name = "\0";
-            Position = dim2(0, 0, 1, 5);
-            Size = dim2(1, 0, 0, 4);
-            BorderSizePixel = 0;
-            Visible = false;
-            ZIndex = 8;
-            BackgroundColor3 = rgb(0, 0, 0);
-        })
-        Library:Create("UICorner", {
-            Parent = Ammo;
-            CornerRadius = dim(0, 2);
-        })
-        local AmmoFill = Library:Create("Frame", {
-            Parent = Ammo;
-            Name = "\0";
-            Size = dim2(0.8, 0, 1, 0);
-            BorderSizePixel = 0;
-            ZIndex = 9;
-            BackgroundColor3 = rgb(205, 205, 205);
-        })
-        Library:Create("UICorner", {
-            Parent = AmmoFill;
-            CornerRadius = dim(0, 2);
-        })
-        local AmmoGradient = Library:Create("UIGradient", {
-            Parent = AmmoFill;
-            Rotation = 0;
-            Enabled = false;
-            Color = rgbseq{rgbkey(0, rgb(205, 205, 205)), rgbkey(1, rgb(120, 120, 120))};
-        })
-        local AmmoText = Library:Create("TextLabel", {
-            Parent = AmmoFill;
-            Name = "\0";
-            Text = "30";
-            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-            TextSize = 11;
-            TextColor3 = rgb(255, 255, 255);
-            TextStrokeTransparency = 0;
-            BackgroundTransparency = 1;
-            AnchorPoint = vec2(1, 0);
-            Position = dim2(1, 1, 1, 1);
-            AutomaticSize = Enum.AutomaticSize.XY;
-            BorderSizePixel = 0;
-            ZIndex = 12;
-            Visible = false;
-            BackgroundColor3 = rgb(255, 255, 255);
-        })
-        local AmmoSettings = {
-            Text = false;
-            Gradient = false;
-            Color = rgb(205, 205, 205);
-            ColorTo = rgb(120, 120, 120);
-        }
-        local function RefreshAmmo()
-            AmmoText.Visible = Ammo.Visible and AmmoSettings.Text
-            AmmoGradient.Enabled = AmmoSettings.Gradient
-            if AmmoSettings.Gradient then
-                AmmoFill.BackgroundColor3 = rgb(255, 255, 255)
-                AmmoGradient.Color = rgbseq{
-                    rgbkey(0, AmmoSettings.Color),
-                    rgbkey(1, AmmoSettings.ColorTo),
-                }
-            else
-                AmmoFill.BackgroundColor3 = AmmoSettings.Color
-            end
-        end
         local Bars = {}
         local SlotList = nil
         local function ApplyBarSlot(bar, fill, slotId, thickness, depth)
@@ -4481,7 +4413,6 @@ do
             end
         end
         HealthFill:SetAttribute("Value", 1)
-        AmmoFill:SetAttribute("Value", 0.8)
         table.insert(Library.NoDrag, Preview)
         local ChamsState = {Team = "Enemy", Mode = "Visible"}
         local function CurrentSource()
@@ -4760,7 +4691,6 @@ do
         local Elements = {
             {Name = "Box", Objects = {Box}},
             {Name = "Health", Objects = {Health}, Slot = "LeftMiddle", Bar = {Fill = HealthFill, Thickness = 4}},
-            {Name = "Ammo Bar", Objects = {Ammo}, Slot = "BottomCenter", Bar = {Fill = AmmoFill, Thickness = 4}},
             {Name = "Name", Objects = {Name}, Slot = "TopCenter"},
             {Name = "Distance", Objects = {Distance}, Slot = "BottomCenter"},
             {Name = "Ping", Objects = {Ping}, Slot = "BottomCenter"},
@@ -5104,50 +5034,6 @@ do
         end
         RefreshGradientVisibility()
         RefreshHealth()
-        local AmmoSection = MakeSection(ContextInline)
-        MakeCheckbox(AmmoSection, "Text", 1, function(state)
-            AmmoSettings.Text = state
-            Flags.ESPAmmoText = state
-            RefreshAmmo()
-        end)
-        local _, AmmoHost = MakeColorRow(AmmoSection, "Color", 3, 44)
-        local AmmoPicker = LiftPicker(AmmoHost:Colorpicker({
-            Flag = "ESPAmmoColor";
-            Color = PickerColor(rgb(205, 205, 205));
-        }))
-        local AmmoPickerTo = LiftPicker(AmmoHost:Colorpicker({
-            Flag = "ESPAmmoColorTo";
-            Color = PickerColor(rgb(120, 120, 120));
-        }))
-        local function RefreshAmmoGradientVisibility()
-            local object = AmmoPickerTo.Items and AmmoPickerTo.Items.ColorpickerObject
-            if object then
-                object.Visible = AmmoSettings.Gradient
-            end
-            if not AmmoSettings.Gradient and AmmoPickerTo.Open then
-                AmmoPickerTo.Open = false
-                AmmoPickerTo.SetVisible(false)
-            end
-        end
-        MakeCheckbox(AmmoSection, "Gradient", 2, function(state)
-            AmmoSettings.Gradient = state
-            Flags.ESPAmmoGradient = state
-            RefreshAmmoGradientVisibility()
-            RefreshAmmo()
-        end)
-        for _, entry in {{AmmoPicker, "Color"}, {AmmoPickerTo, "ColorTo"}} do
-            local swatch = entry[1].Items and entry[1].Items.InnerObject
-            if swatch then
-                local function Sync()
-                    AmmoSettings[entry[2]] = swatch.BackgroundColor3
-                    RefreshAmmo()
-                end
-                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(Sync)
-                Sync()
-            end
-        end
-        RefreshAmmoGradientVisibility()
-        RefreshAmmo()
         local ResSection = MakeSection(ContextInline)
         local ResCombo = MakeCombo(ResSection, "Display", 1, {"Wood", "Metal", "Scrap"}, Root, true, {"Wood"})
         local ResList = ResCombo.List
@@ -5290,7 +5176,7 @@ do
             ContextChip = nil
             ContextMenu.Visible = false
             CloseAllLists()
-            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, AmmoPicker, AmmoPickerTo, NamePicker, DistPicker, PingPicker} do
+            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, NamePicker, DistPicker, PingPicker} do
                 if picker.Open then
                     picker.Open = false
                     picker.SetVisible(false)
@@ -5322,7 +5208,6 @@ do
             ContextChip = chip
             BoxSection.Visible = name == "Box"
             HealthSection.Visible = name == "Health"
-            AmmoSection.Visible = name == "Ammo Bar"
             ResSection.Visible = name == "Resources"
             NameSection.Visible = name == "Name"
             DistSection.Visible = name == "Distance"
@@ -5371,7 +5256,7 @@ do
             if DraggingAvatar then
                 return
             end
-            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, AmmoPicker, AmmoPickerTo, NamePicker, DistPicker, PingPicker} do
+            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, NamePicker, DistPicker, PingPicker} do
                 if picker.Open then
                     return
                 end
@@ -5432,8 +5317,6 @@ do
                 LayoutBars()
                 if element.Name == "Health" then
                     RefreshHealth()
-                elseif element.Name == "Ammo Bar" then
-                    RefreshAmmo()
                 elseif element.Name == "Resources" then
                     RefreshResources()
                 elseif element.Name == "Name" then
@@ -5447,7 +5330,7 @@ do
             Chip.MouseButton1Click:Connect(function()
                 Set(not ESPFlags[element.Name])
             end)
-            if element.Name == "Box" or element.Name == "Health" or element.Name == "Ammo Bar" or element.Name == "Resources" or element.Name == "Name" or element.Name == "Distance" or element.Name == "Ping" or element.Name == "Item" then
+            if element.Name == "Box" or element.Name == "Health" or element.Name == "Resources" or element.Name == "Name" or element.Name == "Distance" or element.Name == "Ping" or element.Name == "Item" then
                 Chip.MouseButton2Click:Connect(function()
                     if ContextMenu.Visible and ContextTitle.Text == element.Name then
                         CloseContext()
