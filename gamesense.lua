@@ -5942,7 +5942,7 @@ do
     end
     MakeInfoHeader("Resources", 1)
     local WoodRow  = MakeInfoRow("Wood",  2, rgb(160, 122, 72))
-    local StoneRow = MakeInfoRow("Stone", 3, rgb(150, 150, 150))
+    local ScrapRow = MakeInfoRow("Scrap", 3, rgb(150, 190, 120))
     local MetalRow = MakeInfoRow("Metal", 4, rgb(120, 156, 190))
     MakeInfoHeader("State", 8)
     local HealthRow = MakeInfoRow("Health", 9)
@@ -5962,6 +5962,21 @@ do
         ClearInfo()
     end
     ClearInfo()
+    -- лоадер пишет сюда данные выбранного игрока:
+    -- data = {Wood = "1250", Metal = "нет информации", Health = "85 / 100", ...}
+    -- data == nil -> очистить панель; ключи без значения -> "-"
+    local InfoRowMap = {
+        Wood = WoodRow,
+        Scrap = ScrapRow,
+        Metal = MetalRow,
+        Health = HealthRow,
+        Weapon = WeaponRow,
+        Team = TeamRow,
+        Coordinates = CoordsRow,
+        Distance = DistanceRow,
+        Velocity = VelocityRow,
+        Movement = StateRow,
+    }
     Tabs.Skins.PlayerList = {
         Holder = ListHolder;
         Entries = Entries;
@@ -5970,6 +5985,22 @@ do
         end;
         RefreshInfo = function()
             RefreshInfo()
+        end;
+        SetInfo = function(data)
+            if type(data) ~= "table" then
+                ClearInfo()
+                return
+            end
+            for key, row in pairs(InfoRowMap) do
+                local value = data[key]
+                if value == nil then
+                    row.Set("-")
+                elseif type(value) == "table" then
+                    row.Set(tostring(value.Text), value.Color)
+                else
+                    row.Set(tostring(value))
+                end
+            end
         end;
     }
 end
