@@ -3934,7 +3934,13 @@ do
                 end
                 self.Refresh()
                 if not silent and self.Callback then
-                    self.Callback(value, self.Multi and self.Selected[value] or nil)
+                    -- мульти-комбо: передаём ЯВНЫЙ boolean — раньше при снятии галки
+                    -- уходил nil, флаг затирался и лоадер падал в свой дефолт
+                    if self.Multi then
+                        self.Callback(value, self.Selected[value] == true)
+                    else
+                        self.Callback(value)
+                    end
                 end
             end
             for index, value in options do
@@ -4636,42 +4642,12 @@ do
         end
         -- название оружия мельче остальных флагов — вокруг него свободное место
         local ItemName = MakeText("AK-47", "BottomCenter", rgb(190, 190, 190), 3, 10)
-        local ItemIcon = Library:Create("ImageLabel", {
-            Parent = ItemName;
-            Name = "\0";
-            AnchorPoint = vec2(0.5, 0);
-            Position = dim2(0.5, 0, 1, 2);
-            Size = dim2(0, 14, 0, 14);
-            BackgroundTransparency = 1;
-            Image = "rbxassetid://8547258459";
-            ScaleType = Enum.ScaleType.Fit;
-            BorderSizePixel = 0;
-            ZIndex = 11;
-            Visible = false;
-            BackgroundColor3 = rgb(255, 255, 255);
-        })
-        local ItemSettings = {Text = true, Icon = false}
-        Flags.ESPItemText, Flags.ESPItemIcon = true, false
-        local function PlaceItemIcon()
-            if not ItemIcon.Visible then
-                return
-            end
-            local align = ItemName.TextXAlignment
-            local anchorX = align == Enum.TextXAlignment.Left and 0
-                or (align == Enum.TextXAlignment.Right and 1 or 0.5)
-            ItemIcon.AnchorPoint = vec2(anchorX, ItemSettings.Text and 0 or 0.5)
-            ItemIcon.Position = dim2(anchorX, 0, ItemSettings.Text and 1 or 0.5, ItemSettings.Text and 2 or 0)
-        end
+        local ItemSettings = {Text = true}
+        Flags.ESPItemText = true
         local function RefreshItem()
-            local visible = ESPFlags["Item"]
             ItemName.Text = ItemSettings.Text and "AK-47" or ""
             ItemName.TextTransparency = ItemSettings.Text and 0 or 1
-            ItemIcon.Visible = visible and ItemSettings.Icon or false
-            PlaceItemIcon()
         end
-        ItemName:GetPropertyChangedSignal("TextBounds"):Connect(PlaceItemIcon)
-        ItemName:GetPropertyChangedSignal("AbsoluteSize"):Connect(PlaceItemIcon)
-        ItemName:GetPropertyChangedSignal("TextXAlignment"):Connect(PlaceItemIcon)
         local ResWood = MakeText("W: 1250", "LeftTop", rgb(196, 148, 84), 1)
         local ResMetal = MakeText("M: 430", "LeftTop", rgb(170, 170, 180), 2)
         local ResScrap = MakeText("S: 88", "LeftTop", rgb(150, 190, 120), 3)
@@ -4785,11 +4761,6 @@ do
                 Ghost.Visible = true
             end
             object.InputBegan:Connect(BeginDrag)
-            if element.Name == "Item" then
-                ItemIcon.Active = true
-                ItemIcon.Selectable = false
-                ItemIcon.InputBegan:Connect(BeginDrag)
-            end
         end
         Library:Connection(InputService.InputChanged, function(input)
             if not Dragging or not Ghost or input.UserInputType ~= Enum.UserInputType.MouseMovement then
@@ -5129,43 +5100,38 @@ do
         end
         RefreshPing()
         local ItemSection = MakeSection(ContextInline)
-        local ItemCombo = MakeCombo(ItemSection, "Display", 1, {"Text", "Icon"}, Root, true, {"Text"})
-        local ItemList = ItemCombo.List
+        -- Item: только текст (иконку убрали — Drawing API не умеет картинки)
         local ItemPickers = {}
-        local function RefreshItemMulti()
+        local function RefreshItemPickers()
             for _, entry in ItemPickers do
-                entry.Row.Visible = ItemSettings[entry.Key]
-                if not ItemSettings[entry.Key] and entry.Picker.Open then
+                entry.Row.Visible = ItemSettings.Text
+                if not ItemSettings.Text and entry.Picker.Open then
                     entry.Picker.Open = false
                     entry.Picker.SetVisible(false)
                 end
             end
         end
-        ItemCombo.Callback = function(value, state)
-            ItemSettings[value] = state
-            Flags["ESPItem" .. value] = state
-            RefreshItemMulti()
+        MakeCheckbox(ItemSection, "Text", 1, function(state)
+            ItemSettings.Text = state
+            Flags.ESPItemText = state
+            RefreshItemPickers()
             RefreshItem()
-        end
-        for order, key in {"Text", "Icon"} do
-            local row, host = MakeColorRow(ItemSection, key, 2 + order)
-            local picker = LiftPicker(host:Colorpicker({
-                Flag = "ESPItem" .. key .. "Color";
-                Color = PickerColor(rgb(190, 190, 190));
-            }))
-            local swatch = picker.Items and picker.Items.InnerObject
+        end, true)
+        local ItemRow, ItemHost = MakeColorRow(ItemSection, "Color", 3)
+        local ItemPicker = LiftPicker(ItemHost:Colorpicker({
+            Flag = "ESPItemTextColor";
+            Color = PickerColor(rgb(190, 190, 190));
+        }))
+        do
+            local swatch = ItemPicker.Items and ItemPicker.Items.InnerObject
             if swatch then
                 swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
-                    if key == "Text" then
-                        ItemName.TextColor3 = swatch.BackgroundColor3
-                    else
-                        ItemIcon.ImageColor3 = swatch.BackgroundColor3
-                    end
+                    ItemName.TextColor3 = swatch.BackgroundColor3
                 end)
             end
-            table.insert(ItemPickers, {Row = row, Picker = picker, Key = key})
         end
-        RefreshItemMulti()
+        table.insert(ItemPickers, {Row = ItemRow, Picker = ItemPicker})
+        RefreshItemPickers()
         RefreshItem()
         local ContextChip = nil
         local function CloseAllLists()
@@ -5249,9 +5215,6 @@ do
                 return
             end
             if NearObject(DistList, 6) then
-                return
-            end
-            if NearObject(ItemList, 6) then
                 return
             end
             if DraggingAvatar then
