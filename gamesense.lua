@@ -6773,12 +6773,6 @@ do
 
     BindVisibility(Transparent, {TransparentWalls, TransparentProps})
 
-    RightBottom:Toggle({Name = "Local bullet tracer", Flag = "VisLocalBulletTracer"})
-        :Colorpicker({Flag = "VisLocalBulletTracerColor", Color = rgb(142, 181, 39)})
-
-    RightBottom:Toggle({Name = "Enemy bullet tracer", Flag = "VisEnemyBulletTracer"})
-        :Colorpicker({Flag = "VisEnemyBulletTracerColor", Color = rgb(214, 79, 79)})
-
     local Thirdperson = RightBottom:Toggle({
         Name = "Thirdperson",
         Flag = "VisThirdperson"
