@@ -4719,6 +4719,7 @@ do
             BackgroundColor3 = rgb(255, 255, 255);
         })
         local ItemSettings = {Text = true, Icon = false}
+        Flags.ESPItemText, Flags.ESPItemIcon = true, false
         local function PlaceItemIcon()
             if not ItemIcon.Visible then
                 return
@@ -4748,6 +4749,7 @@ do
             {Key = "Scrap", Label = ResScrap};
         }
         local ResourceSettings = {Wood = true, Metal = false, Scrap = false}
+        Flags.ESPResourceWood, Flags.ESPResourceMetal, Flags.ESPResourceScrap = true, false, false
         local function RefreshResources()
             local visible = ESPFlags["Resources"]
             for _, part in ResourceParts do
@@ -5035,8 +5037,10 @@ do
         local StyleCombo = MakeCombo(BoxSection, "Type", 3, {"Full", "Corner"}, Root, false, "Full")
         StyleCombo.Callback = function(value)
             BoxSettings.Style = value
+            Flags.ESPBoxStyle = value
             RefreshBox()
         end
+        Flags.ESPBoxStyle = BoxSettings.Style
         local _, BoxHost = MakeColorRow(BoxSection, "Color", 6)
         local BoxPicker = LiftPicker(BoxHost:Colorpicker({
             Flag = "ESPBoxColor";
