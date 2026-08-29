@@ -3116,9 +3116,6 @@ do
             if not TargetToggle.Enabled then
                 return false
             end
-            if not HasKey() then
-                return true
-            end
             if bindMode == "Always" then
                 return true
             end
