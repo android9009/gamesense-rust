@@ -1804,6 +1804,7 @@ local Library
                 Options = properties.Options or {""};
                 Callback = properties.Callback or function() end;
                 Multi = properties.Multi or false;
+                MinSelected = properties.MinSelected or 0;
                 Scrolling = properties.Scrolling or false;
                 Open = false;
                 OptionInstances = {};
@@ -2004,6 +2005,9 @@ local Library
                         if Cfg.Multi then
                             local Selected = table.find(Cfg.MultiItems, Button.Text)
                             if Selected then
+                                if Cfg.MinSelected and #Cfg.MultiItems <= Cfg.MinSelected then
+                                    return
+                                end
                                 table.remove(Cfg.MultiItems, Selected)
                             else
                                 table.insert(Cfg.MultiItems, Button.Text)
@@ -3647,7 +3651,34 @@ do
     })
     ColoredModel("Local player fake", "VisLocalPlayerFake", rgb(20, 20, 20))
     ColoredModel("On shot", "VisOnShot", rgb(110, 110, 110))
-    ColoredModel("Backtrack", "VisBacktrack", rgb(255, 255, 255))
+    local BacktrackToggle, BacktrackPicker, BacktrackStyle = ColoredModel("Backtrack", "VisBacktrack", rgb(255, 255, 255))
+    local BacktrackTargets = LeftTop:Dropdown({
+        Name = nil,
+        Options = {"Enemy", "Team"},
+        Multi = true,
+        Default = {"Enemy"},
+        MinSelected = 1,
+        Flag = "VisBacktrackTargets"
+    })
+    local rootBacktrackTargets = BacktrackTargets.Items.Dropdown
+    local prevBacktrackToggle = BacktrackToggle.Callback
+    local function RefreshBacktrackTargets(state)
+        rootBacktrackTargets.Visible = state
+        if not state and BacktrackTargets.Open then
+            BacktrackTargets.SetVisible(false)
+            BacktrackTargets.Open = false
+        end
+    end
+    local prevBacktrackStyle = BacktrackStyle.Callback
+    BacktrackStyle.Callback = function(...)
+        if prevBacktrackStyle then prevBacktrackStyle(...) end
+        RefreshBacktrackTargets(BacktrackToggle.Enabled)
+    end
+    BacktrackToggle.Callback = function(state, ...)
+        if prevBacktrackToggle then prevBacktrackToggle(state, ...) end
+        RefreshBacktrackTargets(state)
+    end
+    RefreshBacktrackTargets(BacktrackToggle.Enabled)
     local WorldEnabled = LeftBottom:Toggle({
         Name = "Enable",
         Default = false,
@@ -5147,24 +5178,10 @@ do
         end
         RefreshPing()
         local ItemSection = MakeSection(ContextInline)
-        -- Item: только текст (иконку убрали — Drawing API не умеет картинки)
         local ItemPickers = {}
-        local function RefreshItemPickers()
-            for _, entry in ItemPickers do
-                entry.Row.Visible = ItemSettings.Text
-                if not ItemSettings.Text and entry.Picker.Open then
-                    entry.Picker.Open = false
-                    entry.Picker.SetVisible(false)
-                end
-            end
-        end
-        MakeCheckbox(ItemSection, "Text", 1, function(state)
-            ItemSettings.Text = state
-            Flags.ESPItemText = state
-            RefreshItemPickers()
-            RefreshItem()
-        end, true)
-        local ItemRow, ItemHost = MakeColorRow(ItemSection, "Color", 3)
+        ItemSettings.Text = true
+        Flags.ESPItemText = true
+        local ItemRow, ItemHost = MakeColorRow(ItemSection, "Color", 1)
         local ItemPicker = LiftPicker(ItemHost:Colorpicker({
             Flag = "ESPItemTextColor";
             Color = PickerColor(rgb(190, 190, 190));
@@ -5178,7 +5195,6 @@ do
             end
         end
         table.insert(ItemPickers, {Row = ItemRow, Picker = ItemPicker})
-        RefreshItemPickers()
         RefreshItem()
         local ContextChip = nil
         local function CloseAllLists()
