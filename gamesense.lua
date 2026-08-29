@@ -5498,6 +5498,7 @@ do
     AddMenuBind(ClickTPToggle, "MovementClickTPBind", true)
     Movement:Toggle({Name = "Infinite jump", Flag = "MovementInfJump"})
     local JumpPowerToggle = Movement:Toggle({Name = "Jump power", Flag = "MovementJumpPower"})
+    AddMenuBind(JumpPowerToggle, "MovementJumpPowerBind", true)
     local JumpPowerSlider = Movement:Slider({
         Min = 0,
         Max = 300,
@@ -5507,6 +5508,7 @@ do
     })
     BindVisibility(JumpPowerToggle, {JumpPowerSlider})
     local GravityToggle = Movement:Toggle({Name = "Gravity", Flag = "MovementGravity"})
+    AddMenuBind(GravityToggle, "MovementGravityBind", true)
     local GravitySlider = Movement:Slider({
         Min = 0,
         Max = 400,
@@ -5516,6 +5518,7 @@ do
     })
     BindVisibility(GravityToggle, {GravitySlider})
     local WalkOnToggle = Movement:Toggle({Name = "Walk on", Flag = "MovementWalkOn"})
+    AddMenuBind(WalkOnToggle, "MovementWalkOnBind", true)
     local WalkOnMode = Movement:Dropdown({
         Options = {"Always", "Water", "Void"},
         Default = "Water",
