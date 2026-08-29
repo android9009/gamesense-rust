@@ -3100,6 +3100,7 @@ do
     Aimbot:Toggle({Name = "Visible check", Flag = "AimbotVisibleCheck"})
     Aimbot:Toggle({Name = "Auto fire", Flag = "AimbotAutoFire"})
     Aimbot:Toggle({Name = "Silent aim", Flag = "AimbotSilentAim"})
+    Aimbot:Toggle({Name = "Anti recoil", Flag = "AimbotAntiRecoil"})
     local RiskyColor = rgb(182, 182, 101)
     local AirShot = Aimbot:Toggle({Name = "Air shot", Flag = "AimbotAirShot"})
     AirShot.Items.Title.TextColor3 = RiskyColor
