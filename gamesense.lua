@@ -268,67 +268,46 @@ local Library
         end
         function Library:Draggify(Parent)
             local Dragging = false
+            local IntialSize = Parent.Position
             local InitialPosition
-            local InitialOffset
-
-            local function TryStartDrag(Input)
-                if Library.DragLock or not Parent.Visible then
-                    return
-                end
-                if not Library:Hovering(Parent) then
-                    return
-                end
-                for _, zone in Library.NoDrag do
-                    local ok, blocked = pcall(function()
-                        return zone and zone.Visible and Library:Hovering(zone)
-                    end)
-                    if ok and blocked then
-                        return
-                    end
-                end
-                Dragging = true
-                InitialPosition = Input.Position
-                local absPos = Parent.AbsolutePosition
-                Parent.Position = dim2(0, absPos.X, 0, absPos.Y)
-                InitialOffset = Vector2.new(absPos.X, absPos.Y)
-            end
-
             Parent.InputBegan:Connect(function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    TryStartDrag(Input)
+                    if Library.DragLock then
+                        return
+                    end
+                    for _, zone in Library.NoDrag do
+                        local ok, blocked = pcall(function()
+                            return zone.Visible and Library:Hovering(zone)
+                        end)
+                        if ok and blocked then
+                            return
+                        end
+                    end
+                    Dragging = true
+                    InitialPosition = Input.Position
+                    IntialSize = Parent.Position
                 end
             end)
-
-            Library:Connection(InputService.InputBegan, function(Input, game_event)
-                if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    TryStartDrag(Input)
-                end
-            end)
-
-            Library:Connection(InputService.InputEnded, function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 and Dragging then
+            Parent.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
                     Dragging = false
                     Library:SaveLayout()
                 end
             end)
-
             Library:Connection(InputService.InputChanged, function(Input, game_event)
                 if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local cam = Workspace.CurrentCamera or Camera
-                    local Horizontal = (cam and cam.ViewportSize.X) or 1920
-                    local Vertical = (cam and cam.ViewportSize.Y) or 1080
-                    local deltaX = Input.Position.X - InitialPosition.X
-                    local deltaY = Input.Position.Y - InitialPosition.Y
+                    local Horizontal = Camera.ViewportSize.X
+                    local Vertical = Camera.ViewportSize.Y
                     local NewPosition = dim2(
                         0,
                         math.clamp(
-                            InitialOffset.X + deltaX,
+                            IntialSize.X.Offset + (Input.Position.X - InitialPosition.X),
                             0,
                             Horizontal - Parent.Size.X.Offset
                         ),
                         0,
                         math.clamp(
-                            InitialOffset.Y + deltaY,
+                            IntialSize.Y.Offset + (Input.Position.Y - InitialPosition.Y),
                             0,
                             Vertical - Parent.Size.Y.Offset
                         )
