@@ -268,8 +268,8 @@ local Library
         end
         function Library:Draggify(Parent)
             local Dragging = false
-            local IntialSize = Parent.Position
             local InitialPosition
+            local InitialOffset
             Parent.InputBegan:Connect(function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton1 then
                     if Library.DragLock then
@@ -277,7 +277,7 @@ local Library
                     end
                     for _, zone in Library.NoDrag do
                         local ok, blocked = pcall(function()
-                            return zone.Visible and Library:Hovering(zone)
+                            return zone and zone.Visible and Library:Hovering(zone)
                         end)
                         if ok and blocked then
                             return
@@ -285,29 +285,34 @@ local Library
                     end
                     Dragging = true
                     InitialPosition = Input.Position
-                    IntialSize = Parent.Position
+                    local absPos = Parent.AbsolutePosition
+                    Parent.Position = dim2(0, absPos.X, 0, absPos.Y)
+                    InitialOffset = Vector2.new(absPos.X, absPos.Y)
                 end
             end)
-            Parent.InputEnded:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Library:Connection(InputService.InputEnded, function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 and Dragging then
                     Dragging = false
                     Library:SaveLayout()
                 end
             end)
             Library:Connection(InputService.InputChanged, function(Input, game_event)
                 if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local Horizontal = Camera.ViewportSize.X
-                    local Vertical = Camera.ViewportSize.Y
+                    local cam = Workspace.CurrentCamera or Camera
+                    local Horizontal = (cam and cam.ViewportSize.X) or 1920
+                    local Vertical = (cam and cam.ViewportSize.Y) or 1080
+                    local deltaX = Input.Position.X - InitialPosition.X
+                    local deltaY = Input.Position.Y - InitialPosition.Y
                     local NewPosition = dim2(
                         0,
                         math.clamp(
-                            IntialSize.X.Offset + (Input.Position.X - InitialPosition.X),
+                            InitialOffset.X + deltaX,
                             0,
                             Horizontal - Parent.Size.X.Offset
                         ),
                         0,
                         math.clamp(
-                            IntialSize.Y.Offset + (Input.Position.Y - InitialPosition.Y),
+                            InitialOffset.Y + deltaY,
                             0,
                             Vertical - Parent.Size.Y.Offset
                         )
@@ -2947,9 +2952,13 @@ do
             ModeFrame.Visible = false
             ModeFrame.Parent = Library.Other
         end)
+        table.insert(Library.NoDrag, ModeFrame)
+        table.insert(Library.NoDrag, BindButton)
+        table.insert(Library.NoDrag, BindOverlay)
         local function StartBinding()
             if isBinding then return end
             isBinding = true
+            Library.DragLock = true
             BindButton.Text = "..."
             ModeFrame.Visible = false
             ModeFrame.Parent = Library.Other
@@ -2973,6 +2982,7 @@ do
                     BindButton.Text = "[NONE]"
                     aimbotKey = nil
                     isBinding = false
+                    Library.DragLock = false
                     BindOverlay.Visible = false
                     con:Disconnect()
                     return
@@ -2983,6 +2993,7 @@ do
                     BindButton.Text = "[" .. text .. "]"
                 end
                 isBinding = false
+                Library.DragLock = false
                 BindOverlay.Visible = false
                 con:Disconnect()
             end)
@@ -3244,6 +3255,8 @@ do
         ModeAlways.MouseButton1Click:Connect(function()
             SetMode("Always")
         end)
+        table.insert(Library.NoDrag, ModeFrame)
+        table.insert(Library.NoDrag, BindButton)
         BindButton.MouseButton1Click:Connect(function()
             if blockBindClick then
                 blockBindClick = false
@@ -3251,6 +3264,7 @@ do
             end
             if binding then return end
             binding = true
+            Library.DragLock = true
             BindButton.Text = "[...]"
             CloseModeMenu()
             local armed = false
@@ -3275,6 +3289,7 @@ do
                     BindButton.Text = "[" .. keyName .. "]"
                 end
                 binding = false
+                Library.DragLock = false
                 connection:Disconnect()
                 ApplyState(false)
             end)
