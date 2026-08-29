@@ -5525,7 +5525,7 @@ do
             AutoButtonColor = false;
             Parent = MenuKeyToggle.Items.Components;
             Name = "";
-            Text = "[DEL]";
+            Text = "[END]";
             FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
             TextColor3 = rgb(170, 170, 170);
             TextSize = 11;
@@ -5535,7 +5535,7 @@ do
             BackgroundColor3 = rgb(12, 12, 12);
             ZIndex = 2;
         })
-        Library.MenuKey = Enum.KeyCode.Delete
+        Library.MenuKey = Enum.KeyCode.End
         Flags.MenuKey = tostring(Library.MenuKey)
 
         local function SetMenuKey(key)
@@ -5550,13 +5550,13 @@ do
                         Library.MenuKey = nil
                     elseif key:find("Enum", 1, true) then
                         local ok, item = pcall(function() return Library:ConvertEnum(key) end)
-                        Library.MenuKey = (ok and item ~= Enum.KeyCode.Escape and item) or Enum.KeyCode.Delete
+                        Library.MenuKey = (ok and item ~= Enum.KeyCode.Escape and item) or Enum.KeyCode.End
                     else
                         local ok, item = pcall(function() return Enum.KeyCode[key] end)
                         if not ok or not item then
                             ok, item = pcall(function() return Enum.UserInputType[key] end)
                         end
-                        Library.MenuKey = (ok and item ~= Enum.KeyCode.Escape and item) or Enum.KeyCode.Delete
+                        Library.MenuKey = (ok and item ~= Enum.KeyCode.Escape and item) or Enum.KeyCode.End
                     end
                 elseif type(key) == "table" and (key.key or key.Key) then
                     SetMenuKey(key.key or key.Key)
@@ -8202,7 +8202,7 @@ table.insert(Library.UnloadHooks, function()
 end)
 Library:Connection(InputService.InputBegan, function(input, ge)
     local key = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode or input.UserInputType
-    if key ~= (Library.MenuKey or Enum.KeyCode.Delete) then
+    if key ~= (Library.MenuKey or Enum.KeyCode.End) then
         return
     end
     if Library.MenuKeyJustBound then
