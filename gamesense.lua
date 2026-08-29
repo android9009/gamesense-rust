@@ -227,23 +227,28 @@ local Library
                         return
                     end
                     IsResizing = true
-                    InputLost = input.Position
+                    local m = InputService:GetMouseLocation()
+                    InputLost = Vector2.new(m.X, m.Y)
                     Size = Parent.Size
                 end
             end)
-            Resizing.InputEnded:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Library:Connection(InputService.InputEnded, function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 and IsResizing then
                     IsResizing = false
                     Library:SaveLayout()
                 end
             end)
             Library:Connection(InputService.InputChanged, function(input, game_event)
                 if IsResizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+                    local m = InputService:GetMouseLocation()
+                    local cam = Workspace.CurrentCamera or Camera
+                    local Horizontal = (cam and cam.ViewportSize.X) or 1920
+                    local Vertical = (cam and cam.ViewportSize.Y) or 1080
                     Parent.Size = dim2(
                         Size.X.Scale,
-                        math.clamp(Size.X.Offset + (input.Position.X - InputLost.X), ParentSize.X.Offset, Camera.ViewportSize.X),
+                        math.clamp(Size.X.Offset + (m.X - InputLost.X), ParentSize.X.Offset, Horizontal),
                         Size.Y.Scale,
-                        math.clamp(Size.Y.Offset + (input.Position.Y - InputLost.Y), ParentSize.Y.Offset, Camera.ViewportSize.Y)
+                        math.clamp(Size.Y.Offset + (m.Y - InputLost.Y), ParentSize.Y.Offset, Vertical)
                     )
                 end
             end)
@@ -261,14 +266,17 @@ local Library
                 if typeof(Object) ~= "Instance" or not Object:IsA("GuiObject") then
                     return false
                 end
-                local y_cond = Object.AbsolutePosition.Y <= mouse.Y and mouse.Y <= Object.AbsolutePosition.Y + Object.AbsoluteSize.Y
-                local x_cond = Object.AbsolutePosition.X <= mouse.X and mouse.X <= Object.AbsolutePosition.X + Object.AbsoluteSize.X
+                local m = InputService:GetMouseLocation()
+                local my = m.Y - gui_offset
+                local mx = m.X
+                local y_cond = Object.AbsolutePosition.Y <= my and my <= Object.AbsolutePosition.Y + Object.AbsoluteSize.Y
+                local x_cond = Object.AbsolutePosition.X <= mx and mx <= Object.AbsolutePosition.X + Object.AbsoluteSize.X
                 return (y_cond and x_cond)
             end
         end
         function Library:Draggify(Parent)
             local Dragging = false
-            local IntialSize = Parent.Position
+            local InitialSize = Parent.Position
             local InitialPosition
             Parent.InputBegan:Connect(function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -284,30 +292,33 @@ local Library
                         end
                     end
                     Dragging = true
-                    InitialPosition = Input.Position
+                    local m = InputService:GetMouseLocation()
+                    InitialPosition = Vector2.new(m.X, m.Y)
                     InitialSize = Parent.Position
                 end
             end)
-            Parent.InputEnded:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Library:Connection(InputService.InputEnded, function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 and Dragging then
                     Dragging = false
                     Library:SaveLayout()
                 end
             end)
             Library:Connection(InputService.InputChanged, function(Input, game_event)
                 if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local Horizontal = Camera.ViewportSize.X
-                    local Vertical = Camera.ViewportSize.Y
+                    local m = InputService:GetMouseLocation()
+                    local cam = Workspace.CurrentCamera or Camera
+                    local Horizontal = (cam and cam.ViewportSize.X) or 1920
+                    local Vertical = (cam and cam.ViewportSize.Y) or 1080
                     local NewPosition = dim2(
                         0,
                         math.clamp(
-                            InitialSize.X.Offset + (Input.Position.X - InitialPosition.X),
+                            InitialSize.X.Offset + (m.X - InitialPosition.X),
                             0,
                             Horizontal - Parent.Size.X.Offset
                         ),
                         0,
                         math.clamp(
-                            InitialSize.Y.Offset + (Input.Position.Y - InitialPosition.Y),
+                            InitialSize.Y.Offset + (m.Y - InitialPosition.Y),
                             0,
                             Vertical - Parent.Size.Y.Offset
                         )
