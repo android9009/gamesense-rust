@@ -192,22 +192,17 @@ local Library
             if not Success or type(Data) ~= "table" then
                 return
             end
-            local cam = Workspace.CurrentCamera or Camera
-            local Viewport = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
-            local sx = tonumber(Data.SizeX)
-            local sy = tonumber(Data.SizeY)
-            local px = tonumber(Data.PosX)
-            local py = tonumber(Data.PosY)
-            if sx and sy then
+            local Viewport = Camera.ViewportSize
+            if tonumber(Data.SizeX) and tonumber(Data.SizeY) then
                 Window.Size = dim2(
-                    0, math.clamp(sx, 400, Viewport.X),
-                    0, math.clamp(sy, 300, Viewport.Y)
+                    0, math.clamp(Data.SizeX, 400, Viewport.X),
+                    0, math.clamp(Data.SizeY, 300, Viewport.Y)
                 )
             end
-            if px and py then
+            if tonumber(Data.PosX) and tonumber(Data.PosY) then
                 Window.Position = dim2(
-                    0, math.clamp(px, 0, math.max(0, Viewport.X - Window.Size.X.Offset)),
-                    0, math.clamp(py, 0, math.max(0, Viewport.Y - Window.Size.Y.Offset))
+                    0, math.clamp(Data.PosX, 0, math.max(0, Viewport.X - Window.Size.X.Offset)),
+                    0, math.clamp(Data.PosY, 0, math.max(0, Viewport.Y - Window.Size.Y.Offset))
                 )
             end
         end
@@ -223,7 +218,7 @@ local Library
                 Text = ""
             })
             local IsResizing = false
-            local InitialSize
+            local Size
             local InputLost
             local ParentSize = dim2(0, 400, 0, 300) -- минимальный размер окна
             Resizing.InputBegan:Connect(function(input)
@@ -232,28 +227,23 @@ local Library
                         return
                     end
                     IsResizing = true
-                    InputLost = Vector2.new(input.Position.X, input.Position.Y)
-                    InitialSize = Parent.Size
+                    InputLost = input.Position
+                    Size = Parent.Size
                 end
             end)
-            Library:Connection(InputService.InputEnded, function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 and IsResizing then
+            Resizing.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
                     IsResizing = false
                     Library:SaveLayout()
                 end
             end)
             Library:Connection(InputService.InputChanged, function(input, game_event)
                 if IsResizing and input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local cam = Workspace.CurrentCamera or Camera
-                    local Horizontal = (cam and cam.ViewportSize.X) or 1920
-                    local Vertical = (cam and cam.ViewportSize.Y) or 1080
-                    local deltaX = input.Position.X - InputLost.X
-                    local deltaY = input.Position.Y - InputLost.Y
                     Parent.Size = dim2(
-                        0,
-                        math.clamp(InitialSize.X.Offset + deltaX, ParentSize.X.Offset, Horizontal),
-                        0,
-                        math.clamp(InitialSize.Y.Offset + deltaY, ParentSize.Y.Offset, Vertical)
+                        Size.X.Scale,
+                        math.clamp(Size.X.Offset + (input.Position.X - InputLost.X), ParentSize.X.Offset, Camera.ViewportSize.X),
+                        Size.Y.Scale,
+                        math.clamp(Size.Y.Offset + (input.Position.Y - InputLost.Y), ParentSize.Y.Offset, Camera.ViewportSize.Y)
                     )
                 end
             end)
@@ -271,16 +261,15 @@ local Library
                 if typeof(Object) ~= "Instance" or not Object:IsA("GuiObject") then
                     return false
                 end
-                local m = InputService:GetMouseLocation()
-                local y_cond = Object.AbsolutePosition.Y <= m.Y and m.Y <= Object.AbsolutePosition.Y + Object.AbsoluteSize.Y
-                local x_cond = Object.AbsolutePosition.X <= m.X and m.X <= Object.AbsolutePosition.X + Object.AbsoluteSize.X
+                local y_cond = Object.AbsolutePosition.Y <= mouse.Y and mouse.Y <= Object.AbsolutePosition.Y + Object.AbsoluteSize.Y
+                local x_cond = Object.AbsolutePosition.X <= mouse.X and mouse.X <= Object.AbsolutePosition.X + Object.AbsoluteSize.X
                 return (y_cond and x_cond)
             end
         end
         function Library:Draggify(Parent)
             local Dragging = false
+            local IntialSize = Parent.Position
             local InitialPosition
-            local InitialPos
             Parent.InputBegan:Connect(function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton1 then
                     if Library.DragLock then
@@ -295,34 +284,35 @@ local Library
                         end
                     end
                     Dragging = true
-                    InitialPosition = Vector2.new(Input.Position.X, Input.Position.Y)
-                    InitialPos = Parent.Position
+                    InitialPosition = Input.Position
+                    IntialSize = Parent.Position
                 end
             end)
-            Library:Connection(InputService.InputEnded, function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 and Dragging then
+            Parent.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
                     Dragging = false
                     Library:SaveLayout()
                 end
             end)
             Library:Connection(InputService.InputChanged, function(Input, game_event)
                 if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local cam = Workspace.CurrentCamera or Camera
-                    local Horizontal = (cam and cam.ViewportSize.X) or 1920
-                    local Vertical = (cam and cam.ViewportSize.Y) or 1080
-                    local deltaX = Input.Position.X - InitialPosition.X
-                    local deltaY = Input.Position.Y - InitialPosition.Y
-                    local NewX = math.clamp(
-                        InitialPos.X.Offset + deltaX,
+                    local Horizontal = Camera.ViewportSize.X
+                    local Vertical = Camera.ViewportSize.Y
+                    local NewPosition = dim2(
                         0,
-                        math.max(0, Horizontal - Parent.Size.X.Offset)
-                    )
-                    local NewY = math.clamp(
-                        InitialPos.Y.Offset + deltaY,
+                        math.clamp(
+                            IntialSize.X.Offset + (Input.Position.X - InitialPosition.X),
+                            0,
+                            Horizontal - Parent.Size.X.Offset
+                        ),
                         0,
-                        math.max(0, Vertical - Parent.Size.Y.Offset)
+                        math.clamp(
+                            IntialSize.Y.Offset + (Input.Position.Y - InitialPosition.Y),
+                            0,
+                            Vertical - Parent.Size.Y.Offset
+                        )
                     )
-                    Parent.Position = dim2(0, NewX, 0, NewY)
+                    Parent.Position = NewPosition
                 end
             end)
         end
@@ -949,20 +939,16 @@ local Library
                 IgnoreGuiInset = true;
             });
             local Items = Cfg.Items; do
-                    local cam = Workspace.CurrentCamera or Camera
-                    local Viewport = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
-                    local initX = math.floor(math.max(0, (Viewport.X - Cfg.Size.X.Offset) / 2))
-                    local initY = math.floor(math.max(0, (Viewport.Y - Cfg.Size.Y.Offset) / 2))
                     Items.Window = Library:Create( "Frame" , {
                         Parent = Library.Items;
                         Name = "\0";
                         Visible = false;
-                        Position = dim2(0, initX, 0, initY);
+                        Position = dim2(0.5, -Cfg.Size.X.Offset / 2, 0.5, -Cfg.Size.Y.Offset / 2);
                         BorderColor3 = rgb(0, 0, 0);
                         Size = Cfg.Size;
                         BorderSizePixel = 0;
                         BackgroundColor3 = rgb(12, 12, 12)
-                    });
+                    }); Items.Window.Position = dim2(0, Items.Window.AbsolutePosition.X, 0, Items.Window.AbsolutePosition.Y);
                     Items.Inline = Library:Create( "Frame" , {
                         Parent = Items.Window;
                         Name = "\0";
@@ -5460,8 +5446,6 @@ do
     end
     local Misc = Tabs.Settings:Section({Name = "Misc", Side = "Left", Size = 1})
     Misc.Items.Outline.Size = dim2(1, 0, 1, 0)
-    local FreecamToggle = Misc:Toggle({Name = "Freecam", Flag = "MiscFreecam"})
-    AddMenuBind(FreecamToggle, "MiscFreecamBind", true)
     local FPSToggle = Misc:Toggle({Name = "FPS unlocker", Flag = "MiscFPSUnlocker"})
     local FPSSlider = Misc:Slider({
         Min = 60,
@@ -5736,12 +5720,8 @@ do
                 end
             end)
             if Library.Window then
-                local cam = Workspace.CurrentCamera or Camera
-                local Viewport = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
-                local initX = math.floor(math.max(0, (Viewport.X - 660) / 2))
-                local initY = math.floor(math.max(0, (Viewport.Y - 674) / 2))
                 Library.Window.Size = dim2(0, 660, 0, 674)
-                Library.Window.Position = dim2(0, initX, 0, initY)
+                Library.Window.Position = dim2(0.5, -330, 0.5, -337)
             end
         end
     })
