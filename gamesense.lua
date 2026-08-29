@@ -2793,325 +2793,8 @@ local function BindVisibility(Toggle, Elements)
     end
     Refresh(Toggle.Enabled)
 end
-do
-    local Page = Tabs.Rage.Items.Page
-    for _, child in pairs(Page:GetChildren()) do
-        if child:IsA("UIListLayout") then
-            child.HorizontalFlex = Enum.UIFlexAlignment.None
-        end
-    end
-    Tabs.Rage.Items.Left.Size = dim2(0.5, -10, 1, 0)
-    Tabs.Rage.Items.Right.Size = dim2(0.5, -10, 1, 0)
-    for _, child in pairs(Tabs.Rage.Items.Left:GetChildren()) do
-        if child:IsA("UIListLayout") then
-            child.VerticalFlex = Enum.UIFlexAlignment.None
-        end
-    end
-    for _, child in pairs(Tabs.Rage.Items.Right:GetChildren()) do
-        if child:IsA("UIListLayout") then
-            child.VerticalFlex = Enum.UIFlexAlignment.None
-        end
-    end
-    local Aimbot = Tabs.Rage:Section({Name = "Aimbot", Side = "Left"})
-    local Toggle = Aimbot:Toggle({Name = "Enabled", Flag = "AimbotEnabled"})
-    Aimbot:Dropdown({Name = "Target selection", Options = {"Players", "Team", "Bots"}, Multi = true, Default = {"Players"}, Flag = "AimbotTargetSel"})
-    Aimbot:Dropdown({Name = "Target hitbox", Options = {"Head", "Neck", "Chest", "Stomach", "Legs", "Feet"}, Multi = true, Default = {"Head", "Chest"}, Flag = "AimbotHitbox"})
-    Aimbot:Toggle({Name = "Visible check", Flag = "AimbotVisibleCheck"})
-    Aimbot:Toggle({Name = "Auto fire", Flag = "AimbotAutoFire"})
-    Aimbot:Toggle({Name = "Silent aim", Flag = "AimbotSilentAim"})
-    local RiskyColor = rgb(182, 182, 101)
-    local AirShot = Aimbot:Toggle({Name = "Air shot", Flag = "AimbotAirShot"})
-    AirShot.Items.Title.TextColor3 = RiskyColor
-    local ReachToggle = Aimbot:Toggle({Name = "Hitbox expander", Flag = "AimbotReach"})
-    ReachToggle.Items.Title.TextColor3 = RiskyColor
-    local ReachSlider = Aimbot:Slider({
-        Name = "Expand amount",
-        Min = 0,
-        Max = 30,
-        Default = 5,
-        Decimal = 0.1,
-        Suffix = " studs",
-        Flag = "AimbotReachValue"
-    })
-    if ReachSlider.Items.Title then
-        ReachSlider.Items.Title.TextColor3 = RiskyColor
-    end
-    BindVisibility(ReachToggle, {ReachSlider})
-    do
-        local aimbotMode = "Toggle"
-        local BindButton = Library:Create("TextButton", {
-            Active = false;
-            BorderColor3 = rgb(0, 0, 0);
-            Text = "[NONE]";
-            AutoButtonColor = false;
-            Name = "\0";
-            Parent = Toggle.Items.Components;
-            Size = dim2(0, 17, 0, 9);
-            Selectable = false;
-            BorderSizePixel = 0;
-            BackgroundTransparency = 1;
-            BackgroundColor3 = rgb(12, 12, 12);
-            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-            TextColor3 = rgb(170, 170, 170);
-            TextSize = 11;
-            ZIndex = 2;
-        })
-        local aimbotKey = nil
-        local isBinding = false
-        local blockBindClick = false
-        local blockBindClick2 = false
-        local BindOverlay = Library:Create("TextButton", {
-            Visible = false;
-            Active = true;
-            BorderColor3 = rgb(0, 0, 0);
-            Text = "";
-            AutoButtonColor = false;
-            Name = "\0";
-            Parent = Library.Items;
-            Size = dim2(0, 17, 0, 9);
-            Selectable = false;
-            BorderSizePixel = 0;
-            BackgroundTransparency = 1;
-            ZIndex = 20;
-        })
-        local ModeFrame = Library:Create("Frame", {
-            Parent = Library.Items;
-            Visible = false;
-            Size = dim2(0, 100, 0, 66);
-            Name = "\0";
-            Position = dim2(0, 0, 0, 100);
-            BorderColor3 = rgb(0, 0, 0);
-            BorderSizePixel = 0;
-            ZIndex = 10;
-            BackgroundColor3 = rgb(12, 12, 12);
-        })
-        local ModeInline = Library:Create("Frame", {
-            Parent = ModeFrame;
-            Name = "\0";
-            Position = dim2(0, 1, 0, 1);
-            BorderColor3 = rgb(0, 0, 0);
-            Size = dim2(1, -2, 1, -2);
-            BorderSizePixel = 0;
-            ZIndex = 10;
-            BackgroundColor3 = rgb(35, 35, 35)
-        })
-        local function CreateModeOption(text)
-            local btn = Library:Create("TextButton", {
-                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-                TextColor3 = rgb(205, 205, 205);
-                AutoButtonColor = false;
-                BorderColor3 = rgb(0, 0, 0);
-                Text = text;
-                Parent = ModeInline;
-                Size = dim2(1, 0, 0, 22);
-                Name = "\0";
-                TextXAlignment = Enum.TextXAlignment.Left;
-                BorderSizePixel = 0;
-                ZIndex = 10;
-                TextSize = 13;
-                BackgroundColor3 = rgb(26, 26, 26)
-            })
-            Library:Create("UIPadding", {
-                PaddingTop = dim(0, 5);
-                PaddingBottom = dim(0, 5);
-                Parent = btn;
-                PaddingRight = dim(0, 5);
-                PaddingLeft = dim(0, 5)
-            })
-            Library:Create("UIListLayout", {
-                Parent = ModeInline;
-                SortOrder = Enum.SortOrder.LayoutOrder
-            })
-            return btn
-        end
-        local ModeHold = CreateModeOption("Hold")
-        local ModeToggle = CreateModeOption("Toggle")
-        local ModeAlways = CreateModeOption("Always")
-        local function UpdateModeVisuals()
-            for _, btn in {ModeHold, ModeToggle, ModeAlways} do
-                btn.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                btn.TextColor3 = rgb(205, 205, 205)
-                btn.BackgroundTransparency = 0
-            end
-            local selected = aimbotMode == "Hold" and ModeHold or aimbotMode == "Toggle" and ModeToggle or ModeAlways
-            selected.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-            selected.TextColor3 = rgb(142, 181, 39)
-            selected.BackgroundTransparency = 1
-        end
-        ModeHold.MouseButton1Click:Connect(function()
-            aimbotMode = "Hold"
-            ModeFrame.Visible = false
-            ModeFrame.Parent = Library.Other
-        end)
-        ModeToggle.MouseButton1Click:Connect(function()
-            aimbotMode = "Toggle"
-            ModeFrame.Visible = false
-            ModeFrame.Parent = Library.Other
-        end)
-        ModeAlways.MouseButton1Click:Connect(function()
-            aimbotMode = "Always"
-            ModeFrame.Visible = false
-            ModeFrame.Parent = Library.Other
-        end)
-        table.insert(Library.NoDrag, ModeFrame)
-        table.insert(Library.NoDrag, BindButton)
-        table.insert(Library.NoDrag, BindOverlay)
-        local function StartBinding()
-            if isBinding then return end
-            isBinding = true
-            Library.DragLock = true
-            BindButton.Text = "..."
-            ModeFrame.Visible = false
-            ModeFrame.Parent = Library.Other
-            BindOverlay.Visible = true
-            BindOverlay.Size = dim2(0, BindButton.AbsoluteSize.X, 0, BindButton.AbsoluteSize.Y)
-            BindOverlay.Position = dim2(0, BindButton.AbsolutePosition.X, 0, BindButton.AbsolutePosition.Y)
-            local armed = false
-            task.defer(function()
-                armed = true
-            end)
-            local con
-            con = Library:Connection(InputService.InputBegan, function(input2)
-                if isBinding == false or not armed then return end
-                local key = input2.KeyCode ~= Enum.KeyCode.Unknown and input2.KeyCode or input2.UserInputType
-                if input2.UserInputType == Enum.UserInputType.MouseButton1 then
-                    blockBindClick = true
-                elseif input2.UserInputType == Enum.UserInputType.MouseButton2 then
-                    blockBindClick2 = true
-                end
-                if key == Enum.KeyCode.Escape then
-                    BindButton.Text = "[NONE]"
-                    aimbotKey = nil
-                    isBinding = false
-                    Library.DragLock = false
-                    BindOverlay.Visible = false
-                    con:Disconnect()
-                    return
-                end
-                if key then
-                    aimbotKey = key
-                    local text = Keys[key] or tostring(key):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
-                    BindButton.Text = "[" .. text .. "]"
-                end
-                isBinding = false
-                Library.DragLock = false
-                BindOverlay.Visible = false
-                con:Disconnect()
-            end)
-        end
-        BindButton.MouseButton1Click:Connect(function()
-            if blockBindClick then
-                blockBindClick = false
-                return
-            end
-            if isBinding then return end
-            StartBinding()
-        end)
-        BindButton.MouseButton2Click:Connect(function()
-            if blockBindClick2 then
-                blockBindClick2 = false
-                return
-            end
-            if isBinding then return end
-            ModeFrame.Visible = not ModeFrame.Visible
-            if ModeFrame.Visible then
-                ModeFrame.Parent = Library.Items
-                ModeFrame.Position = dim2(0, BindButton.AbsolutePosition.X, 0, BindButton.AbsolutePosition.Y + 74)
-                UpdateModeVisuals()
-            else
-                ModeFrame.Parent = Library.Other
-            end
-        end)
-        Library:Connection(InputService.InputBegan, function(input, ge)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                if ModeFrame.Visible and not Library:Hovering(ModeFrame) then
-                    ModeFrame.Visible = false
-                    ModeFrame.Parent = Library.Other
-                end
-            end
-        end)
-        table.insert(Library.ExtraClosers, function()
-            ModeFrame.Visible = false
-            ModeFrame.Parent = Library.Other
-        end)
-    end
-    local Other = Tabs.Rage:Section({Name = "Other", Side = "Right", Size = 0.6})
-    Other:Toggle({Name = "Visible FOV", Flag = "AimbotVisFOV"})
-    Other:Slider({Name = "Maximum FOV", Min = 1, Max = 180, Suffix = "°", Default = 90, Flag = "AimbotFOV"})
-    Other:Toggle({Name = "Lag compensation", Flag = "AimbotLagComp"})
-    Other:Toggle({Name = "Backtrack", Flag = "AimbotBacktrack"})
-    Other:Slider({Name = "Backtrack ms", Min = 0, Max = 1000, Suffix = "ms", Default = 200, Flag = "AimbotBacktrackMs"})
-    local AA = Tabs.Rage:Section({Name = "Anti-aimbot angles", Side = "Right", Size = 0.4})
-    local function UpdateRageRightSections()
-        local gap = 19
-        local availableHeight = math.max(0, Tabs.Rage.Items.Right.AbsoluteSize.Y - gap)
-        local otherHeight = math.floor(availableHeight * 0.6)
-        local antiAimHeight = availableHeight - otherHeight
-        Other.Items.Outline.Size = dim2(1, 0, 0, otherHeight)
-        AA.Items.Outline.Size = dim2(1, 0, 0, antiAimHeight)
-    end
-    Library:Connection(Tabs.Rage.Items.Right:GetPropertyChangedSignal("AbsoluteSize"), UpdateRageRightSections)
-    task.defer(UpdateRageRightSections)
-    AA:Toggle({Name = "Enable anti-aim", Flag = "AAEnabled"})
-    AA:Dropdown({Name = "Yaw", Options = {"At targets", "Local view"}, Default = "At targets", Flag = "AAYaw"})
-    local AASliders = {}
-    AA:Dropdown({
-        Name = "Yaw value",
-        Options = {"180", "Spin", "Jitter"},
-        Default = "180",
-        Flag = "AAYawValue",
-        Callback = function(value)
-            if not next(AASliders) then return end
-            for _, slider in pairs(AASliders) do
-                slider.Items.Slider.Visible = false
-            end
-            if value == "180" then
-                AASliders.YawOffset.Items.Slider.Visible = true
-            elseif value == "Spin" then
-                AASliders.SpinOffset.Items.Slider.Visible = true
-            elseif value == "Jitter" then
-                AASliders.JitterOffset1.Items.Slider.Visible = true
-                AASliders.JitterOffset2.Items.Slider.Visible = true
-                AASliders.JitterSpeed.Items.Slider.Visible = true
-            end
-        end
-    })
-    AASliders.YawOffset = AA:Slider({Name = "Yaw offset", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAYawOffset"})
-    AASliders.SpinOffset = AA:Slider({Name = "Spin offset", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AASpinOffset"})
-    AASliders.JitterOffset1 = AA:Slider({Name = "Jitter offset 1", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAJitOff1"})
-    AASliders.JitterOffset2 = AA:Slider({Name = "Jitter offset 2", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAJitOff2"})
-    AASliders.JitterSpeed = AA:Slider({Name = "Jitter speed", Min = 0, Max = 30, Suffix = "t", Default = 5, Flag = "AAJitSpeed"})
-    AASliders.SpinOffset.Items.Slider.Visible = false
-    AASliders.JitterOffset1.Items.Slider.Visible = false
-    AASliders.JitterOffset2.Items.Slider.Visible = false
-    AASliders.JitterSpeed.Items.Slider.Visible = false
-end
 local AddMenuBind
 do
-    local Page = Tabs.Aiming.Items.Page
-    for _, child in pairs(Page:GetChildren()) do
-        if child:IsA("UIListLayout") then
-            child.HorizontalFlex = Enum.UIFlexAlignment.None
-        end
-    end
-    Tabs.Aiming.Items.Left.Size = dim2(0.5, -10, 1, 0)
-    Tabs.Aiming.Items.Right.Size = dim2(0.5, -10, 1, 0)
-    for _, column in {Tabs.Aiming.Items.Left, Tabs.Aiming.Items.Right} do
-        for _, child in pairs(column:GetChildren()) do
-            if child:IsA("UIListLayout") then
-                child.VerticalFlex = Enum.UIFlexAlignment.None
-            end
-        end
-    end
-    local LegitAimbot = Tabs.Aiming:Section({
-        Name = "Aimbot",
-        Side = "Left",
-        Size = 1
-    })
-    local LegitEnabled = LegitAimbot:Toggle({
-        Name = "Enabled",
-        Flag = "LegitAimbotEnabled"
-    })
     function AddMenuBind(TargetToggle, FlagName, NoToggleState)
         local bindMode = "Toggle"
         local boundKey = nil
@@ -3390,6 +3073,128 @@ do
         ApplyState(false)
         ConfigFlags[FlagName] = SetBind
     end
+end
+do
+    local Page = Tabs.Rage.Items.Page
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    Tabs.Rage.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Rage.Items.Right.Size = dim2(0.5, -10, 1, 0)
+    for _, child in pairs(Tabs.Rage.Items.Left:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.VerticalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    for _, child in pairs(Tabs.Rage.Items.Right:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.VerticalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    local Aimbot = Tabs.Rage:Section({Name = "Aimbot", Side = "Left"})
+    local Toggle = Aimbot:Toggle({Name = "Enabled", Flag = "AimbotEnabled"})
+    Aimbot:Dropdown({Name = "Target selection", Options = {"Players", "Team", "Bots"}, Multi = true, Default = {"Players"}, Flag = "AimbotTargetSel"})
+    Aimbot:Dropdown({Name = "Target hitbox", Options = {"Head", "Neck", "Chest", "Stomach", "Legs", "Feet"}, Multi = true, Default = {"Head", "Chest"}, Flag = "AimbotHitbox"})
+    Aimbot:Toggle({Name = "Visible check", Flag = "AimbotVisibleCheck"})
+    Aimbot:Toggle({Name = "Auto fire", Flag = "AimbotAutoFire"})
+    Aimbot:Toggle({Name = "Silent aim", Flag = "AimbotSilentAim"})
+    local RiskyColor = rgb(182, 182, 101)
+    local AirShot = Aimbot:Toggle({Name = "Air shot", Flag = "AimbotAirShot"})
+    AirShot.Items.Title.TextColor3 = RiskyColor
+    local ReachToggle = Aimbot:Toggle({Name = "Hitbox expander", Flag = "AimbotReach"})
+    ReachToggle.Items.Title.TextColor3 = RiskyColor
+    local ReachSlider = Aimbot:Slider({
+        Name = "Expand amount",
+        Min = 0,
+        Max = 30,
+        Default = 5,
+        Decimal = 0.1,
+        Suffix = " studs",
+        Flag = "AimbotReachValue"
+    })
+    if ReachSlider.Items.Title then
+        ReachSlider.Items.Title.TextColor3 = RiskyColor
+    end
+    BindVisibility(ReachToggle, {ReachSlider})
+    AddMenuBind(Toggle, "AimbotEnabledBind", true)
+    local Other = Tabs.Rage:Section({Name = "Other", Side = "Right", Size = 0.6})
+    Other:Toggle({Name = "Visible FOV", Flag = "AimbotVisFOV"})
+    Other:Slider({Name = "Maximum FOV", Min = 1, Max = 180, Suffix = "°", Default = 90, Flag = "AimbotFOV"})
+    Other:Toggle({Name = "Lag compensation", Flag = "AimbotLagComp"})
+    Other:Toggle({Name = "Backtrack", Flag = "AimbotBacktrack"})
+    Other:Slider({Name = "Backtrack ms", Min = 0, Max = 1000, Suffix = "ms", Default = 200, Flag = "AimbotBacktrackMs"})
+    local AA = Tabs.Rage:Section({Name = "Anti-aimbot angles", Side = "Right", Size = 0.4})
+    local function UpdateRageRightSections()
+        local gap = 19
+        local availableHeight = math.max(0, Tabs.Rage.Items.Right.AbsoluteSize.Y - gap)
+        local otherHeight = math.floor(availableHeight * 0.6)
+        local antiAimHeight = availableHeight - otherHeight
+        Other.Items.Outline.Size = dim2(1, 0, 0, otherHeight)
+        AA.Items.Outline.Size = dim2(1, 0, 0, antiAimHeight)
+    end
+    Library:Connection(Tabs.Rage.Items.Right:GetPropertyChangedSignal("AbsoluteSize"), UpdateRageRightSections)
+    task.defer(UpdateRageRightSections)
+    AA:Toggle({Name = "Enable anti-aim", Flag = "AAEnabled"})
+    AA:Dropdown({Name = "Yaw", Options = {"At targets", "Local view"}, Default = "At targets", Flag = "AAYaw"})
+    local AASliders = {}
+    AA:Dropdown({
+        Name = "Yaw value",
+        Options = {"180", "Spin", "Jitter"},
+        Default = "180",
+        Flag = "AAYawValue",
+        Callback = function(value)
+            if not next(AASliders) then return end
+            for _, slider in pairs(AASliders) do
+                slider.Items.Slider.Visible = false
+            end
+            if value == "180" then
+                AASliders.YawOffset.Items.Slider.Visible = true
+            elseif value == "Spin" then
+                AASliders.SpinOffset.Items.Slider.Visible = true
+            elseif value == "Jitter" then
+                AASliders.JitterOffset1.Items.Slider.Visible = true
+                AASliders.JitterOffset2.Items.Slider.Visible = true
+                AASliders.JitterSpeed.Items.Slider.Visible = true
+            end
+        end
+    })
+    AASliders.YawOffset = AA:Slider({Name = "Yaw offset", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAYawOffset"})
+    AASliders.SpinOffset = AA:Slider({Name = "Spin offset", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AASpinOffset"})
+    AASliders.JitterOffset1 = AA:Slider({Name = "Jitter offset 1", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAJitOff1"})
+    AASliders.JitterOffset2 = AA:Slider({Name = "Jitter offset 2", Min = -180, Max = 180, Suffix = "°", Default = 0, Flag = "AAJitOff2"})
+    AASliders.JitterSpeed = AA:Slider({Name = "Jitter speed", Min = 0, Max = 30, Suffix = "t", Default = 5, Flag = "AAJitSpeed"})
+    AASliders.SpinOffset.Items.Slider.Visible = false
+    AASliders.JitterOffset1.Items.Slider.Visible = false
+    AASliders.JitterOffset2.Items.Slider.Visible = false
+    AASliders.JitterSpeed.Items.Slider.Visible = false
+end
+do
+    local Page = Tabs.Aiming.Items.Page
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    Tabs.Aiming.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Aiming.Items.Right.Size = dim2(0.5, -10, 1, 0)
+    for _, column in {Tabs.Aiming.Items.Left, Tabs.Aiming.Items.Right} do
+        for _, child in pairs(column:GetChildren()) do
+            if child:IsA("UIListLayout") then
+                child.VerticalFlex = Enum.UIFlexAlignment.None
+            end
+        end
+    end
+    local LegitAimbot = Tabs.Aiming:Section({
+        Name = "Aimbot",
+        Side = "Left",
+        Size = 1
+    })
+    local LegitEnabled = LegitAimbot:Toggle({
+        Name = "Enabled",
+        Flag = "LegitAimbotEnabled"
+    })
     AddMenuBind(LegitEnabled, "LegitAimbotBind", true)
     LegitAimbot:Slider({
         Name = "Speed",
