@@ -270,32 +270,48 @@ local Library
             local Dragging = false
             local InitialPosition
             local InitialOffset
-            Parent.InputBegan:Connect(function(Input)
-                if Input.UserInputType == Enum.UserInputType.MouseButton1 then
-                    if Library.DragLock then
+
+            local function TryStartDrag(Input)
+                if Library.DragLock or not Parent.Visible then
+                    return
+                end
+                if not Library:Hovering(Parent) then
+                    return
+                end
+                for _, zone in Library.NoDrag do
+                    local ok, blocked = pcall(function()
+                        return zone and zone.Visible and Library:Hovering(zone)
+                    end)
+                    if ok and blocked then
                         return
                     end
-                    for _, zone in Library.NoDrag do
-                        local ok, blocked = pcall(function()
-                            return zone and zone.Visible and Library:Hovering(zone)
-                        end)
-                        if ok and blocked then
-                            return
-                        end
-                    end
-                    Dragging = true
-                    InitialPosition = Input.Position
-                    local absPos = Parent.AbsolutePosition
-                    Parent.Position = dim2(0, absPos.X, 0, absPos.Y)
-                    InitialOffset = Vector2.new(absPos.X, absPos.Y)
+                end
+                Dragging = true
+                InitialPosition = Input.Position
+                local absPos = Parent.AbsolutePosition
+                Parent.Position = dim2(0, absPos.X, 0, absPos.Y)
+                InitialOffset = Vector2.new(absPos.X, absPos.Y)
+            end
+
+            Parent.InputBegan:Connect(function(Input)
+                if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    TryStartDrag(Input)
                 end
             end)
+
+            Library:Connection(InputService.InputBegan, function(Input, game_event)
+                if Input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    TryStartDrag(Input)
+                end
+            end)
+
             Library:Connection(InputService.InputEnded, function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 and Dragging then
                     Dragging = false
                     Library:SaveLayout()
                 end
             end)
+
             Library:Connection(InputService.InputChanged, function(Input, game_event)
                 if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
                     local cam = Workspace.CurrentCamera or Camera
@@ -576,6 +592,7 @@ local Library
                     });
             end;
             do
+                table.insert(Library.NoDrag, Items.Colorpicker)
                 Items.Colorpicker.ZIndex += 20000
                 for _, descendant in Items.Colorpicker:GetDescendants() do
                     if descendant:IsA("GuiObject") then
@@ -1761,6 +1778,9 @@ local Library
                     Transparency = 0.5
                 });
             end
+            table.insert(Library.NoDrag, Items.Holder)
+            table.insert(Library.NoDrag, Items.Minus)
+            table.insert(Library.NoDrag, Items.Plus)
             function Cfg.Set(value)
                 Cfg.Value = math.clamp(Library:Round(value, Cfg.Intervals), Cfg.Min, Cfg.Max)
                 Items.Accent.Size = dim2((Cfg.Value - Cfg.Min) / (Cfg.Max - Cfg.Min), Cfg.Value == Cfg.Min and 0 or -2, 1, -2)
@@ -1938,6 +1958,8 @@ local Library
                         Parent = Items.DropdownHolder;
                         SortOrder = Enum.SortOrder.LayoutOrder
                     });
+                    table.insert(Library.NoDrag, Items.DropdownElements);
+                    table.insert(Library.NoDrag, Items.Outline);
             end
             function Cfg.RenderOption(text)
                 local Button = Library:Create( "TextButton" , {
