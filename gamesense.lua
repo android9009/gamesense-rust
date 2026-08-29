@@ -3374,7 +3374,7 @@ do
         ApplyState(false)
         ConfigFlags[FlagName] = SetBind
     end
-    AddMenuBind(LegitEnabled, "LegitAimbotBind")
+    AddMenuBind(LegitEnabled, "LegitAimbotBind", true)
     LegitAimbot:Slider({
         Name = "Speed",
         Min = 0,
@@ -3461,7 +3461,7 @@ do
         Name = "Enabled",
         Flag = "TriggerbotEnabled"
     })
-    AddMenuBind(TriggerEnabled, "TriggerbotBind")
+    AddMenuBind(TriggerEnabled, "TriggerbotBind", true)
     Triggerbot:Slider({
         Name = "Reaction time",
         Min = 0,
@@ -5447,7 +5447,7 @@ do
     local Misc = Tabs.Settings:Section({Name = "Misc", Side = "Left", Size = 1})
     Misc.Items.Outline.Size = dim2(1, 0, 1, 0)
     local FreecamToggle = Misc:Toggle({Name = "Freecam", Flag = "MiscFreecam"})
-    AddMenuBind(FreecamToggle, "MiscFreecamBind")
+    AddMenuBind(FreecamToggle, "MiscFreecamBind", true)
     local FPSToggle = Misc:Toggle({Name = "FPS unlocker", Flag = "MiscFPSUnlocker"})
     local FPSSlider = Misc:Slider({
         Min = 60,
@@ -5473,7 +5473,7 @@ do
     local SettingsSection = Tabs.Settings:Section({Name = "Settings", Side = "Right", Size = 0.45})
     SettingsSection.Items.Outline.Size = dim2(1, 0, 0.45, -9)
     local FlyToggle = Movement:Toggle({Name = "Fly", Flag = "MovementFly"})
-    AddMenuBind(FlyToggle, "MovementFlyBind")
+    AddMenuBind(FlyToggle, "MovementFlyBind", true)
     local FlySpeed = Movement:Slider({
         Name = "Speed",
         Min = 0,
@@ -5484,7 +5484,7 @@ do
     })
     BindVisibility(FlyToggle, {FlySpeed})
     local SpeedhackToggle = Movement:Toggle({Name = "Speedhack", Flag = "MovementSpeedhack"})
-    AddMenuBind(SpeedhackToggle, "MovementSpeedhackBind")
+    AddMenuBind(SpeedhackToggle, "MovementSpeedhackBind", true)
     local SpeedhackSpeed = Movement:Slider({
         Name = "Speed",
         Min = 0,
@@ -5495,7 +5495,7 @@ do
     })
     BindVisibility(SpeedhackToggle, {SpeedhackSpeed})
     local ClickTPToggle = Movement:Toggle({Name = "Click teleport", Flag = "MovementClickTP"})
-    AddMenuBind(ClickTPToggle, "MovementClickTPBind")
+    AddMenuBind(ClickTPToggle, "MovementClickTPBind", true)
     Movement:Toggle({Name = "Infinite jump", Flag = "MovementInfJump"})
     local JumpPowerToggle = Movement:Toggle({Name = "Jump power", Flag = "MovementJumpPower"})
     local JumpPowerSlider = Movement:Slider({
