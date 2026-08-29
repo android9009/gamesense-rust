@@ -172,10 +172,10 @@ local Library
                 return
             end
             local Data = {
-                SizeX = Window.Size.X.Offset;
-                SizeY = Window.Size.Y.Offset;
-                PosX = Window.Position.X.Offset;
-                PosY = Window.Position.Y.Offset;
+                SizeX = Window.AbsoluteSize.X;
+                SizeY = Window.AbsoluteSize.Y;
+                PosX = Window.AbsolutePosition.X;
+                PosY = Window.AbsolutePosition.Y;
             }
             pcall(function()
                 writefile(Library:LayoutPath(), HttpService:JSONEncode(Data))
@@ -192,17 +192,22 @@ local Library
             if not Success or type(Data) ~= "table" then
                 return
             end
-            local Viewport = Camera.ViewportSize
-            if tonumber(Data.SizeX) and tonumber(Data.SizeY) then
+            local cam = Workspace.CurrentCamera or Camera
+            local Viewport = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
+            local sx = tonumber(Data.SizeX)
+            local sy = tonumber(Data.SizeY)
+            local px = tonumber(Data.PosX)
+            local py = tonumber(Data.PosY)
+            if sx and sy then
                 Window.Size = dim2(
-                    0, math.clamp(Data.SizeX, 400, Viewport.X),
-                    0, math.clamp(Data.SizeY, 300, Viewport.Y)
+                    0, math.clamp(sx, 400, Viewport.X),
+                    0, math.clamp(sy, 300, Viewport.Y)
                 )
             end
-            if tonumber(Data.PosX) and tonumber(Data.PosY) then
+            if px and py then
                 Window.Position = dim2(
-                    0, math.clamp(Data.PosX, 0, math.max(0, Viewport.X - Window.Size.X.Offset)),
-                    0, math.clamp(Data.PosY, 0, math.max(0, Viewport.Y - Window.Size.Y.Offset))
+                    0, math.clamp(px, 0, math.max(0, Viewport.X - Window.AbsoluteSize.X)),
+                    0, math.clamp(py, 0, math.max(0, Viewport.Y - Window.AbsoluteSize.Y))
                 )
             end
         end
@@ -267,10 +272,8 @@ local Library
                     return false
                 end
                 local m = InputService:GetMouseLocation()
-                local my = m.Y - gui_offset
-                local mx = m.X
-                local y_cond = Object.AbsolutePosition.Y <= my and my <= Object.AbsolutePosition.Y + Object.AbsoluteSize.Y
-                local x_cond = Object.AbsolutePosition.X <= mx and mx <= Object.AbsolutePosition.X + Object.AbsoluteSize.X
+                local y_cond = Object.AbsolutePosition.Y <= m.Y and m.Y <= Object.AbsolutePosition.Y + Object.AbsoluteSize.Y
+                local x_cond = Object.AbsolutePosition.X <= m.X and m.X <= Object.AbsolutePosition.X + Object.AbsoluteSize.X
                 return (y_cond and x_cond)
             end
         end
@@ -309,15 +312,17 @@ local Library
                     local cam = Workspace.CurrentCamera or Camera
                     local Horizontal = (cam and cam.ViewportSize.X) or 1920
                     local Vertical = (cam and cam.ViewportSize.Y) or 1080
+                    local deltaX = m.X - InitialPosition.X
+                    local deltaY = m.Y - InitialPosition.Y
                     local NewX = math.clamp(
-                        InitialParentPos.X + (m.X - InitialPosition.X),
+                        InitialParentPos.X + deltaX,
                         0,
                         math.max(0, Horizontal - Parent.AbsoluteSize.X)
                     )
                     local NewY = math.clamp(
-                        InitialParentPos.Y + (m.Y - InitialPosition.Y) - gui_offset,
+                        InitialParentPos.Y + deltaY,
                         0,
-                        math.max(0, Vertical - Parent.AbsoluteSize.Y - gui_offset)
+                        math.max(0, Vertical - Parent.AbsoluteSize.Y)
                     )
                     Parent.Position = dim2(0, NewX, 0, NewY)
                 end
