@@ -218,7 +218,7 @@ local Library
                 Text = ""
             })
             local IsResizing = false
-            local Size
+            local InitialSize
             local InputLost
             local ParentSize = dim2(0, 400, 0, 300) -- минимальный размер окна
             Resizing.InputBegan:Connect(function(input)
@@ -229,7 +229,7 @@ local Library
                     IsResizing = true
                     local m = InputService:GetMouseLocation()
                     InputLost = Vector2.new(m.X, m.Y)
-                    Size = Parent.Size
+                    InitialSize = Vector2.new(Parent.AbsoluteSize.X, Parent.AbsoluteSize.Y)
                 end
             end)
             Library:Connection(InputService.InputEnded, function(input)
@@ -245,10 +245,10 @@ local Library
                     local Horizontal = (cam and cam.ViewportSize.X) or 1920
                     local Vertical = (cam and cam.ViewportSize.Y) or 1080
                     Parent.Size = dim2(
-                        Size.X.Scale,
-                        math.clamp(Size.X.Offset + (m.X - InputLost.X), ParentSize.X.Offset, Horizontal),
-                        Size.Y.Scale,
-                        math.clamp(Size.Y.Offset + (m.Y - InputLost.Y), ParentSize.Y.Offset, Vertical)
+                        0,
+                        math.clamp(InitialSize.X + (m.X - InputLost.X), ParentSize.X.Offset, Horizontal),
+                        0,
+                        math.clamp(InitialSize.Y + (m.Y - InputLost.Y), ParentSize.Y.Offset, Vertical)
                     )
                 end
             end)
@@ -276,8 +276,8 @@ local Library
         end
         function Library:Draggify(Parent)
             local Dragging = false
-            local InitialSize = Parent.Position
             local InitialPosition
+            local InitialParentPos
             Parent.InputBegan:Connect(function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton1 then
                     if Library.DragLock then
@@ -294,7 +294,7 @@ local Library
                     Dragging = true
                     local m = InputService:GetMouseLocation()
                     InitialPosition = Vector2.new(m.X, m.Y)
-                    InitialSize = Parent.Position
+                    InitialParentPos = Vector2.new(Parent.AbsolutePosition.X, Parent.AbsolutePosition.Y)
                 end
             end)
             Library:Connection(InputService.InputEnded, function(input)
@@ -309,21 +309,17 @@ local Library
                     local cam = Workspace.CurrentCamera or Camera
                     local Horizontal = (cam and cam.ViewportSize.X) or 1920
                     local Vertical = (cam and cam.ViewportSize.Y) or 1080
-                    local NewPosition = dim2(
+                    local NewX = math.clamp(
+                        InitialParentPos.X + (m.X - InitialPosition.X),
                         0,
-                        math.clamp(
-                            InitialSize.X.Offset + (m.X - InitialPosition.X),
-                            0,
-                            Horizontal - Parent.Size.X.Offset
-                        ),
-                        0,
-                        math.clamp(
-                            InitialSize.Y.Offset + (m.Y - InitialPosition.Y),
-                            0,
-                            Vertical - Parent.Size.Y.Offset
-                        )
+                        math.max(0, Horizontal - Parent.AbsoluteSize.X)
                     )
-                    Parent.Position = NewPosition
+                    local NewY = math.clamp(
+                        InitialParentPos.Y + (m.Y - InitialPosition.Y) - gui_offset,
+                        0,
+                        math.max(0, Vertical - Parent.AbsoluteSize.Y - gui_offset)
+                    )
+                    Parent.Position = dim2(0, NewX, 0, NewY)
                 end
             end)
         end
