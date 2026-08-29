@@ -5276,26 +5276,6 @@ do
     })
     BindVisibility(Transparent, {TransparentWalls, TransparentProps})
 
-    local LocalBulletTracer = RightBottom:Toggle({
-        Name = "Local bullet tracer",
-        Flag = "VisLocalBulletTracer"
-    })
-    LocalBulletTracer:Colorpicker({
-        Flag = "VisLocalBulletTracerColor",
-        Color = rgb(255, 220, 80),
-        Alpha = 0
-    })
-
-    local EnemyBulletTracer = RightBottom:Toggle({
-        Name = "Enemy bullet tracer",
-        Flag = "VisEnemyBulletTracer"
-    })
-    EnemyBulletTracer:Colorpicker({
-        Flag = "VisEnemyBulletTracerColor",
-        Color = rgb(255, 80, 80),
-        Alpha = 0
-    })
-
     local Thirdperson = RightBottom:Toggle({
         Name = "Thirdperson",
         Flag = "VisThirdperson"
