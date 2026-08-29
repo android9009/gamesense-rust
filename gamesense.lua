@@ -3119,6 +3119,9 @@ do
             if bindMode == "Always" then
                 return true
             end
+            if boundKey == nil or boundKey == "NONE" then
+                return false
+            end
             return state == true
         end
 
