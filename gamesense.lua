@@ -172,10 +172,10 @@ local Library
                 return
             end
             local Data = {
-                SizeX = Window.AbsoluteSize.X;
-                SizeY = Window.AbsoluteSize.Y;
-                PosX = Window.AbsolutePosition.X;
-                PosY = Window.AbsolutePosition.Y;
+                SizeX = Window.Size.X.Offset;
+                SizeY = Window.Size.Y.Offset;
+                PosX = Window.Position.X.Offset;
+                PosY = Window.Position.Y.Offset;
             }
             pcall(function()
                 writefile(Library:LayoutPath(), HttpService:JSONEncode(Data))
@@ -206,8 +206,8 @@ local Library
             end
             if px and py then
                 Window.Position = dim2(
-                    0, math.clamp(px, 0, math.max(0, Viewport.X - Window.AbsoluteSize.X)),
-                    0, math.clamp(py, 0, math.max(0, Viewport.Y - Window.AbsoluteSize.Y))
+                    0, math.clamp(px, 0, math.max(0, Viewport.X - Window.Size.X.Offset)),
+                    0, math.clamp(py, 0, math.max(0, Viewport.Y - Window.Size.Y.Offset))
                 )
             end
         end
@@ -232,9 +232,8 @@ local Library
                         return
                     end
                     IsResizing = true
-                    local m = InputService:GetMouseLocation()
-                    InputLost = Vector2.new(m.X, m.Y)
-                    InitialSize = Vector2.new(Parent.AbsoluteSize.X, Parent.AbsoluteSize.Y)
+                    InputLost = Vector2.new(input.Position.X, input.Position.Y)
+                    InitialSize = Parent.Size
                 end
             end)
             Library:Connection(InputService.InputEnded, function(input)
@@ -245,15 +244,16 @@ local Library
             end)
             Library:Connection(InputService.InputChanged, function(input, game_event)
                 if IsResizing and input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local m = InputService:GetMouseLocation()
                     local cam = Workspace.CurrentCamera or Camera
                     local Horizontal = (cam and cam.ViewportSize.X) or 1920
                     local Vertical = (cam and cam.ViewportSize.Y) or 1080
+                    local deltaX = input.Position.X - InputLost.X
+                    local deltaY = input.Position.Y - InputLost.Y
                     Parent.Size = dim2(
                         0,
-                        math.clamp(InitialSize.X + (m.X - InputLost.X), ParentSize.X.Offset, Horizontal),
+                        math.clamp(InitialSize.X.Offset + deltaX, ParentSize.X.Offset, Horizontal),
                         0,
-                        math.clamp(InitialSize.Y + (m.Y - InputLost.Y), ParentSize.Y.Offset, Vertical)
+                        math.clamp(InitialSize.Y.Offset + deltaY, ParentSize.Y.Offset, Vertical)
                     )
                 end
             end)
@@ -280,7 +280,7 @@ local Library
         function Library:Draggify(Parent)
             local Dragging = false
             local InitialPosition
-            local InitialParentPos
+            local InitialPos
             Parent.InputBegan:Connect(function(Input)
                 if Input.UserInputType == Enum.UserInputType.MouseButton1 then
                     if Library.DragLock then
@@ -295,9 +295,8 @@ local Library
                         end
                     end
                     Dragging = true
-                    local m = InputService:GetMouseLocation()
-                    InitialPosition = Vector2.new(m.X, m.Y)
-                    InitialParentPos = Vector2.new(Parent.AbsolutePosition.X, Parent.AbsolutePosition.Y)
+                    InitialPosition = Vector2.new(Input.Position.X, Input.Position.Y)
+                    InitialPos = Parent.Position
                 end
             end)
             Library:Connection(InputService.InputEnded, function(input)
@@ -308,21 +307,20 @@ local Library
             end)
             Library:Connection(InputService.InputChanged, function(Input, game_event)
                 if Dragging and Input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local m = InputService:GetMouseLocation()
                     local cam = Workspace.CurrentCamera or Camera
                     local Horizontal = (cam and cam.ViewportSize.X) or 1920
                     local Vertical = (cam and cam.ViewportSize.Y) or 1080
-                    local deltaX = m.X - InitialPosition.X
-                    local deltaY = m.Y - InitialPosition.Y
+                    local deltaX = Input.Position.X - InitialPosition.X
+                    local deltaY = Input.Position.Y - InitialPosition.Y
                     local NewX = math.clamp(
-                        InitialParentPos.X + deltaX,
+                        InitialPos.X.Offset + deltaX,
                         0,
-                        math.max(0, Horizontal - Parent.AbsoluteSize.X)
+                        math.max(0, Horizontal - Parent.Size.X.Offset)
                     )
                     local NewY = math.clamp(
-                        InitialParentPos.Y + deltaY,
+                        InitialPos.Y.Offset + deltaY,
                         0,
-                        math.max(0, Vertical - Parent.AbsoluteSize.Y)
+                        math.max(0, Vertical - Parent.Size.Y.Offset)
                     )
                     Parent.Position = dim2(0, NewX, 0, NewY)
                 end
@@ -951,16 +949,20 @@ local Library
                 IgnoreGuiInset = true;
             });
             local Items = Cfg.Items; do
+                    local cam = Workspace.CurrentCamera or Camera
+                    local Viewport = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
+                    local initX = math.floor(math.max(0, (Viewport.X - Cfg.Size.X.Offset) / 2))
+                    local initY = math.floor(math.max(0, (Viewport.Y - Cfg.Size.Y.Offset) / 2))
                     Items.Window = Library:Create( "Frame" , {
                         Parent = Library.Items;
                         Name = "\0";
                         Visible = false;
-                        Position = dim2(0.5, -Cfg.Size.X.Offset / 2, 0.5, -Cfg.Size.Y.Offset / 2);
+                        Position = dim2(0, initX, 0, initY);
                         BorderColor3 = rgb(0, 0, 0);
                         Size = Cfg.Size;
                         BorderSizePixel = 0;
                         BackgroundColor3 = rgb(12, 12, 12)
-                    }); Items.Window.Position = dim2(0, Items.Window.AbsolutePosition.X, 0, Items.Window.AbsolutePosition.Y);
+                    });
                     Items.Inline = Library:Create( "Frame" , {
                         Parent = Items.Window;
                         Name = "\0";
@@ -5734,8 +5736,12 @@ do
                 end
             end)
             if Library.Window then
+                local cam = Workspace.CurrentCamera or Camera
+                local Viewport = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
+                local initX = math.floor(math.max(0, (Viewport.X - 660) / 2))
+                local initY = math.floor(math.max(0, (Viewport.Y - 674) / 2))
                 Library.Window.Size = dim2(0, 660, 0, 674)
-                Library.Window.Position = dim2(0.5, -330, 0.5, -337)
+                Library.Window.Position = dim2(0, initX, 0, initY)
             end
         end
     })
