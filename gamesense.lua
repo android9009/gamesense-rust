@@ -3102,30 +3102,47 @@ do
     })
     function AddMenuBind(TargetToggle, FlagName, NoToggleState)
         local bindMode = "Toggle"
-        local bindActive
-        if NoToggleState then
-            bindActive = false
-        else
-            bindActive = TargetToggle.Enabled == true
-        end
-        local function ApplyState(state)
-            bindActive = state == true
-            if NoToggleState then
-                if type(Flags[FlagName]) ~= "table" then
-                    Flags[FlagName] = {Key = boundKey and tostring(boundKey) or "NONE", Mode = bindMode, Active = bindActive}
-                else
-                    Flags[FlagName].Active = bindActive
-                    Flags[FlagName].Mode = bindMode
-                end
-                return
-            end
-            TargetToggle.Enabled = bindActive
-            TargetToggle.Set(bindActive)
-        end
         local boundKey = nil
+        local bindActive = false
         local binding = false
         local blockBindClick = false
         local blockBindClick2 = false
+
+        local function HasKey()
+            return boundKey ~= nil and boundKey ~= "NONE"
+        end
+
+        local function ComputeActive(state)
+            if not TargetToggle.Enabled then
+                return false
+            end
+            if not HasKey() then
+                return true
+            end
+            if bindMode == "Always" then
+                return true
+            end
+            return state == true
+        end
+
+        local function ApplyState(state)
+            bindActive = state == true
+            local active = ComputeActive(bindActive)
+            Flags[FlagName] = {
+                Key = boundKey and tostring(boundKey) or "NONE";
+                Mode = bindMode;
+                Active = active;
+            }
+        end
+
+        local prevToggleCallback = TargetToggle.Callback
+        TargetToggle.Callback = function(state, ...)
+            if prevToggleCallback then
+                prevToggleCallback(state, ...)
+            end
+            ApplyState(bindActive)
+        end
+
         local BindButton = Library:Create("TextButton", {
             Active = false;
             AutoButtonColor = false;
@@ -3209,15 +3226,12 @@ do
         table.insert(Library.ExtraClosers, CloseModeMenu)
         local function SetMode(mode)
             bindMode = mode
-            Flags[FlagName] = {
-                Key = boundKey and tostring(boundKey) or "NONE";
-                Mode = bindMode;
-                Active = bindActive;
-            }
             if bindMode == "Always" then
                 ApplyState(true)
             elseif bindMode == "Hold" then
                 ApplyState(false)
+            else
+                ApplyState(bindActive)
             end
             CloseModeMenu()
         end
@@ -3260,13 +3274,9 @@ do
                     local keyName = Keys[key] or tostring(key):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "")
                     BindButton.Text = "[" .. keyName .. "]"
                 end
-                Flags[FlagName] = {
-                    Key = boundKey and tostring(boundKey) or "NONE";
-                    Mode = bindMode;
-                    Active = bindActive;
-                }
                 binding = false
                 connection:Disconnect()
+                ApplyState(false)
             end)
         end)
         BindButton.MouseButton2Click:Connect(function()
@@ -3292,13 +3302,7 @@ do
             local key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
             if key ~= boundKey then return end
             if bindMode == "Toggle" then
-                local current
-                if NoToggleState then
-                    current = bindActive
-                else
-                    current = TargetToggle.Enabled
-                end
-                ApplyState(not current)
+                ApplyState(not bindActive)
             else
                 ApplyState(true)
             end
@@ -3356,6 +3360,8 @@ do
                     ApplyState(false)
                 elseif active ~= nil then
                     ApplyState(active == true)
+                else
+                    ApplyState(false)
                 end
             elseif typeof(input) == "EnumItem" or type(input) == "string" then
                 SetBind({key = input, mode = bindMode, active = bindActive})
@@ -3363,19 +3369,9 @@ do
             elseif type(input) == "boolean" then
                 ApplyState(input)
             end
-
-            Flags[FlagName] = {
-                Key = boundKey and tostring(boundKey) or "NONE";
-                Mode = bindMode;
-                Active = bindActive;
-            }
         end
 
-        Flags[FlagName] = {
-            Key = "NONE";
-            Mode = bindMode;
-            Active = bindActive;
-        }
+        ApplyState(false)
         ConfigFlags[FlagName] = SetBind
     end
     AddMenuBind(LegitEnabled, "LegitAimbotBind")
