@@ -5510,6 +5510,69 @@ do
         Visible = false;
         BackgroundColor3 = rgb(255, 255, 255);
     })
+    -- FPS счётчик в правом верхнем углу (связан с тоглом "FPS counter"):
+    -- цвет меняется по уровню FPS: белый (высокий) -> жёлтый (средний) -> красный (низкий)
+    local FPSCounter = Library:Create("TextLabel", {
+        Parent = Library.Items;
+        Name = "\0";
+        Text = "";
+        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+        TextSize = 14;
+        TextColor3 = rgb(255, 255, 255);
+        TextStrokeTransparency = 0.6;
+        TextStrokeColor3 = rgb(0, 0, 0);
+        BackgroundTransparency = 1;
+        AnchorPoint = vec2(1, 0);
+        Position = dim2(1, -8, 0, 6);
+        Size = dim2(0, 80, 0, 16);
+        BorderSizePixel = 0;
+        ZIndex = 50000;
+        Visible = false;
+    })
+    -- функция плавного цвета по FPS: 0..MAX белый->жёлтый->красный
+    local function fpsColor(fps)
+        local high = 100
+        local low = 30
+        if fps >= high then
+            return rgb(255, 255, 255)
+        elseif fps <= low then
+            return rgb(214, 79, 79)
+        end
+        -- между low и high: сначала белый->жёлтый (до середины), потом жёлтый->красный
+        local mid = (low + high) / 2
+        if fps >= mid then
+            local t = (fps - mid) / (high - mid)
+            -- жёлтый (255,200,0) -> белый (255,255,255)
+            return rgb(255, math.floor(200 + (255 - 200) * t), math.floor(0 + 255 * t))
+        else
+            local t = (fps - low) / (mid - low)
+            -- красный (214,79,79) -> жёлтый (255,200,0)
+            return rgb(
+                math.floor(214 + (255 - 214) * t),
+                math.floor(79 + (200 - 79) * t),
+                math.floor(79 + (0 - 79) * t)
+            )
+        end
+    end
+    SettingsSection:Toggle({
+        Name = "FPS counter",
+        Flag = "FPScounter",
+        Default = true,
+        Callback = function(state)
+            if not state then
+                FPSCounter.Visible = false
+            end
+        end
+    })
+    Library:Connection(RunService.RenderStepped, function(delta)
+        if not Flags.FPScounter then
+            return
+        end
+        local fps = 1 / math.max(delta, 0.0001)
+        FPSCounter.Text = string.format("FPS: %d", math.floor(fps))
+        FPSCounter.TextColor3 = fpsColor(fps)
+        FPSCounter.Visible = true
+    end)
     SettingsSection:Toggle({
         Name = "Low FPS warning",
         Flag = "LowFPSWarning",
