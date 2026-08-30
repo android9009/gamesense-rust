@@ -5544,14 +5544,26 @@ do
             end
         end
     })
+    -- кэшируем последний FPS: текст/цвет обновляем только при изменении значения,
+    -- чтобы не дёргать свойства GUI каждый кадр впустую
+    local lastFps = -1
     Library:Connection(RunService.RenderStepped, function(delta)
         if not Flags.LowFPSWarning then
+            if LowFPSLabel.Visible then
+                LowFPSLabel.Visible = false
+            end
+            lastFps = -1
             return
         end
-        local fps = 1 / math.max(delta, 0.0001)
-        LowFPSLabel.Visible = true
-        LowFPSLabel.Text = string.format("FPS: %d", math.floor(fps))
-        LowFPSLabel.TextColor3 = lowFpsColor(fps)
+        local fps = math.floor(1 / math.max(delta, 0.0001))
+        if fps ~= lastFps then
+            lastFps = fps
+            LowFPSLabel.Text = string.format("FPS: %d", fps)
+            LowFPSLabel.TextColor3 = lowFpsColor(fps)
+        end
+        if not LowFPSLabel.Visible then
+            LowFPSLabel.Visible = true
+        end
     end)
     SettingsSection:Toggle({
         Name = "Lock menu layout",
