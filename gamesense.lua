@@ -3095,7 +3095,7 @@ do
     end
     local Aimbot = Tabs.Rage:Section({Name = "Aimbot", Side = "Left"})
     local Toggle = Aimbot:Toggle({Name = "Enabled", Flag = "AimbotEnabled"})
-    Aimbot:Dropdown({Name = "Target selection", Options = {"Players", "Team", "Bots"}, Multi = true, Default = {"Players"}, Flag = "AimbotTargetSel"})
+    Aimbot:Dropdown({Name = "Target selection", Options = {"Players", "Team", "Bots", "Structures"}, Multi = true, Default = {"Players"}, Flag = "AimbotTargetSel"})
     Aimbot:Dropdown({Name = "Target hitbox", Options = {"Head", "Neck", "Chest", "Stomach", "Legs", "Feet"}, Multi = true, Default = {"Head", "Chest"}, Flag = "AimbotHitbox"})
     Aimbot:Toggle({Name = "Visible check", Flag = "AimbotVisibleCheck"})
     Aimbot:Toggle({Name = "Auto fire", Flag = "AimbotAutoFire"})
