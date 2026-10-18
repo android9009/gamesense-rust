@@ -16,6 +16,14 @@ local function findRootPart(model)
         or model:FindFirstChild("Head")
 end
 local Entity = {}
+function Entity.GetVisualSize(part)
+    local record = Entity.ExpandedParts and Entity.ExpandedParts[part]
+    return record and record.Size or part.Size
+end
+function Entity.GetVisualTransparency(part)
+    local record = Entity.ExpandedParts and Entity.ExpandedParts[part]
+    return record and record.Transparency or part.Transparency
+end
 function Entity.GetLocalPlayer()
     return LocalPlayer
 end
@@ -295,7 +303,8 @@ function Chams.CreatePart(target, options)
         hl.Name = "GS_ChamsPart"
         Chams.PartCache[target] = hl
     end
-    configureHighlight(hl, target, options, options.AlwaysOnTop == true, Workspace)
+    local expanded = Entity.ExpandedParts and Entity.ExpandedParts[target]
+    configureHighlight(hl, expanded and expanded.Visual or target, options, options.AlwaysOnTop == true, Workspace)
     return hl
 end
 function Chams.RemovePart(target)

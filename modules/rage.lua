@@ -233,6 +233,8 @@ local function getClosestTarget()
     local closestPart = nil
     local closestPos = nil
     local mousePos = UserInputService:GetMouseLocation()
+    local expandedRay = RageBot.ExpandedParts and next(RageBot.ExpandedParts)
+        and camera:ScreenPointToRay(mousePos.X, mousePos.Y) or nil
     local visibleCheck = flag("AimbotVisibleCheck", false) == true
      
     local backtrackActive = next(BacktrackAim) ~= nil
@@ -274,6 +276,7 @@ local function getClosestTarget()
                     if char then
                         local hitboxes = RageBot.GetHitboxParts(char)
                         for _, hb in ipairs(hitboxes) do
+                            hb.Position = RageBot.GetExpandedAimPoint(hb.Part, hb.Position, expandedRay)
                             local screenPos, onScreen = camera:WorldToViewportPoint(hb.Position)
                             if screenPos.Z > 0 then
                                 local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
@@ -303,6 +306,7 @@ local function getClosestTarget()
             if Entity.IsAliveModel(npc) then
                 local hitboxes = RageBot.GetHitboxParts(npc)
                 for _, hb in ipairs(hitboxes) do
+                            hb.Position = RageBot.GetExpandedAimPoint(hb.Part, hb.Position, expandedRay)
                     local screenPos, onScreen = camera:WorldToViewportPoint(hb.Position)
                     if screenPos.Z > 0 then
                         local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
@@ -333,7 +337,7 @@ local function getClosestTarget()
                 or structure:FindFirstChild("Head")
                 or structure:FindFirstChildOfClass("BasePart")
             if targetPart and targetPart:IsA("BasePart") then
-                local targetPos = targetPart.Position
+                local targetPos = RageBot.GetExpandedAimPoint(targetPart, targetPart.Position, expandedRay)
                 local screenPos, onScreen = camera:WorldToViewportPoint(targetPos)
                 if screenPos.Z > 0 then
                     local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
@@ -1223,8 +1227,95 @@ end
 
 
 local HitboxExpander = {Started = false, Records = {}}
+Entity.ExpandedParts = HitboxExpander.Records
+RageBot.ExpandedParts = HitboxExpander.Records
 do
     local elapsed = 0.1
+    local folders, moving, frames = {}, {}, {}
+    local function dot(a, b) return a.X*b.X + a.Y*b.Y + a.Z*b.Z end
+    local function slab(offset, velocity, half, lo, hi)
+        if math.abs(velocity) < 1e-8 then
+            if math.abs(offset) > half then return nil end
+            return lo, hi
+        end
+        local a, b = (-half-offset)/velocity, (half-offset)/velocity
+        if a > b then a, b = b, a end
+        lo, hi = math.max(lo, a), math.min(hi, b)
+        if lo > hi then return nil end
+        return lo, hi
+    end
+    function HitboxExpander.Intersect(origin, direction, cf, size)
+        local length = direction.Magnitude
+        if length < 1e-6 then return nil end
+        local unit, delta = direction * (1/length), origin-cf.Position
+        local lo, hi = slab(dot(delta,cf.RightVector),dot(unit,cf.RightVector),size.X*.5,0,length)
+        if not lo then return nil end
+        lo, hi = slab(dot(delta,cf.UpVector),dot(unit,cf.UpVector),size.Y*.5,lo,hi)
+        if not lo then return nil end
+        return slab(dot(delta,cf.LookVector),dot(unit,cf.LookVector),size.Z*.5,lo,hi)
+    end
+    function RageBot.GetExpandedAimPoint(part, fallback, ray)
+        local record = HitboxExpander.Records[part]
+        if not HitboxExpander.Started or flag("AimbotReach",false) ~= true or not record or not ray then return fallback end
+        local magnitude = ray.Direction.Magnitude
+        if magnitude < 1e-6 then return fallback end
+        local unit = ray.Direction * (1/magnitude)
+        local lo, hi = HitboxExpander.Intersect(ray.Origin, unit*10000, part.CFrame, part.Size)
+        if lo then
+            -- Aim just inside the actual enlarged collider, not beyond its edge.
+            return ray.Origin + unit*(lo+math.min(.01,(hi-lo)*.5))
+        end
+        -- Outside the box, choose a nearby interior point instead of restricting
+        -- targeting to the original head/torso center. Rotation is respected.
+        local offset = ray.Origin + unit*math.max(0,dot(part.Position-ray.Origin,unit)) - part.Position
+        local half = part.Size*.5
+        local x,y,z = math.max(0,half.X-.01),math.max(0,half.Y-.01),math.max(0,half.Z-.01)
+        local cf = part.CFrame
+        return part.Position + cf.RightVector*math.clamp(dot(offset,cf.RightVector),-x,x)
+            + cf.UpVector*math.clamp(dot(offset,cf.UpVector),-y,y)
+            + cf.LookVector*math.clamp(dot(offset,cf.LookVector),-z,z)
+    end
+    local function makeVisual(part, model)
+        local original = part.Archivable
+        part.Archivable = true
+        local ok, copy = pcall(part.Clone, part)
+        part.Archivable = original
+        if not ok or not copy then HitboxExpander.LastError = "Cannot clone visual: " .. part.Name; return nil end
+        for _, child in ipairs(copy:GetDescendants()) do
+            if not (child:IsA("DataModelMesh") or child:IsA("Decal") or child:IsA("Texture")
+                or child:IsA("SurfaceAppearance") or child:IsA("Bone")) then child:Destroy() end
+        end
+        copy.Anchored, copy.Massless = true, true
+        copy.CanCollide, copy.CanTouch, copy.CanQuery = false, false, false
+        local folder = folders[model]
+        if not folder or not folder.Parent then
+            folder = Instance.new("Folder");folder.Name = "GS_HitboxVisuals";folder.Parent = model;folders[model] = folder
+        end
+        copy.CFrame = part.CFrame
+        copy.Parent = folder
+        return copy
+    end
+    function HitboxExpander.SyncVisuals()
+        table.clear(moving);table.clear(frames)
+        for part, record in pairs(HitboxExpander.Records) do
+            local copy = record.Visual
+            if part.Parent and copy and copy.Parent then
+                if copy.Size ~= record.Size then copy.Size = record.Size end
+                if copy.Transparency ~= record.Transparency then copy.Transparency = record.Transparency end
+                if copy.LocalTransparencyModifier ~= part.LocalTransparencyModifier then copy.LocalTransparencyModifier = part.LocalTransparencyModifier end
+                if copy.Color ~= part.Color then copy.Color = part.Color end
+                if copy.Material ~= part.Material then copy.Material = part.Material end
+                if copy.CFrame ~= part.CFrame then
+                    moving[#moving+1], frames[#frames+1] = copy, part.CFrame
+                end
+            end
+        end
+        if #moving > 0 then
+            local ok = pcall(Workspace.BulkMoveTo, Workspace, moving, frames, Enum.BulkMoveMode.FireCFrameChanged)
+            if not ok then for i, part in ipairs(moving) do part.CFrame = frames[i] end end
+        end
+    end
+
     local function selection(value, fallback)
         if type(value) ~= "table" then value = {value} end
         if #value == 0 then value = fallback end
@@ -1238,11 +1329,14 @@ do
             if part.CanCollide == false then part.CanCollide = record.CanCollide end
             if part.Massless == true then part.Massless = record.Massless end
             if part.CanQuery == true then part.CanQuery = record.CanQuery end
+            if part.Transparency == 1 then part.Transparency = record.Transparency end
         end)
+        if record.Visual then record.Visual:Destroy() end
         HitboxExpander.Records[part] = nil
     end
     function HitboxExpander.Restore()
         for part, record in pairs(HitboxExpander.Records) do restore(part, record) end
+        for model, folder in pairs(folders) do folder:Destroy(); folders[model] = nil end
     end
     function RageBot.GetOriginalHitboxSize(part)
         local record = HitboxExpander.Records[part]
@@ -1297,24 +1391,35 @@ do
         for part in pairs(wanted) do
             local record = HitboxExpander.Records[part]
             if not record then
-                record = {Size = part.Size, CanCollide = part.CanCollide, Massless = part.Massless, CanQuery = part.CanQuery}
-                HitboxExpander.Records[part] = record
-            elseif part.Size ~= record.Applied then
-                -- Keep a genuine game-driven resize as the new baseline.
-                record.Size = part.Size
+                local visual = makeVisual(part, part:FindFirstAncestorOfClass("Model"))
+                if visual then
+                    record = {Size = part.Size, CanCollide = part.CanCollide, Massless = part.Massless,
+                        CanQuery = part.CanQuery, Transparency = part.Transparency, Visual = visual}
+                    HitboxExpander.Records[part] = record
+                end
             end
-            record.Applied = record.Size + growth
-            pcall(function()
-                if part.Size ~= record.Applied then part.Size = record.Applied end
-                if part.CanCollide then part.CanCollide = false end
-                if not part.Massless then part.Massless = true end
-                if not part.CanQuery then part.CanQuery = true end
-            end)
+            if record then
+                if record.Applied and part.Size ~= record.Applied then record.Size = part.Size end
+                if part.Transparency ~= 1 then record.Transparency = part.Transparency end
+                record.Applied = record.Size + growth
+                pcall(function()
+                    if part.Size ~= record.Applied then part.Size = record.Applied end
+                    if part.Transparency ~= 1 then part.Transparency = 1 end
+                    if part.CanCollide then part.CanCollide = false end
+                    if not part.Massless then part.Massless = true end
+                    if not part.CanQuery then part.CanQuery = true end
+                end)
+            end
         end
+        for model, folder in pairs(folders) do
+            if not model.Parent or #folder:GetChildren() == 0 then folder:Destroy(); folders[model] = nil end
+        end
+        HitboxExpander.SyncVisuals()
     end
     function HitboxExpander.Start()
         if HitboxExpander.Started then return end
         HitboxExpander.Started, elapsed = true, 0.1
+        TaskManager.AddConnection("HitboxExpanderVisuals", RunService.RenderStepped, HitboxExpander.SyncVisuals)
         TaskManager.AddConnection("HitboxExpander", RunService.Heartbeat, function(dt)
             if flag("AimbotReach", false) ~= true then
                 if next(HitboxExpander.Records) then HitboxExpander.Restore() end
@@ -1330,6 +1435,7 @@ do
     function HitboxExpander.Stop()
         HitboxExpander.Started = false
         TaskManager.RemoveConnection("HitboxExpander")
+        TaskManager.RemoveConnection("HitboxExpanderVisuals")
         HitboxExpander.Restore()
     end
     table.insert(Library.UnloadHooks, HitboxExpander.Stop)

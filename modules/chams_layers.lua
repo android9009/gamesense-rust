@@ -112,7 +112,7 @@ do
         return copy
     end
     local function isBodyPart(part, model, cleanBody)
-        if part.Parent ~= model or part.Name == "HumanoidRootPart" or part.Transparency >= 0.99 then return false end
+        if part.Parent ~= model or part.Name == "HumanoidRootPart" or Entity.GetVisualTransparency(part) >= 0.99 then return false end
         if not cleanBody then return true end
         local name = string.lower(part.Name):gsub("[%s%p]", "")
         if name:find("hitbox", 1, true) or name:find("hurtbox", 1, true)
@@ -166,9 +166,10 @@ do
             local copy = pair.Copy
             if source.Parent == model and copy.Parent then
                 local shift = (cameraPosition - source.Position) * (1 - factor)
-                if pair.SourceSize ~= source.Size or pair.Factor ~= factor then
-                    copy.Size = source.Size * factor
-                    pair.SourceSize, pair.Factor = source.Size, factor
+                local visualSize = Entity.GetVisualSize(source)
+                if pair.SourceSize ~= visualSize or pair.Factor ~= factor then
+                    copy.Size = visualSize * factor
+                    pair.SourceSize, pair.Factor = visualSize, factor
                 end
                 local nextFrame = source.CFrame + shift
                 if pair.LastFrame ~= nextFrame then

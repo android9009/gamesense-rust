@@ -112,7 +112,7 @@ do
         local minimum, maximum = math.huge, -math.huge
         for _, part in ipairs(Entity.GetParts(entry.Model)) do
             if part.Parent == entry.Model then
-                local cf, half = part.CFrame, part.Size * 0.5
+                local cf, half = part.CFrame, Entity.GetVisualSize(part) * 0.5
                 local extent = math.abs(cf.RightVector.Y) * half.X
                     + math.abs(cf.UpVector.Y) * half.Y + math.abs(cf.LookVector.Y) * half.Z
                 minimum = math.min(minimum, part.Position.Y - extent)
