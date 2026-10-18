@@ -5447,7 +5447,7 @@ do
     BindVisibility(RemovalsToggle, {RemovalsList})
     Misc:Toggle({Name = "Anti-fling", Flag = "MiscAntiFling"})
     Misc:Toggle({Name = "Hide name", Flag = "MiscHideName"})
-    Misc:Toggle({Name = "Infinite ammo", Flag = "MiscInfiniteAmmo"})
+    Misc:Toggle({Name = "Fast reload", Flag = "MiscFastReload"})
     local Movement = Tabs.Settings:Section({Name = "Movement", Side = "Right", Size = 0.55})
     Movement.Items.Outline.Size = dim2(1, 0, 0.55, -10)
     local SettingsSection = Tabs.Settings:Section({Name = "Settings", Side = "Right", Size = 0.45})
