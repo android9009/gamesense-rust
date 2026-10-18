@@ -24,7 +24,6 @@ local RageBot = {
     GameShootFn = nil,         
     GameShootHooked = false,   
     GameShootTried = false,    
-    ControllerShootHooked = false,
 }
 
 local AntiAim = {
@@ -618,9 +617,14 @@ end
  
 local function setupGameShootHook()
     if RageBot.GameShootHooked then return true end
-    if RageBot.GameShootTried then return false end
-    RageBot.GameShootTried = true
     if not (filtergc and hookfunction) then return false end
+    -- Улучшение без смены логики: раньше попытка была одна на старте, и если
+    -- функции shoot ещё не было в GC (оружие не взято, модуль не загружен),
+    -- хук не ставился уже никогда. Теперь повторяем, но не чаще раза в 0.5 сек.
+    local now = os.clock()
+    if RageBot.GameShootTryAt and now - RageBot.GameShootTryAt < 0.5 then return false end
+    RageBot.GameShootTryAt = now
+    RageBot.GameShootTried = true
 
     pcall(function()
         local fn = filtergc("function", {Name = "shoot"}, true)
@@ -631,12 +635,13 @@ local function setupGameShootHook()
             local cam = Workspace.CurrentCamera
             if RageBot.Active and RageBot.SilentOn and silentAimPosition() and cam then
                 local oldCFrame = cam.CFrame
-                 
-                 
+                -- Silent aim: наводим камеру на цель (цель — живой противник или
+                -- позиция призрака бектрека); позиция берётся свежая, на момент
+                -- выстрела, а не на момент кадра.
                 cam.CFrame = CFrame.lookAt(oldCFrame.Position, RageBot.TargetPosition)
-                local result = RageBot.GameShoot(...)
+                local results = table.pack(RageBot.GameShoot(...))
                 cam.CFrame = oldCFrame
-                return result
+                return table.unpack(results, 1, results.n)
             end
             return RageBot.GameShoot(...)
         end)
@@ -654,14 +659,13 @@ function RageBot.UpdateRender(deltaTime)
     RageBot.Active = active
     RageBot.SilentOn = flag("AimbotSilentAim", false) == true
 
-    -- Хук метода shoot контроллера мог не встать на старте (модуль ещё не загружен) -
-    -- повторяем попытки, пока не получится.
-    if not RageBot.ControllerShootHooked and RageBot.InstallSilentController then
-        local now = os.clock()
-        if now >= (RageBot.NextSilentTry or 0) then
-            RageBot.NextSilentTry = now + 0.25
-            RageBot.InstallSilentController()
-        end
+    -- Если хуки не встали на старте (метаметоды недоступны / shoot ещё нет в GC) -
+    -- повторяем установку. Сама логика сайлента от этого не меняется.
+    if not RageBot.HooksInstalled then
+        setupSilentAimHooks()
+    end
+    if not RageBot.GameShootHooked then
+        setupGameShootHook()
     end
 
      
@@ -709,43 +713,30 @@ function RageBot.UpdateRender(deltaTime)
         if not RageBot.SilentOn then
             cam.CFrame = CFrame.new(cam.CFrame.Position, pos)
             RageBot.OriginalCFrame = nil
-        elseif RageBot.GameShootHooked or RageBot.ControllerShootHooked then
-            -- Выстрелы перехватывает хук shoot: он наводится в момент выстрела.
-            if RageBot.OriginalCFrame then
-                cam.CFrame = RageBot.OriginalCFrame
-                RageBot.OriginalCFrame = nil
-            end
+        elseif RageBot.GameShootHooked then
+            -- Выстрелы перехватывает хук shoot: он наводится в момент выстрела,
+            -- камера в кадре не дёргается.
+            RageBot.OriginalCFrame = nil
         elseif isShooting then
-            -- Фолбэк без хука shoot(): держим камеру на цели на всё время стрельбы.
-            -- Раньше OriginalCFrame восстанавливался на Heartbeat, и выстрелы,
-            -- уходящие в heartbeat-фазе кадра, летели мимо - на большой
-            -- скорострельности это был каждый второй-третий выстрел.
-            if not RageBot.OriginalCFrame then
-                RageBot.OriginalCFrame = cam.CFrame
-            end
-            cam.CFrame = CFrame.new(cam.CFrame.Position, silentAimPosition() or pos)
+            -- Фолбэк: 1-tick flick - наводимся в RenderStepped, камеру вернёт
+            -- UpdateHeartbeat после обработки кадра оружием.
+            RageBot.OriginalCFrame = cam.CFrame
+            cam.CFrame = CFrame.new(RageBot.OriginalCFrame.Position, silentAimPosition() or pos)
         else
-            if RageBot.OriginalCFrame then
-                cam.CFrame = RageBot.OriginalCFrame
-                RageBot.OriginalCFrame = nil
-            end
+            RageBot.OriginalCFrame = nil
         end
 
         if flag("AimbotAutoFire", false) == true then
             RageBot.AutoFire()
         end
     else
-        if RageBot.OriginalCFrame then
-            cam.CFrame = RageBot.OriginalCFrame
-            RageBot.OriginalCFrame = nil
-        end
+        RageBot.OriginalCFrame = nil
     end
 end
 
 function RageBot.UpdateHeartbeat(deltaTime)
-    -- Камеру тут больше не трогаем: её восстанавливает UpdateRender, когда
-    -- стрельба закончилась или цель потеряна. Сброс на Heartbeat ломал выстрелы.
-    if RageBot.OriginalCFrame and not RageBot.Active and Workspace.CurrentCamera then
+    -- Restore original camera orientation immediately after weapon scripts processed the frame
+    if RageBot.OriginalCFrame and Workspace.CurrentCamera then
         Workspace.CurrentCamera.CFrame = RageBot.OriginalCFrame
         RageBot.OriginalCFrame = nil
     end
@@ -771,9 +762,6 @@ function RageBot.Start()
 
     setupSilentAimHooks()
     setupGameShootHook()
-    if RageBot.InstallSilentController then
-        RageBot.InstallSilentController()
-    end
     TaskManager.AddConnection("RageBotRender", RunService.RenderStepped, RageBot.UpdateRender)
     TaskManager.AddConnection("RageBotHeartbeat", RunService.Heartbeat, RageBot.UpdateHeartbeat)
 
@@ -806,10 +794,6 @@ function RageBot.Shutdown()
     RageBot.GameShootFn = nil
     RageBot.GameShootHooked = false
     RageBot.GameShootTried = false
-    if RageBot.RestoreSilentController then
-        RageBot.RestoreSilentController()
-    end
-    RageBot.ControllerShootHooked = false
     RageBot.TargetPart = nil
     RageBot.TargetPosition = nil
     RageBot.TargetOffset = nil
@@ -1265,77 +1249,6 @@ function AirShot.Shutdown()
     AirShot.Started = false
 end
 
-
--- Silent Aim через метод shoot контроллера оружия.
--- Старый путь искал голую функцию "shoot" через filtergc: если она не находится,
--- сайлент падал в фолбэк с доворотом камеры, а игра стреляет НЕ направлением
--- камеры - камера на цели, а урона нет. Метод модуля патчится надёжно
--- (так уже работают AirShot и Fast Reload) и не зависит от экзекьютора.
-local SilentShot = {
-    Patched = false,
-    ModuleRef = nil,
-    OldShoot = nil,
-}
-
-local function silentFindModule()
-    if SilentShot.ModuleRef then
-        return SilentShot.ModuleRef
-    end
-    local rs = game:GetService("ReplicatedStorage")
-    local blaster = rs and rs:FindFirstChild("Blaster")
-    local scripts = blaster and blaster:FindFirstChild("Scripts")
-    local mod = scripts and scripts:FindFirstChild("BlasterController")
-    if not (mod and mod:IsA("ModuleScript")) then
-        return nil
-    end
-    local ok, result = pcall(require, mod)
-    if ok and type(result) == "table" and type(result.shoot) == "function" then
-        SilentShot.ModuleRef = result
-        return result
-    end
-    return nil
-end
-
-function RageBot.InstallSilentController()
-    if SilentShot.Patched then
-        return true
-    end
-    local mod = silentFindModule()
-    if not mod then
-        return false
-    end
-    SilentShot.OldShoot = mod.shoot
-    mod.shoot = function(self, ...)
-        if RageBot.Active and RageBot.SilentOn and silentAimPosition() then
-            local cam = Workspace.CurrentCamera
-            if cam then
-                local oldCFrame = cam.CFrame
-                cam.CFrame = CFrame.lookAt(oldCFrame.Position, RageBot.TargetPosition)
-                local results = table.pack(SilentShot.OldShoot(self, ...))
-                cam.CFrame = oldCFrame
-                return table.unpack(results, 1, results.n)
-            end
-        end
-        return SilentShot.OldShoot(self, ...)
-    end
-    SilentShot.Patched = true
-    RageBot.ControllerShootHooked = true
-    return true
-end
-
-function RageBot.RestoreSilentController()
-    if SilentShot.ModuleRef and SilentShot.OldShoot then
-        SilentShot.ModuleRef.shoot = SilentShot.OldShoot
-    end
-    SilentShot.OldShoot = nil
-    SilentShot.Patched = false
-    RageBot.ControllerShootHooked = false
-end
-
-if Library then
-    Library.UnloadHooks = Library.UnloadHooks or {}
-    table.insert(Library.UnloadHooks, RageBot.RestoreSilentController)
-end
 
 local RapidFire = {
     Started = false,
