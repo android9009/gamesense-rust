@@ -256,8 +256,6 @@ local function getClosestTarget()
                                         isVis = visiblePoint ~= nil
                                         if visiblePoint then
                                             hb.Position = visiblePoint
-                                            local projected = camera:WorldToViewportPoint(visiblePoint)
-                                            dist = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
                                         end
                                     end
                                     if isVis then
@@ -293,8 +291,6 @@ local function getClosestTarget()
                                 isVis = visiblePoint ~= nil
                                 if visiblePoint then
                                     hb.Position = visiblePoint
-                                    local projected = camera:WorldToViewportPoint(visiblePoint)
-                                    dist = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
                                 end
                             end
                             if isVis then
@@ -331,8 +327,6 @@ local function getClosestTarget()
                             isVis = visiblePoint ~= nil
                             if visiblePoint then
                                 targetPos = visiblePoint
-                                local projected = camera:WorldToViewportPoint(visiblePoint)
-                                dist = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
                             end
                         end
                         if isVis then
@@ -1272,49 +1266,43 @@ do
         local record = HitboxExpander.Started and flag("AimbotReach",false) == true
             and flag("AimbotVisibleCheck",false) == true
             and (tonumber(flag("AimbotReachValue",5)) or 0) > 0 and HitboxExpander.Records[part]
-        if not record then
-            return isPartVisible(cam,part,fallback,model) and fallback or nil
-        end
-        local now = os.clock()
-        local cached = record.VisibleCache
-        if cached and now < cached.Until and cached.Camera == cam.CFrame and cached.Frame == part.CFrame
-            and cached.Mouse == mousePos and cached.Limit == maxDistance then return cached.Point end
+        if not record then return isPartVisible(cam,part,fallback,model) and fallback or nil end
+        -- FOV belongs to the expanded selection region, not the final body point.
+        local projected = cam:WorldToViewportPoint(preferred)
+        if projected.Z <= 0 or (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude > maxDistance then return nil end
         local origin, params = cam.CFrame.Position, visibilityParams(cam,false)
-        local preferredProjection = cam:WorldToViewportPoint(preferred)
-        local preferredDistance = (Vector2.new(preferredProjection.X,preferredProjection.Y)-mousePos).Magnitude
-        local testedPreferred = preferredProjection.Z > 0 and preferredDistance <= math.min(maxDistance,.0001)
-        if testedPreferred then
-            local result = Workspace:Raycast(origin,preferred-origin,params)
-            if not result or result.Instance and (result.Instance==part or result.Instance:IsDescendantOf(model)) then
-                record.VisibleCache = {Until=now+.075,Camera=cam.CFrame,Frame=part.CFrame,Mouse=mousePos,Limit=maxDistance,Point=preferred}
-                return preferred
-            end
+        local function reachesBody(point)
+            local result = Workspace:Raycast(origin,point-origin,params)
+            -- No result is EMPTY SPACE, not proof of a character hit.
+            return result and result.Instance and (result.Instance==part or result.Instance:IsDescendantOf(model))
         end
-        local candidates = {}
-        local function add(point)
-            local projected = cam:WorldToViewportPoint(point)
-            if projected.Z <= 0 then return end
-            local distance = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
-            if distance <= maxDistance then candidates[#candidates+1] = {Point=point,Distance=distance} end
+        local now, cached = os.clock(), record.VisibleCache
+        if cached and now < cached.Until and cached.Camera==cam.CFrame and cached.Frame==part.CFrame
+            and cached.Size==part.Size then
+            if not cached.Point then return nil end
+            if reachesBody(cached.Point) then return cached.Point end
         end
-        if not testedPreferred then add(preferred) end
-        local half, cf = record.ExpandedSize*.49, part.CFrame
-        for _, offset in ipairs(sampleOffsets) do
-            add(cf.Position + cf.RightVector*(offset.X*half.X) + cf.UpVector*(offset.Y*half.Y)
-                + cf.LookVector*(offset.Z*half.Z))
-        end
-        table.sort(candidates,function(a,b)return a.Distance < b.Distance end)
         local point
-        for _, sample in ipairs(candidates) do
-            local result = Workspace:Raycast(origin,sample.Point-origin,params)
-            -- A clear segment to virtual space is valid in the selected logical mode.
-            -- Other geometry blocks it; do not use the old transparency/distance shortcut.
-            if not result or result.Instance and (result.Instance==part or result.Instance:IsDescendantOf(model)) then
-                point=sample.Point
-                break
+        if reachesBody(part.Position) then
+            point=part.Position
+        else
+            local candidates,half,cf = {},part.Size*.4,part.CFrame
+            for _,offset in ipairs(sampleOffsets) do
+                if offset.X~=0 or offset.Y~=0 or offset.Z~=0 then
+                    local sample=cf.Position + cf.RightVector*(offset.X*half.X) + cf.UpVector*(offset.Y*half.Y)
+                        + cf.LookVector*(offset.Z*half.Z)
+                    local screen=cam:WorldToViewportPoint(sample)
+                    if screen.Z>0 then
+                        candidates[#candidates+1]={Point=sample,Distance=(Vector2.new(screen.X,screen.Y)-mousePos).Magnitude}
+                    end
+                end
+            end
+            table.sort(candidates,function(a,b)return a.Distance<b.Distance end)
+            for _,sample in ipairs(candidates) do
+                if reachesBody(sample.Point) then point=sample.Point;break end
             end
         end
-        record.VisibleCache = {Until=now+.075,Camera=cam.CFrame,Frame=part.CFrame,Mouse=mousePos,Limit=maxDistance,Point=point}
+        record.VisibleCache={Until=now+.05,Camera=cam.CFrame,Frame=part.CFrame,Size=part.Size,Point=point}
         return point
     end
     local function selection(value, fallback)
