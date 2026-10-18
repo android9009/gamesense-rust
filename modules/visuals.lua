@@ -169,42 +169,20 @@ local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFla
     end
     local camera = Workspace.CurrentCamera
     if not camera then Chams.RemoveModel(model); return end
-    local state = Chams.ModelOcclusion[model]
-    if not state then
-        state = {Next = 0, Occluded = false, Ignore = {}}
-        Chams.ModelOcclusion[model] = state
+    local visibleOptions, wallOptions
+    if visibleEnabled then
+        local color, alpha = chamsColor(visibleColorFlag, Color3.fromRGB(142, 181, 39))
+        local normal = chamsStyle(visibleStyleFlag) == "Normal"
+        visibleOptions = {FillColor = color, FillTransparency = normal and math.max(alpha, 0.6) or alpha,
+            OutlineColor = color, OutlineTransparency = normal and 0 or 1, Enabled = true}
     end
-    local now = os.clock()
-    if not alwaysOn and (now >= state.Next or state.Camera ~= camera or state.Character ~= LocalPlayer.Character) then
-        state.Next = now + 0.08
-        state.Camera, state.Character = camera, LocalPlayer.Character
-        table.clear(state.Ignore)
-        state.Ignore[1] = model
-        if LocalPlayer.Character and LocalPlayer.Character ~= model then state.Ignore[2] = LocalPlayer.Character end
-        state.Occluded = true
-        for _, name in ipairs({"Head", "UpperTorso", "Torso", "HumanoidRootPart"}) do
-            local part = model:FindFirstChild(name)
-            if part and part:IsA("BasePart") then
-                local ok, blockers = pcall(camera.GetPartsObscuringTarget, camera, {part.Position}, state.Ignore)
-                if ok and #blockers == 0 then state.Occluded = false; break end
-            end
-        end
+    if wallEnabled then
+        local color, alpha = chamsColor(wallColorFlag, Color3.fromRGB(79, 143, 214))
+        local normal = chamsStyle(wallStyleFlag) == "Normal"
+        wallOptions = {FillColor = color, FillTransparency = normal and math.max(alpha, 0.6) or alpha,
+            OutlineColor = color, OutlineTransparency = normal and 0 or 1, Enabled = true}
     end
-    local occluded = not alwaysOn and state.Occluded
-    local enabled = occluded and wallEnabled or (not occluded and visibleEnabled)
-    if not enabled then
-        local existing = Chams.ModelCache[model]
-        if existing and existing.Enabled then existing.Enabled = false end
-        return
-    end
-    local tint, alpha = chamsColor(occluded and wallColorFlag or visibleColorFlag,
-        Color3.fromRGB(142, 181, 39))
-    local style = chamsStyle(occluded and wallStyleFlag or visibleStyleFlag)
-    Chams.CreateModel(model, {
-        FillColor = tint, FillTransparency = style == "Normal" and math.max(alpha, 0.6) or alpha,
-        OutlineColor = tint, OutlineTransparency = style == "Normal" and 0 or 1,
-        AlwaysOnTop = occluded or alwaysOn == true, Enabled = true,
-    })
+    Chams.ApplyLayers(model, visibleOptions, wallOptions, camera)
 end
 local function addChamsTarget(targets, model, kind, player)
     if model and model.Parent and Entity.IsAliveModel(model) then
@@ -592,6 +570,7 @@ function ChamsRuntime.Apply(deltaTime)
     end
 end
 function ChamsRuntime.Shutdown()
+    pcall(function() RunService:UnbindFromRenderStep("GS_ChamsApply") end)
     TaskManager.RemoveConnection("ChamsApply")
     TaskManager.RemoveConnection("ChamsPlayers")
     Chams.ClearAll()
@@ -617,7 +596,10 @@ end
 function ChamsRuntime.Start()
     if ChamsRuntime.Started then return end
     ChamsRuntime.Started = true
-    TaskManager.AddConnection("ChamsApply", RunService.RenderStepped, ChamsRuntime.Apply)
+    local bound = pcall(function()
+        RunService:BindToRenderStep("GS_ChamsApply", Enum.RenderPriority.Last.Value + 14, ChamsRuntime.Apply)
+    end)
+    if not bound then TaskManager.AddConnection("ChamsApply", RunService.RenderStepped, ChamsRuntime.Apply) end
     TaskManager.AddConnection("ChamsPlayers", Players.PlayerRemoving, function(player)
         if player.Character then Chams.RemoveModelParts(player.Character) end
     end)

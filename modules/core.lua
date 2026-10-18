@@ -281,6 +281,7 @@ function Chams.CreateModel(target, options)
     return hl
 end
 function Chams.RemoveModel(target)
+    if Chams.RemoveLayer then Chams.RemoveLayer(target) end
     local hl = Chams.ModelCache[target]
     if hl then hl:Destroy(); Chams.ModelCache[target] = nil end
     Chams.ModelOcclusion[target] = nil
@@ -318,6 +319,7 @@ function Chams.RemoveModelParts(model)
     end
 end
 function Chams.ClearAll()
+    if Chams.ClearLayers then Chams.ClearLayers() end
     for model in pairs(Chams.ModelCache) do Chams.RemoveModel(model) end
     table.clear(Chams.ModelOcclusion)
     local partTargets = {}
