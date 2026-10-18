@@ -6,8 +6,10 @@ do
     local fpsOriginal, fpsLast, cameraLast
     local active = false
 
-    -- Infinite ammo: _ammo + magazineSize -> 9999999, reloadTime -> 0.1 on the equipped tool.
-    local INF_AMMO_VALUE = 9999999
+    -- Infinite ammo: _ammo + magazineSize -> 99999999999, reloadTime -> 0.1.
+    -- ВАЖНО: патроны в магазине игра держит не в атрибутах Tool, а внутри
+    -- BlasterController (self.ammo) - поэтому ниже ещё патчится canShoot.
+    local INF_AMMO_VALUE = 99999999999
     local INF_RELOAD_TIME = 0.1
     local INF_AMMO_ATTRS = {"_ammo", "magazineSize", "reloadTime"}
     local infAmmoOriginals = {}
@@ -102,8 +104,94 @@ do
             infRestoreTool(tool)
         end
     end
+    -- --- BlasterController hook: держим self.ammo (патроны в магазине) на максимуме ---
+    local infControllerModule, infControllerWrapper, infControllerOriginal = nil, nil, nil
+    local INF_CONTROLLER_MAG_FIELDS = {"magazineSize", "magSize", "maxAmmo", "maxMagazineSize"}
+    local function infFindController()
+        if infControllerModule then
+            return infControllerModule
+        end
+        local ok, result = pcall(function()
+            local rs = game:GetService("ReplicatedStorage")
+            local blaster = rs and rs:FindFirstChild("Blaster")
+            local scripts = blaster and blaster:FindFirstChild("Scripts")
+            local mod = scripts and scripts:FindFirstChild("BlasterController")
+            if not (mod and mod:IsA("ModuleScript")) then
+                return nil
+            end
+            local loaded = require(mod)
+            if type(loaded) == "table" and type(loaded.canShoot) == "function" then
+                return loaded
+            end
+            return nil
+        end)
+        if ok and type(result) == "table" then
+            infControllerModule = result
+            return result
+        end
+        return nil
+    end
+    local function infForceControllerAmmo(self)
+        if type(self) ~= "table" then
+            return
+        end
+        if type(self.ammo) == "number" then
+            self.ammo = INF_AMMO_VALUE
+        end
+        for _, field in ipairs(INF_CONTROLLER_MAG_FIELDS) do
+            if type(self[field]) == "number" then
+                self[field] = INF_AMMO_VALUE
+            end
+        end
+        if type(self.reloadTime) == "number" then
+            self.reloadTime = INF_RELOAD_TIME
+        end
+    end
+    local function infPatchController()
+        local mod = infFindController()
+        if not mod then
+            return
+        end
+        if infControllerWrapper and mod.canShoot == infControllerWrapper then
+            return
+        end
+        local original = mod.canShoot
+        if type(original) ~= "function" then
+            return
+        end
+        local wrapper = function(self, ...)
+            if flag("MiscInfiniteAmmo", false) == true then
+                pcall(infForceControllerAmmo, self)
+            end
+            return original(self, ...)
+        end
+        infControllerOriginal = original
+        infControllerWrapper = wrapper
+        local ok = pcall(function()
+            mod.canShoot = wrapper
+        end)
+        if not ok then
+            infControllerWrapper, infControllerOriginal = nil, nil
+        end
+    end
+    local function infRestoreController()
+        local mod = infControllerModule
+        if mod and infControllerWrapper and mod.canShoot == infControllerWrapper then
+            pcall(function()
+                mod.canShoot = infControllerOriginal
+            end)
+        end
+        -- Если поверх нас встал другой враппер (AirShot), наш остаётся в цепочке,
+        -- но при выключённом флаге он просто пропускает вызов дальше.
+    end
+
     local function applyInfiniteAmmo()
         local on = flag("MiscInfiniteAmmo", false) == true
+        if on then
+            infPatchController()
+        else
+            infRestoreController()
+        end
         local character = LocalPlayer and LocalPlayer.Character
         local tool = on and character and character:FindFirstChildOfClass("Tool") or nil
         if infAmmoLastTool and infAmmoLastTool ~= tool then
@@ -276,6 +364,7 @@ do
     function Misc.Shutdown()
         active, Misc.Started = false, false
         for _, id in ipairs({"MiscApply", "MiscWorldAdded", "MiscLightingAdded", "MiscCameraEffects"}) do TaskManager.RemoveConnection(id) end
+        infRestoreController()
         restoreInfiniteAmmo()
         restoreProperty(particles, "Enabled"); restoreProperty(textures, "Transparency")
         restoreProperty(collisions, "CanCollide"); restoreEffects(); restoreName(); restoreFPS()
