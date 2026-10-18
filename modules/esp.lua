@@ -1,5 +1,6 @@
 local ESP = {}
 do
+    local function initializeESP()
     local TextService = game:GetService("TextService")
     local HZ, LIMIT = 45, 14
     local INTERVAL = 1 / HZ
@@ -540,6 +541,8 @@ do
         return result
     end
     function ESP.Debug() return ESP.Profile() end
+    end
+    initializeESP()
 end
 ESP.Start()
 ChamsRuntime.Start()
