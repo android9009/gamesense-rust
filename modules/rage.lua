@@ -421,6 +421,33 @@ function RageBot.AutoFire()
     end)
 end
 
+-- Свежая позиция цели в момент выстрела: TargetPosition считается раз в кадр,
+-- а при высокой скорострельности выстрелы уходят между кадрами в устаревшую точку.
+-- Храним оффсет точки прицела в пространстве парта и пересчитываем её по живому CFrame.
+local function silentAimPosition()
+    if not (RageBot.Active and RageBot.SilentOn) then
+        return nil
+    end
+    local part = RageBot.TargetPart
+    if part then
+        if not part.Parent then
+            RageBot.TargetPart = nil
+            RageBot.TargetOffset = nil
+            RageBot.TargetPosition = nil
+            return nil
+        end
+        if RageBot.TargetOffset then
+            local ok, pos = pcall(function()
+                return part.CFrame:PointToWorldSpace(RageBot.TargetOffset)
+            end)
+            if ok and pos then
+                RageBot.TargetPosition = pos
+            end
+        end
+    end
+    return RageBot.TargetPosition
+end
+
 local function setupSilentAimHooks()
     if RageBot.HooksInstalled then return end
     if not (hookmetamethod and getrawmetatable and checkcaller and newcclosure) then return end
@@ -431,7 +458,7 @@ local function setupSilentAimHooks()
         Hooks.Namecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
             if method == "Raycast" or method == "raycast" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" or method == "FindPartOnRay" or method == "findPartOnRayWithIgnoreList" or method == "findPartOnRayWithWhitelist" or method == "findPartOnRay" or method == "ViewportPointToRay" or method == "ScreenPointToRay" or method == "viewportPointToRay" or method == "screenPointToRay" then
-                if not checkcaller() and RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition then
+                if not checkcaller() and RageBot.Active and RageBot.SilentOn and silentAimPosition() then
                     local targetPos = RageBot.TargetPosition
                     local isWs = (self == Workspace or self.Name == "Workspace")
                     if isWs then
@@ -477,7 +504,7 @@ local function setupSilentAimHooks()
 
         Hooks.Index = hookmetamethod(game, "__index", newcclosure(function(self, index)
             if self == Mouse then
-                if not checkcaller() and RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and RageBot.TargetPart then
+                if not checkcaller() and RageBot.Active and RageBot.SilentOn and silentAimPosition() and RageBot.TargetPart then
                     if index == "Hit" or index == "hit" then
                         return CFrame.new(RageBot.TargetPosition)
                     elseif index == "Target" or index == "target" then
@@ -601,7 +628,7 @@ local function setupGameShootHook()
         RageBot.GameShootFn = fn
         RageBot.GameShoot = hookfunction(fn, function(...)
             local cam = Workspace.CurrentCamera
-            if RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and cam then
+            if RageBot.Active and RageBot.SilentOn and silentAimPosition() and cam then
                 local oldCFrame = cam.CFrame
                  
                  
@@ -656,6 +683,8 @@ function RageBot.UpdateRender(deltaTime)
     RageBot.TargetPart = part
     RageBot.TargetPosition = pos
     RageBot.TargetIsBacktrack = isBtShot == true
+    RageBot.TargetOffset = (part and pos and not RageBot.TargetIsBacktrack)
+        and part.CFrame:PointToObjectSpace(pos) or nil
 
     local isShooting = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or flag("AimbotAutoFire", false) == true
 
@@ -667,21 +696,26 @@ function RageBot.UpdateRender(deltaTime)
 
     if part and pos then
         if not RageBot.SilentOn then
-             
             cam.CFrame = CFrame.new(cam.CFrame.Position, pos)
             RageBot.OriginalCFrame = nil
-        else
-             
-             
-             
-             
-             
-            if RageBot.GameShootHooked then
+        elseif RageBot.GameShootHooked then
+            -- Выстрелы перехватывает хук shoot(): он наводится в момент выстрела.
+            if RageBot.OriginalCFrame then
+                cam.CFrame = RageBot.OriginalCFrame
                 RageBot.OriginalCFrame = nil
-            elseif isShooting then
+            end
+        elseif isShooting then
+            -- Фолбэк без хука shoot(): держим камеру на цели на всё время стрельбы.
+            -- Раньше OriginalCFrame восстанавливался на Heartbeat, и выстрелы,
+            -- уходящие в heartbeat-фазе кадра, летели мимо - на большой
+            -- скорострельности это был каждый второй-третий выстрел.
+            if not RageBot.OriginalCFrame then
                 RageBot.OriginalCFrame = cam.CFrame
-                cam.CFrame = CFrame.new(RageBot.OriginalCFrame.Position, pos)
-            else
+            end
+            cam.CFrame = CFrame.new(cam.CFrame.Position, silentAimPosition() or pos)
+        else
+            if RageBot.OriginalCFrame then
+                cam.CFrame = RageBot.OriginalCFrame
                 RageBot.OriginalCFrame = nil
             end
         end
@@ -690,13 +724,17 @@ function RageBot.UpdateRender(deltaTime)
             RageBot.AutoFire()
         end
     else
-        RageBot.OriginalCFrame = nil
+        if RageBot.OriginalCFrame then
+            cam.CFrame = RageBot.OriginalCFrame
+            RageBot.OriginalCFrame = nil
+        end
     end
 end
 
 function RageBot.UpdateHeartbeat(deltaTime)
-     
-    if RageBot.OriginalCFrame and Workspace.CurrentCamera then
+    -- Камеру тут больше не трогаем: её восстанавливает UpdateRender, когда
+    -- стрельба закончилась или цель потеряна. Сброс на Heartbeat ломал выстрелы.
+    if RageBot.OriginalCFrame and not RageBot.Active and Workspace.CurrentCamera then
         Workspace.CurrentCamera.CFrame = RageBot.OriginalCFrame
         RageBot.OriginalCFrame = nil
     end
@@ -756,6 +794,7 @@ function RageBot.Shutdown()
     RageBot.GameShootTried = false
     RageBot.TargetPart = nil
     RageBot.TargetPosition = nil
+    RageBot.TargetOffset = nil
     RageBot.Active = false
     RageBot.SilentOn = false
     RageBot.Started = false
