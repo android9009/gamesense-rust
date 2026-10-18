@@ -7,14 +7,21 @@ do
     local active = false
 
     -- Infinite ammo: _ammo + magazineSize -> 99999999999, reloadTime -> 0.1.
-    -- ВАЖНО: патроны в магазине игра держит не в атрибутах Tool, а внутри
-    -- BlasterController (self.ammo) - поэтому ниже ещё патчится canShoot.
-    local INF_AMMO_VALUE = 99999999999
-    local INF_RELOAD_TIME = 0.1
-    local INF_AMMO_ATTRS = {"_ammo", "magazineSize", "reloadTime"}
-    local infAmmoOriginals = {}
-    local infAmmoLastTool = nil
-    local function infCoerce(raw, desired)
+    -- Патроны в магазине игра держит внутри BlasterController (self.ammo),
+    -- поэтому патчится ещё и canShoot. Всё в одной таблице: рантайм склеен в
+    -- один чанк, а у Luau лимит 200 локалов - лишние локалы нельзя плодить.
+    local InfAmmo = {
+        Value = 99999999999,
+        ReloadTime = 0.1,
+        Attrs = {"_ammo", "magazineSize", "reloadTime"},
+        MagFields = {"magazineSize", "magSize", "maxAmmo", "maxMagazineSize"},
+        Originals = {},
+        LastTool = nil,
+        Controller = nil,
+        Wrapper = nil,
+        OriginalFn = nil,
+    }
+    function InfAmmo.Coerce(raw, desired)
         if typeof(raw) == "Vector2" then
             return Vector2.new(desired, desired)
         end
@@ -29,7 +36,7 @@ do
         end
         return desired
     end
-    local function infRead(record)
+    function InfAmmo.Read(record)
         local ok, value = pcall(function()
             if record.Kind == "value" then
                 return record.Inst.Value
@@ -41,11 +48,11 @@ do
         end
         return nil
     end
-    local function infWrite(record, value)
+    function InfAmmo.Write(record, value)
         if not record or not record.Inst or not record.Inst.Parent then
             return
         end
-        if infRead(record) == value then
+        if InfAmmo.Read(record) == value then
             return
         end
         pcall(function()
@@ -56,10 +63,10 @@ do
             end
         end)
     end
-    local function infCollectHolders(tool)
+    function InfAmmo.Collect(tool)
         local records = {}
         local function consider(inst)
-            for _, attr in ipairs(INF_AMMO_ATTRS) do
+            for _, attr in ipairs(InfAmmo.Attrs) do
                 local ok, value = pcall(function()
                     return inst:GetAttribute(attr)
                 end)
@@ -67,8 +74,8 @@ do
                     records[#records + 1] = {Inst = inst, Attr = attr, Kind = "attribute", Original = value}
                 end
             end
-            if (inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("StringValue") or inst:IsA("BoolValue")) then
-                for _, attr in ipairs(INF_AMMO_ATTRS) do
+            if inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("StringValue") or inst:IsA("BoolValue") then
+                for _, attr in ipairs(InfAmmo.Attrs) do
                     if inst.Name == attr then
                         records[#records + 1] = {Inst = inst, Attr = attr, Kind = "value", Original = inst.Value}
                     end
@@ -81,35 +88,32 @@ do
         end
         return records
     end
-    local function infRestoreTool(tool)
-        local records = infAmmoOriginals[tool]
+    function InfAmmo.RestoreTool(tool)
+        local records = InfAmmo.Originals[tool]
         if not records then
             return
         end
         for _, record in ipairs(records) do
-            infWrite(record, record.Original)
+            InfAmmo.Write(record, record.Original)
         end
-        infAmmoOriginals[tool] = nil
+        InfAmmo.Originals[tool] = nil
     end
-    local function restoreInfiniteAmmo()
-        if infAmmoLastTool then
-            infRestoreTool(infAmmoLastTool)
-            infAmmoLastTool = nil
+    function InfAmmo.RestoreAll()
+        if InfAmmo.LastTool then
+            InfAmmo.RestoreTool(InfAmmo.LastTool)
+            InfAmmo.LastTool = nil
         end
         local tools = {}
-        for tool in pairs(infAmmoOriginals) do
+        for tool in pairs(InfAmmo.Originals) do
             tools[#tools + 1] = tool
         end
         for _, tool in ipairs(tools) do
-            infRestoreTool(tool)
+            InfAmmo.RestoreTool(tool)
         end
     end
-    -- --- BlasterController hook: держим self.ammo (патроны в магазине) на максимуме ---
-    local infControllerModule, infControllerWrapper, infControllerOriginal = nil, nil, nil
-    local INF_CONTROLLER_MAG_FIELDS = {"magazineSize", "magSize", "maxAmmo", "maxMagazineSize"}
-    local function infFindController()
-        if infControllerModule then
-            return infControllerModule
+    function InfAmmo.FindController()
+        if InfAmmo.Controller then
+            return InfAmmo.Controller
         end
         local ok, result = pcall(function()
             local rs = game:GetService("ReplicatedStorage")
@@ -126,33 +130,33 @@ do
             return nil
         end)
         if ok and type(result) == "table" then
-            infControllerModule = result
+            InfAmmo.Controller = result
             return result
         end
         return nil
     end
-    local function infForceControllerAmmo(self)
+    function InfAmmo.ForceAmmo(self)
         if type(self) ~= "table" then
             return
         end
         if type(self.ammo) == "number" then
-            self.ammo = INF_AMMO_VALUE
+            self.ammo = InfAmmo.Value
         end
-        for _, field in ipairs(INF_CONTROLLER_MAG_FIELDS) do
+        for _, field in ipairs(InfAmmo.MagFields) do
             if type(self[field]) == "number" then
-                self[field] = INF_AMMO_VALUE
+                self[field] = InfAmmo.Value
             end
         end
         if type(self.reloadTime) == "number" then
-            self.reloadTime = INF_RELOAD_TIME
+            self.reloadTime = InfAmmo.ReloadTime
         end
     end
-    local function infPatchController()
-        local mod = infFindController()
+    function InfAmmo.PatchController()
+        local mod = InfAmmo.FindController()
         if not mod then
             return
         end
-        if infControllerWrapper and mod.canShoot == infControllerWrapper then
+        if InfAmmo.Wrapper and mod.canShoot == InfAmmo.Wrapper then
             return
         end
         local original = mod.canShoot
@@ -161,54 +165,51 @@ do
         end
         local wrapper = function(self, ...)
             if flag("MiscInfiniteAmmo", false) == true then
-                pcall(infForceControllerAmmo, self)
+                pcall(InfAmmo.ForceAmmo, self)
             end
             return original(self, ...)
         end
-        infControllerOriginal = original
-        infControllerWrapper = wrapper
+        InfAmmo.OriginalFn = original
+        InfAmmo.Wrapper = wrapper
         local ok = pcall(function()
             mod.canShoot = wrapper
         end)
         if not ok then
-            infControllerWrapper, infControllerOriginal = nil, nil
+            InfAmmo.Wrapper, InfAmmo.OriginalFn = nil, nil
         end
     end
-    local function infRestoreController()
-        local mod = infControllerModule
-        if mod and infControllerWrapper and mod.canShoot == infControllerWrapper then
+    function InfAmmo.RestoreController()
+        local mod = InfAmmo.Controller
+        if mod and InfAmmo.Wrapper and mod.canShoot == InfAmmo.Wrapper then
             pcall(function()
-                mod.canShoot = infControllerOriginal
+                mod.canShoot = InfAmmo.OriginalFn
             end)
         end
-        -- Если поверх нас встал другой враппер (AirShot), наш остаётся в цепочке,
-        -- но при выключённом флаге он просто пропускает вызов дальше.
     end
-
-    local function applyInfiniteAmmo()
+    function InfAmmo.Apply()
         local on = flag("MiscInfiniteAmmo", false) == true
         if on then
-            infPatchController()
+            InfAmmo.PatchController()
         else
-            infRestoreController()
+            InfAmmo.RestoreController()
         end
         local character = LocalPlayer and LocalPlayer.Character
         local tool = on and character and character:FindFirstChildOfClass("Tool") or nil
-        if infAmmoLastTool and infAmmoLastTool ~= tool then
-            infRestoreTool(infAmmoLastTool)
+        if InfAmmo.LastTool and InfAmmo.LastTool ~= tool then
+            InfAmmo.RestoreTool(InfAmmo.LastTool)
         end
-        infAmmoLastTool = tool
+        InfAmmo.LastTool = tool
         if not on or not tool then
             return
         end
-        local records = infAmmoOriginals[tool]
+        local records = InfAmmo.Originals[tool]
         if not records then
-            records = infCollectHolders(tool)
-            infAmmoOriginals[tool] = records
+            records = InfAmmo.Collect(tool)
+            InfAmmo.Originals[tool] = records
         end
         for _, record in ipairs(records) do
-            local desired = record.Attr == "reloadTime" and INF_RELOAD_TIME or INF_AMMO_VALUE
-            infWrite(record, infCoerce(record.Original, desired))
+            local desired = record.Attr == "reloadTime" and InfAmmo.ReloadTime or InfAmmo.Value
+            InfAmmo.Write(record, InfAmmo.Coerce(record.Original, desired))
         end
     end
 
@@ -273,7 +274,7 @@ do
         local root = character and findRootPart(character)
         local camera = Workspace.CurrentCamera
         refreshCamera(camera)
-        applyInfiniteAmmo()
+        InfAmmo.Apply()
         if flag("MiscFPSUnlocker", false) == true and setfpscap then
             local requested = math.clamp(tonumber(flag("MiscFPSValue", 240)) or 240, 30, 999)
             if fpsLast ~= requested then
@@ -364,8 +365,8 @@ do
     function Misc.Shutdown()
         active, Misc.Started = false, false
         for _, id in ipairs({"MiscApply", "MiscWorldAdded", "MiscLightingAdded", "MiscCameraEffects"}) do TaskManager.RemoveConnection(id) end
-        infRestoreController()
-        restoreInfiniteAmmo()
+        InfAmmo.RestoreController()
+        InfAmmo.RestoreAll()
         restoreProperty(particles, "Enabled"); restoreProperty(textures, "Transparency")
         restoreProperty(collisions, "CanCollide"); restoreEffects(); restoreName(); restoreFPS()
         if shadowOriginal ~= nil then Lighting.GlobalShadows = shadowOriginal; shadowOriginal = nil end

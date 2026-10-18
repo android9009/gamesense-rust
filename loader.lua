@@ -3,16 +3,25 @@ local BASE = "https://raw.githubusercontent.com/android9009/gamesense-rust/main/
 assert(type(loadstring) == "function", "Gamesense requires loadstring support")
 
 local function fetch(path)
-    local ok, body = pcall(function() return game:HttpGet(BASE .. path, true) end)
-    if not ok then error("[Gamesense] Download failed: " .. path .. "\n" .. tostring(body), 0) end
-    if type(body) ~= "string" or body == "" then
-        error("[Gamesense] Empty response: " .. path, 0)
+    -- HttpGet on executors randomly dies with TLS/schannel handshake errors:
+    -- retry a few times instead of failing the whole load.
+    local lastError = "unknown error"
+    for attempt = 1, 5 do
+        local ok, body = pcall(function() return game:HttpGet(BASE .. path, true) end)
+        if ok and type(body) == "string" and body ~= ""
+            and not body:match("^%s*404:") and not body:match("^%s*<") then
+            return body
+        end
+        lastError = ok and ("empty/invalid response: " .. tostring(body):sub(1, 160)) or tostring(body)
+        if attempt < 5 then
+            if task and task.wait then
+                task.wait(0.6 * attempt)
+            elseif wait then
+                wait(0.6 * attempt)
+            end
+        end
     end
-    if body:match("^%s*404:") or body:match("^%s*<") then
-        error("[Gamesense] Missing file or invalid response: " .. BASE .. path
-            .. "\nUpload the unpacked files to the repository root. Response: " .. body:sub(1, 160), 0)
-    end
-    return body
+    error("[Gamesense] Download failed after 5 attempts: " .. path .. "\n" .. lastError, 0)
 end
 
  

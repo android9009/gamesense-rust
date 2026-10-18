@@ -1213,15 +1213,14 @@ local RapidFire = {
     Started = false,
     ToolCache = {},
     LastTool = nil,
+    Attr = "rateOfFire",
 }
 
-local RF_ATTR = "rateOfFire"
-
-local function rfActive()
+function RapidFire.IsActive()
     return RapidFire.Started and flag("AimbotRapidFire", false) == true
 end
 
-local function rfDesired()
+function RapidFire.Desired()
     local value = tonumber(flag("AimbotRapidFireValue", 1200))
     if not value or value ~= value or math.abs(value) == math.huge then
         return 1200
@@ -1229,7 +1228,7 @@ local function rfDesired()
     return math.clamp(math.floor(value + 0.5), 500, 3000)
 end
 
-local function rfCoerce(raw, desired)
+function RapidFire.Coerce(raw, desired)
     if typeof(raw) == "Vector2" then
         return Vector2.new(desired, desired)
     end
@@ -1245,7 +1244,7 @@ local function rfCoerce(raw, desired)
     return desired
 end
 
-local function rfRead(record)
+function RapidFire.Read(record)
     local ok, value = pcall(function()
         if record.Kind == "value" then
             return record.Inst.Value
@@ -1258,11 +1257,11 @@ local function rfRead(record)
     return nil
 end
 
-local function rfWrite(record, value)
+function RapidFire.Write(record, value)
     if not record or not record.Inst or not record.Inst.Parent then
         return
     end
-    if rfRead(record) == value then
+    if RapidFire.Read(record) == value then
         return
     end
     pcall(function()
@@ -1274,19 +1273,19 @@ local function rfWrite(record, value)
     end)
 end
 
-local function rfCollectHolders(tool)
+function RapidFire.Collect(tool)
     local records = {}
     local function consider(inst)
         local ok, value = pcall(function()
-            return inst:GetAttribute(RF_ATTR)
+            return inst:GetAttribute(RapidFire.Attr)
         end)
         if ok and value ~= nil then
-            records[#records + 1] = {Inst = inst, Attr = RF_ATTR, Kind = "attribute", Original = value}
+            records[#records + 1] = {Inst = inst, Attr = RapidFire.Attr, Kind = "attribute", Original = value}
             return
         end
         if (inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("StringValue") or inst:IsA("BoolValue"))
-            and inst.Name == RF_ATTR then
-            records[#records + 1] = {Inst = inst, Attr = RF_ATTR, Kind = "value", Original = inst.Value}
+            and inst.Name == RapidFire.Attr then
+            records[#records + 1] = {Inst = inst, Attr = RapidFire.Attr, Kind = "value", Original = inst.Value}
         end
     end
     consider(tool)
@@ -1296,20 +1295,20 @@ local function rfCollectHolders(tool)
     return records
 end
 
-local function rfRestoreTool(tool)
+function RapidFire.RestoreTool(tool)
     local records = RapidFire.ToolCache[tool]
     if not records then
         return
     end
     for _, record in ipairs(records) do
-        rfWrite(record, record.Original)
+        RapidFire.Write(record, record.Original)
     end
     RapidFire.ToolCache[tool] = nil
 end
 
-local function rfRestoreAll()
+function RapidFire.RestoreAll()
     if RapidFire.LastTool then
-        rfRestoreTool(RapidFire.LastTool)
+        RapidFire.RestoreTool(RapidFire.LastTool)
         RapidFire.LastTool = nil
     end
     local tools = {}
@@ -1317,16 +1316,16 @@ local function rfRestoreAll()
         tools[#tools + 1] = tool
     end
     for _, tool in ipairs(tools) do
-        rfRestoreTool(tool)
+        RapidFire.RestoreTool(tool)
     end
 end
 
-local function rfUpdate()
-    local on = rfActive()
+function RapidFire.Update()
+    local on = RapidFire.IsActive()
     local character = LocalPlayer and LocalPlayer.Character
     local tool = on and character and character:FindFirstChildOfClass("Tool") or nil
     if RapidFire.LastTool and RapidFire.LastTool ~= tool then
-        rfRestoreTool(RapidFire.LastTool)
+        RapidFire.RestoreTool(RapidFire.LastTool)
     end
     RapidFire.LastTool = tool
     if not on or not tool then
@@ -1334,19 +1333,19 @@ local function rfUpdate()
     end
     local records = RapidFire.ToolCache[tool]
     if not records then
-        records = rfCollectHolders(tool)
+        records = RapidFire.Collect(tool)
         RapidFire.ToolCache[tool] = records
     end
-    local desired = rfDesired()
+    local desired = RapidFire.Desired()
     for _, record in ipairs(records) do
-        rfWrite(record, rfCoerce(record.Original, desired))
+        RapidFire.Write(record, RapidFire.Coerce(record.Original, desired))
     end
 end
 
 function RapidFire.Status()
     return {
-        Enabled = rfActive(),
-        Value = rfDesired(),
+        Enabled = RapidFire.IsActive(),
+        Value = RapidFire.Desired(),
         Tool = RapidFire.LastTool,
     }
 end
@@ -1354,7 +1353,7 @@ end
 function RapidFire.Start()
     if RapidFire.Started then return end
     RapidFire.Started = true
-    TaskManager.AddConnection("RapidFireApply", RunService.RenderStepped, rfUpdate)
+    TaskManager.AddConnection("RapidFireApply", RunService.RenderStepped, RapidFire.Update)
     if Library then
         Library.UnloadHooks = Library.UnloadHooks or {}
         table.insert(Library.UnloadHooks, RapidFire.Shutdown)
@@ -1363,7 +1362,7 @@ end
 
 function RapidFire.Shutdown()
     TaskManager.RemoveConnection("RapidFireApply")
-    rfRestoreAll()
+    RapidFire.RestoreAll()
     RapidFire.Started = false
 end
 
