@@ -6444,7 +6444,8 @@ do
     local SelectedScript = nil
     local ScriptEntries = {}
     local RefreshScriptList
-    local OpenScriptInEditor  
+    local OpenScriptInEditor
+    local ReloadActiveScript  
     local LuaEnabled = LuaSection:Toggle({Name = "Enabled", Flag = "LuaEnabled", Default = true})
     local LuaUnsafe = LuaSection:Toggle({Name = "Allow unsafe scripts", Flag = "LuaAllowUnsafe"})
     LuaEnabled.Items.Toggle.LayoutOrder = 1
@@ -6452,7 +6453,9 @@ do
     local ReloadButton = LuaSection:Button({
         Name = "Reload active scripts",
         Callback = function()
-            Notifications:Create({Name = "Reloaded active scripts"})
+            if ReloadActiveScript then
+                ReloadActiveScript()
+            end
         end
     })
     ReloadButton.Items.Button.LayoutOrder = 3
@@ -9973,6 +9976,42 @@ do
             MenuLoadButton.Items.Name.Text = label
         end
     end
+    -- Единое сохранение Lua-кода. Имя берётся от ОТКРЫТОГО в редакторе файла
+    -- (Editor.Script), а не из поля имени: раньше после загрузки конфига или
+    -- очистки поля Save писал код мимо открытого скрипта - файл появлялся,
+    -- а код в нужном скрипте не сохранялся. Запись проверяем чтением обратно.
+    local function SaveScript(silent)
+        local name = Editor.Script or CleanName(Flags.LuaScriptName) or SelectedScript
+        if not name then
+            if not silent then
+                Notifications:Create({Name = "Enter a script name"})
+            end
+            return false
+        end
+        local text = CodeBox.Text
+        local ok = pcall(function()
+            writefile(LuaPath(name), text)
+        end)
+        if ok then
+            local backOk, back = pcall(readfile, LuaPath(name))
+            ok = backOk and back == text
+        end
+        if not ok then
+            if not silent then
+                Notifications:Create({Name = "Failed to save"})
+            end
+            return false
+        end
+        SelectedScript = name
+        Editor.Script = name
+        Editor.Unsaved = false
+        RefreshTitle()
+        RefreshScriptList()
+        if not silent then
+            Notifications:Create({Name = "Saved script (" .. name .. ")"})
+        end
+        return true
+    end
     local function ToggleRun()
         if Editor.Running then
             UnloadScript()
@@ -9980,9 +10019,19 @@ do
             Notifications:Create({Name = "Script unloaded"})
             return
         end
+        if Flags.LuaEnabled == false then
+            Notifications:Create({Name = "Lua is disabled"})
+            return
+        end
+        local scriptName = Editor.Script or CleanName(Flags.LuaScriptName) or SelectedScript
+        -- Автосейв перед запуском: код из редактора всегда пишется на диск,
+        -- иначе правки жили только до закрытия чита.
+        if scriptName and CodeBox.Text:gsub("%s", "") ~= "" then
+            SaveScript(true)
+        end
         local source = CodeBox.Text
         if source:gsub("%s", "") == "" then
-            local name = CleanName(Flags.LuaScriptName) or SelectedScript
+            local name = scriptName
             if not name or not isfile(LuaPath(name)) then
                 Notifications:Create({Name = "Nothing to load"})
                 return
@@ -9999,32 +10048,43 @@ do
             end
         end
         if RunScript(source) then
+            if scriptName then
+                Flags.LuaStartupScript = scriptName
+            end
             SyncRunState()
             Notifications:Create({Name = "Script loaded"})
         end
     end
+    ReloadActiveScript = function()
+        if Flags.LuaEnabled == false then
+            Notifications:Create({Name = "Lua is disabled"})
+            return
+        end
+        local name = Editor.Script or SelectedScript or CleanName(Flags.LuaScriptName)
+        if not name or not isfile(LuaPath(name)) then
+            Notifications:Create({Name = "No script file to reload"})
+            return
+        end
+        SaveScript(true)
+        local ok, source = pcall(readfile, LuaPath(name))
+        if not ok or not source then
+            Notifications:Create({Name = "Failed to read script"})
+            return
+        end
+        if RunScript(source) then
+            Flags.LuaStartupScript = name
+            SyncRunState()
+            Notifications:Create({Name = "Reloaded script (" .. name .. ")"})
+        end
+    end
     MakeEditorButton("Save", 1, function()
-        local name = CleanName(Flags.LuaScriptName) or SelectedScript
-        if not name then
-            Notifications:Create({Name = "Enter a script name"})
-            return
-        end
-        local ok = pcall(function()
-            writefile(LuaPath(name), CodeBox.Text)
-        end)
-        if not ok then
-            Notifications:Create({Name = "Failed to save"})
-            return
-        end
-        SelectedScript = name
-        Editor.Script = name
-        Editor.Unsaved = false
-        RefreshTitle()
-        RefreshScriptList()
-        Notifications:Create({Name = "Saved script (" .. name .. ")"})
+        SaveScript(false)
     end)
     EditorLoadButton = MakeEditorButton("Load", 2, ToggleRun)
     EditorClose.MouseButton1Click:Connect(function()
+        if Editor.Unsaved then
+            SaveScript(true)
+        end
         Editor.Open = false
         EditorOutline.Visible = false
     end)
@@ -10064,11 +10124,17 @@ do
             end
             CodeBox.Text = "-- " .. name .. "\n\nlocal api = ...\n\napi.print(\"hello from " .. name .. "\")\n"
             Editor.Script = name
-            Editor.Unsaved = true
+            ScriptBox.Set(name)
+            -- Файл создаётся на диске сразу, а не только после ручного Save.
+            local created = pcall(function()
+                writefile(LuaPath(name), CodeBox.Text)
+            end)
+            Editor.Unsaved = not created
             RefreshTitle()
+            RefreshScriptList()
             Editor.Open = true
             EditorOutline.Visible = true
-            Notifications:Create({Name = "New script (unsaved) - press Save"})
+            Notifications:Create({Name = created and ("Created script (" .. name .. ")") or "New script (unsaved) - press Save"})
         end
     })
     CreateScript.Items.Button.LayoutOrder = 9
@@ -10170,6 +10236,32 @@ do
     RenderVisible(true)
     MeasureLineStep()
     SyncRunState()
+    -- Load on startup: если тумблер включён, запускаем последний запущенный
+    -- скрипт (его имя пишется в Flags.LuaStartupScript при каждом Load/Reload
+    -- и сохраняется вместе с конфигом).
+    task.defer(function()
+        if Flags.LuaEnabled == false or Flags.LuaLoadOnStartup ~= true then
+            return
+        end
+        local name = Flags.LuaStartupScript
+        if type(name) ~= "string" or name == "" or not isfile(LuaPath(name)) then
+            return
+        end
+        local ok, source = pcall(readfile, LuaPath(name))
+        if not ok or not source or source:gsub("%s", "") == "" then
+            return
+        end
+        SelectedScript = name
+        Editor.Script = name
+        if #source <= MAX_EDITOR_CHARS then
+            CodeBox.Text = source
+            Editor.Unsaved = false
+            RefreshTitle()
+        end
+        if RunScript(source) then
+            SyncRunState()
+        end
+    end)
 end
 local menuOpen = true
 Library:Connection(RunService.RenderStepped, function()
