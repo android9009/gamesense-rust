@@ -19,6 +19,7 @@ return {
     RageBot = RageBot,
     RecoilKiller = RecoilKiller,
     NoSpread = NoSpread,
+    HitboxExpander = HitboxExpander,
     AirShot = AirShot,
     AntiAim = AntiAim,
     BacktrackChams = BacktrackChams,

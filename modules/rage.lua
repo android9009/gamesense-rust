@@ -142,7 +142,7 @@ function RageBot.GetHitboxParts(model)
              
              
             local up = head.CFrame.UpVector
-            local crown = head.CFrame.Position + up * (head.Size.Y * 0.5)
+            local crown = head.CFrame.Position + up * (RageBot.GetOriginalHitboxSize(head).Y * 0.5)
             table.insert(results, {Part = head, Position = crown, Name = "Head"})
         end
     end
@@ -154,7 +154,7 @@ function RageBot.GetHitboxParts(model)
         else
             local ut = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
             if ut and ut:IsA("BasePart") then
-                table.insert(results, {Part = ut, Position = ut.Position + Vector3.new(0, ut.Size.Y * 0.45, 0), Name = "Neck"})
+                table.insert(results, {Part = ut, Position = ut.Position + Vector3.new(0, RageBot.GetOriginalHitboxSize(ut).Y * 0.45, 0), Name = "Neck"})
             end
         end
     end
@@ -173,7 +173,7 @@ function RageBot.GetHitboxParts(model)
         else
             local torso = model:FindFirstChild("Torso")
             if torso and torso:IsA("BasePart") then
-                table.insert(results, {Part = torso, Position = torso.Position - Vector3.new(0, torso.Size.Y * 0.3, 0), Name = "Stomach"})
+                table.insert(results, {Part = torso, Position = torso.Position - Vector3.new(0, RageBot.GetOriginalHitboxSize(torso).Y * 0.3, 0), Name = "Stomach"})
             end
         end
     end
@@ -192,7 +192,7 @@ function RageBot.GetHitboxParts(model)
         for _, limb in ipairs({"LeftFoot", "RightFoot", "Left Leg", "Right Leg"}) do
             local p = model:FindFirstChild(limb)
             if p and p:IsA("BasePart") then
-                table.insert(results, {Part = p, Position = p.Position - Vector3.new(0, p.Size.Y * 0.4, 0), Name = "Feet"})
+                table.insert(results, {Part = p, Position = p.Position - Vector3.new(0, RageBot.GetOriginalHitboxSize(p).Y * 0.4, 0), Name = "Feet"})
                 break
             end
         end
@@ -409,7 +409,15 @@ local function getClosestTarget()
     return closestPart, closestPos, false
 end
 
+local function autoInputPaused()
+    -- Read the actual GUI state, not the old menuOpen/global flag.
+    local window = Library and Library.Window
+    if not window or not window.Parent or window.Visible ~= true then return false end
+    return not Library.Items or Library.Items.Enabled ~= false
+end
+
 function RageBot.AutoFire()
+    if autoInputPaused() then return end
     local now = os.clock()
      
     if now - RageBot.LastFireTick < 0.001 then return end
@@ -419,8 +427,9 @@ function RageBot.AutoFire()
         if mouse1click then
             mouse1click()
         elseif mouse1press and mouse1release then
+            -- Complete the synthetic click here; no delayed release can land on a newly opened menu.
             mouse1press()
-            task.delay(0.001, mouse1release)
+            mouse1release()
         end
     end)
 end
@@ -624,7 +633,7 @@ end
 function RageBot.UpdateRender(deltaTime)
 
     local masterEnabled = flag("AimbotEnabled", false) == true
-    local active = RageBot.IsAimbotActive()
+    local active = not autoInputPaused() and RageBot.IsAimbotActive()
     local cam = Workspace.CurrentCamera
 
     RageBot.Active = active
@@ -646,6 +655,7 @@ function RageBot.UpdateRender(deltaTime)
     end
 
     if not active or not cam then
+        if RageBot.OriginalCFrame and cam then cam.CFrame = RageBot.OriginalCFrame end
         RageBot.TargetPart = nil
         RageBot.TargetPosition = nil
         RageBot.OriginalCFrame = nil
@@ -883,18 +893,21 @@ local NoSpread = {
     RayModRef = nil,     
     OldRayDirections = nil,
     RaysPatched = false,
+    NextPatch = 0,
+    NextRestore = 0,
+    LastError = nil,
 }
 
 local NS_ATTR = "spread"
 local NS_CLAMP = Vector2.new(0.0001, 0.0001)
 
 local function nsActive()
-    return flag("AimbotAntiSpread", false) == true
+    return NoSpread.Started and flag("AimbotAntiSpread", false) == true
 end
 
 local function nsIsClampable(value)
      
-    return typeof(value) == "Vector2" or type(value) == "table"
+    return typeof(value) == "Vector2" or type(value) == "table" or type(value) == "number"
 end
 
 local function nsCollectHolders(tool)
@@ -952,6 +965,9 @@ end
  
  
 local function nsNoSpreadRays(cameraCFrame, rayCount, spreadRadians, seed)
+    if not nsActive() and NoSpread.OldRayDirections then
+        return NoSpread.OldRayDirections(cameraCFrame, rayCount, spreadRadians, seed)
+    end
     local dir = cameraCFrame.LookVector
     local out = {}
     for i = 1, (rayCount or 1) do
@@ -962,37 +978,38 @@ end
 
  
 local function nsFindRayFn()
-    if NoSpread.RayModRef then
-        return NoSpread.RayModRef
+    if NoSpread.RayModRef then return NoSpread.RayModRef end
+    if filtergc then
+        local ok, fn = pcall(filtergc, "function", {Name = "getRayDirections"}, true)
+        if ok and type(fn) == "function" then NoSpread.RayModRef = fn; return fn end
     end
-    if not (filtergc and hookfunction) then return nil end
-    local fn = filtergc("function", {Name = "getRayDirections"}, true)
-    if type(fn) == "function" then
-        NoSpread.RayModRef = fn
-        return fn
-    end
-    return nil
+    return nsFindRayMod()
 end
-
- 
 local function nsPatchRays()
-    if NoSpread.RaysPatched then return end
+    if NoSpread.RaysPatched or os.clock() < NoSpread.NextPatch then return end
+    NoSpread.NextPatch = os.clock() + 0.5
+    if type(hookfunction) ~= "function" then NoSpread.LastError = "hookfunction unavailable: attribute-only fallback"; return end
     local fn = nsFindRayFn()
-    if not fn then return end
-    pcall(function()
-        NoSpread.OldRayDirections = hookfunction(fn, nsNoSpreadRays)
-        NoSpread.RaysPatched = NoSpread.OldRayDirections ~= nil
-    end)
+    if not fn then NoSpread.LastError = "getRayDirections not found"; return end
+    local ok, original = pcall(hookfunction, fn, nsNoSpreadRays)
+    if ok and type(original) == "function" then
+        NoSpread.OldRayDirections, NoSpread.RaysPatched = original, true
+        NoSpread.LastError = nil
+    else
+        NoSpread.LastError = ok and "hookfunction did not return the original function" or tostring(original)
+    end
 end
-
- 
 local function nsUnpatchRays()
-    if not NoSpread.RaysPatched then return end
-    pcall(function()
-        hookfunction(NoSpread.RayModRef, NoSpread.OldRayDirections)
-    end)
-    NoSpread.OldRayDirections = nil
-    NoSpread.RaysPatched = false
+    if not NoSpread.RaysPatched or os.clock() < NoSpread.NextRestore then return end
+    NoSpread.NextRestore = os.clock() + 0.5
+    local ok, err = pcall(hookfunction, NoSpread.RayModRef, NoSpread.OldRayDirections)
+    if not ok then
+        -- Keep the original reference: the installed callback can still delegate
+        -- when the checkbox is off, even if this executor cannot unhook now.
+        NoSpread.LastError = "Unhook failed: " .. tostring(err)
+        return
+    end
+    NoSpread.OldRayDirections, NoSpread.RaysPatched = nil, false
 end
 
 local function nsUpdate()
@@ -1030,27 +1047,32 @@ local function nsUpdate()
      
     local saved = NoSpread.ToolCache[tool]
     for holder in pairs(saved) do
-        local current = holder:GetAttribute(NS_ATTR)
-        if nsIsClampable(current) then
-            local x, y = 0, 0
-            if typeof(current) == "Vector2" then
-                x, y = current.X, current.Y
-            elseif type(current) == "table" then
-                x, y = current.X or 0, current.Y or 0
-            end
-             
-            if x ~= NS_CLAMP.X or y ~= NS_CLAMP.Y then
-                pcall(function()
-                    holder:SetAttribute(NS_ATTR, NS_CLAMP)
-                end)
+        if holder.Parent then
+            local current = holder:GetAttribute(NS_ATTR)
+            if nsIsClampable(current) then
+                local desired = type(current) == "number" and 0.0001 or NS_CLAMP
+                local differs = type(current) == "number" and current ~= desired
+                    or (type(current) ~= "number" and (current.X ~= NS_CLAMP.X or current.Y ~= NS_CLAMP.Y))
+                if differs then pcall(holder.SetAttribute, holder, NS_ATTR, desired) end
             end
         end
     end
 end
 
+function NoSpread.Status()
+    local holders = 0
+    for _, saved in pairs(NoSpread.ToolCache) do for _ in pairs(saved) do holders += 1 end end
+    local result = {Enabled = nsActive(), RayHooked = NoSpread.RaysPatched,
+        AttributeHolders = holders, HookAvailable = type(hookfunction) == "function", LastError = NoSpread.LastError}
+    print(string.format("[NoSpread] enabled=%s rayHooked=%s holders=%d error=%s",
+        tostring(result.Enabled), tostring(result.RayHooked), holders, tostring(result.LastError)))
+    return result
+end
+
 function NoSpread.Start()
     if NoSpread.Started then return end
     NoSpread.Started = true
+    NoSpread.NextPatch, NoSpread.NextRestore = 0, 0
     TaskManager.AddConnection("NoSpreadApply", RunService.RenderStepped, nsUpdate)
     if Library then
         Library.UnloadHooks = Library.UnloadHooks or {}
@@ -1059,7 +1081,9 @@ function NoSpread.Start()
 end
 
 function NoSpread.Shutdown()
+    NoSpread.Started = false
     TaskManager.RemoveConnection("NoSpreadApply")
+    NoSpread.NextRestore = 0
     nsUnpatchRays()
     if NoSpread.LastTool then
         nsRestoreTool(NoSpread.LastTool)
@@ -1197,3 +1221,117 @@ function AirShot.Shutdown()
     AirShot.Started = false
 end
 
+
+local HitboxExpander = {Started = false, Records = {}}
+do
+    local elapsed = 0.1
+    local function selection(value, fallback)
+        if type(value) ~= "table" then value = {value} end
+        if #value == 0 then value = fallback end
+        local set = {}
+        for _, name in ipairs(value) do set[name] = true end
+        return set
+    end
+    local function restore(part, record)
+        pcall(function()
+            if part.Size == record.Applied then part.Size = record.Size end
+            if part.CanCollide == false then part.CanCollide = record.CanCollide end
+            if part.Massless == true then part.Massless = record.Massless end
+            if part.CanQuery == true then part.CanQuery = record.CanQuery end
+        end)
+        HitboxExpander.Records[part] = nil
+    end
+    function HitboxExpander.Restore()
+        for part, record in pairs(HitboxExpander.Records) do restore(part, record) end
+    end
+    function RageBot.GetOriginalHitboxSize(part)
+        local record = HitboxExpander.Records[part]
+        return record and record.Size or part.Size
+    end
+    function HitboxExpander.Step()
+        local amount = math.clamp(tonumber(flag("AimbotReachValue", 5)) or 0, 0, 30)
+        if flag("AimbotReach", false) ~= true or amount <= 0 then
+            HitboxExpander.Restore()
+            return
+        end
+        local allowed = selection(flag("AimbotTargetSel", {"Players"}), {})
+        local boxes = selection(flag("AimbotHitbox", {"Head", "Chest"}), {"Head", "Chest"})
+        local wanted = {}
+        local function add(part)
+            if part and part:IsA("BasePart") and part.Parent then wanted[part] = true end
+        end
+        local function body(model)
+            if model == LocalPlayer.Character or not Entity.IsAliveModel(model) then return end
+            for _, hitbox in ipairs(RageBot.GetHitboxParts(model)) do add(hitbox.Part) end
+            -- The aimer currently samples one leg/foot; expansion covers both sides.
+            if boxes.Legs then
+                for _, name in ipairs({"LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "Left Leg", "Right Leg", "LeftLeg", "RightLeg"}) do add(model:FindFirstChild(name)) end
+            end
+            if boxes.Feet then
+                for _, name in ipairs({"LeftFoot", "RightFoot", "Left Leg", "Right Leg"}) do add(model:FindFirstChild(name)) end
+            end
+        end
+        if allowed.Players or allowed.Team then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and Entity.IsAlive(player) then
+                    local enemy = Entity.IsEnemy(player)
+                    if (allowed.Players and enemy) or (allowed.Team and not enemy) then body(player.Character) end
+                end
+            end
+        end
+        if allowed.Bots then
+            for _, model in ipairs(Entity.GetNPCs()) do body(model) end
+        end
+        if allowed.Structures then
+            for _, model in ipairs(Entity.GetStructures()) do
+                if model ~= LocalPlayer.Character and Entity.IsAliveModel(model) then
+                    add(model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+                        or model:FindFirstChild("Head") or model:FindFirstChildOfClass("BasePart"))
+                end
+            end
+        end
+        for part, record in pairs(HitboxExpander.Records) do
+            if not wanted[part] then restore(part, record) end
+        end
+        local growth = Vector3.new(amount, amount, amount)
+        for part in pairs(wanted) do
+            local record = HitboxExpander.Records[part]
+            if not record then
+                record = {Size = part.Size, CanCollide = part.CanCollide, Massless = part.Massless, CanQuery = part.CanQuery}
+                HitboxExpander.Records[part] = record
+            elseif part.Size ~= record.Applied then
+                -- Keep a genuine game-driven resize as the new baseline.
+                record.Size = part.Size
+            end
+            record.Applied = record.Size + growth
+            pcall(function()
+                if part.Size ~= record.Applied then part.Size = record.Applied end
+                if part.CanCollide then part.CanCollide = false end
+                if not part.Massless then part.Massless = true end
+                if not part.CanQuery then part.CanQuery = true end
+            end)
+        end
+    end
+    function HitboxExpander.Start()
+        if HitboxExpander.Started then return end
+        HitboxExpander.Started, elapsed = true, 0.1
+        TaskManager.AddConnection("HitboxExpander", RunService.Heartbeat, function(dt)
+            if flag("AimbotReach", false) ~= true then
+                if next(HitboxExpander.Records) then HitboxExpander.Restore() end
+                elapsed = 0.1
+                return
+            end
+            elapsed += dt
+            if elapsed < 0.1 then return end
+            elapsed = 0
+            HitboxExpander.Step()
+        end)
+    end
+    function HitboxExpander.Stop()
+        HitboxExpander.Started = false
+        TaskManager.RemoveConnection("HitboxExpander")
+        HitboxExpander.Restore()
+    end
+    table.insert(Library.UnloadHooks, HitboxExpander.Stop)
+    HitboxExpander.Start()
+end
