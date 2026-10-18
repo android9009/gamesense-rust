@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Library = __GS_UI
 assert(Library, "Gamesense: UI library missing")
+Library.UnloadHooks = Library.UnloadHooks or {}
 local function findRootPart(model)
     if not model then return nil end
     return model:FindFirstChild("HumanoidRootPart")
@@ -53,93 +54,139 @@ function Entity.GetPlayers(enemiesOnly)
     end
     return result
 end
--- похожа ли модель на живого персонажа (бот/NPC), а не на структуру
--- (турель, шкаф, спальник и т.п.): настоящий персонаж имеет HumanoidRootPart
--- либо верхний торс/торс И голову. Структуры такого набора частей не имеют.
--- похожа ли модель на полноценного живого персонажа (бот/NPC), а не на
--- структуру (турель, шкаф, сундук, спальник и т.п.). Персонаж обязан иметь
--- полный скелет: HumanoidRootPart + голова + торс + конечности (руки и ноги).
--- Структуры (даже с HumanoidRootPart/Head) полного набора частей не имеют.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 local function isCharacterLike(model)
     if not model:IsA("Model") then return false end
     if not model:FindFirstChild("HumanoidRootPart") then return false end
     local hasHead = model:FindFirstChild("Head") ~= nil
     local hasTorso = model:FindFirstChild("UpperTorso") ~= nil or model:FindFirstChild("Torso") ~= nil
-    -- конечности: руки + ноги (R15: LeftArm/RightArm, LeftLeg/RightLeg; R6: "Left Arm"/"Right Arm", "Left Leg"/"Right Leg")
+     
     local hasArms = model:FindFirstChild("LeftArm") ~= nil or model:FindFirstChild("RightArm") ~= nil
         or model:FindFirstChild("Left Arm") ~= nil or model:FindFirstChild("Right Arm") ~= nil
+        or model:FindFirstChild("LeftUpperArm") ~= nil or model:FindFirstChild("RightUpperArm") ~= nil
     local hasLegs = model:FindFirstChild("LeftLeg") ~= nil or model:FindFirstChild("RightLeg") ~= nil
         or model:FindFirstChild("Left Leg") ~= nil or model:FindFirstChild("Right Leg") ~= nil
+        or model:FindFirstChild("LeftUpperLeg") ~= nil or model:FindFirstChild("RightUpperLeg") ~= nil
     return hasHead and hasTorso and hasArms and hasLegs
 end
 
-function Entity.GetNPCs()
-    local result = {}
-    local nested = {}
-    for _, object in ipairs(Workspace:GetDescendants()) do
-        if object:IsA("Model") and not Players:GetPlayerFromCharacter(object) then
-            local humanoid = object:FindFirstChildOfClass("Humanoid")
-            local root = findRootPart(object)
-            if humanoid and humanoid.Health > 0 and root and isCharacterLike(object) then
-                local parent = object.Parent
-                while parent do
-                    if parent:IsA("Model") and parent:FindFirstChildOfClass("Humanoid") then
-                        nested[object] = true
-                        break
+do
+    local candidates, npcs, structures = {}, {}, {}
+    local connection, nextRefresh = nil, 0
+    local partCache = {}
+    local function added(object)
+        local model
+        if object:IsA("Humanoid") then model = object.Parent
+        elseif object:IsA("Model") and object:FindFirstChildOfClass("Humanoid") then model = object end
+        if model and model:IsA("Model") then
+            candidates[model] = true
+            nextRefresh = 0
+        end
+    end
+    local function excluded(model)
+        local parent = model
+        while parent and parent ~= Workspace do
+            if parent:IsA("Camera") or parent.Name:sub(1, 3) == "GS_" then return true end
+            parent = parent.Parent
+        end
+        return false
+    end
+    local function refresh()
+        if not connection then
+            connection = Workspace.DescendantAdded:Connect(added)
+            for _, object in ipairs(Workspace:GetDescendants()) do
+                if object:IsA("Humanoid") then added(object) end
+            end
+        end
+        local now = os.clock()
+        if now < nextRefresh then return end
+        nextRefresh = now + 0.25
+        table.clear(npcs)
+        table.clear(structures)
+        local seen = {}
+        for model in pairs(candidates) do
+            local humanoid = model.Parent and model:FindFirstChildOfClass("Humanoid")
+            if not humanoid or not model:IsDescendantOf(Workspace) then
+                candidates[model] = nil
+            elseif humanoid.Health > 0 and findRootPart(model)
+                and not Players:GetPlayerFromCharacter(model) and not excluded(model) then
+                if isCharacterLike(model) then
+                    local nested, parent = false, model.Parent
+                    while parent and parent ~= Workspace do
+                        if parent:IsA("Model") and parent:FindFirstChildOfClass("Humanoid") then
+                            nested = true; break
+                        end
+                        parent = parent.Parent
                     end
-                    parent = parent.Parent
-                end
-                if not nested[object] then
-                    result[#result + 1] = object
+                    if not nested then npcs[#npcs + 1] = model end
+                else
+                    local top, parent = model, model.Parent
+                    while parent and parent ~= Workspace do
+                        if parent:IsA("Model") and parent:FindFirstChildOfClass("Humanoid")
+                            and not Players:GetPlayerFromCharacter(parent) and not isCharacterLike(parent) then top = parent end
+                        parent = parent.Parent
+                    end
+                    if not seen[top] then seen[top] = true; structures[#structures + 1] = top end
                 end
             end
         end
-    end
-    return result
-end
-
--- Структуры: модели с HP (Humanoid) и корнем, но НЕ персонажи и НЕ игроки
--- (турели, шкафы, сундуки, спальники и т.п.).
-function Entity.GetStructures()
-    local result = {}
-    local seen = {}
-    for _, object in ipairs(Workspace:GetDescendants()) do
-        if object:IsA("Model") and not Players:GetPlayerFromCharacter(object)
-            and not isCharacterLike(object) then
-            local humanoid = object:FindFirstChildOfClass("Humanoid")
-            local root = findRootPart(object)
-            if humanoid and humanoid.Health > 0 and root then
-                -- берём верхнюю структуру (уникальную), чтобы не дублировать вложенные части
-                local top = object
-                local parent = object.Parent
-                while parent do
-                    if parent:IsA("Model") and parent:FindFirstChildOfClass("Humanoid")
-                        and not Players:GetPlayerFromCharacter(parent)
-                        and not isCharacterLike(parent) then
-                        top = parent
-                    end
-                    parent = parent.Parent
-                end
-                if not seen[top] then
-                    seen[top] = true
-                    result[#result + 1] = top
-                end
+        for model, entry in pairs(partCache) do
+            if not model.Parent then
+                for _, c in ipairs(entry.Connections) do c:Disconnect() end
+                partCache[model] = nil
             end
         end
     end
-    return result
+    function Entity.GetNPCs() refresh(); return npcs end
+    function Entity.GetStructures() refresh(); return structures end
+    function Entity.GetParts(model)
+        local entry = partCache[model]
+        if not entry then
+            entry = {Parts = {}, Dirty = true, Connections = {}}
+            local function changed(object) if object:IsA("BasePart") then entry.Dirty = true end end
+            entry.Connections = {model.DescendantAdded:Connect(changed), model.DescendantRemoving:Connect(changed)}
+            entry.Connections[#entry.Connections + 1] = model.AncestryChanged:Connect(function()
+                if not model:IsDescendantOf(Workspace) then
+                    for _, c in ipairs(entry.Connections) do c:Disconnect() end
+                    partCache[model] = nil
+                end
+            end)
+            partCache[model] = entry
+        end
+        if entry.Dirty then
+            table.clear(entry.Parts)
+            for _, object in ipairs(model:GetDescendants()) do
+                if object:IsA("BasePart") then entry.Parts[#entry.Parts + 1] = object end
+            end
+            entry.Dirty = false
+        end
+        return entry.Parts
+    end
+    function Entity.Shutdown()
+        if connection then connection:Disconnect(); connection = nil end
+        for _, entry in pairs(partCache) do for _, c in ipairs(entry.Connections) do c:Disconnect() end end
+        table.clear(partCache); table.clear(candidates); table.clear(npcs); table.clear(structures)
+        nextRefresh = 0
+    end
+    table.insert(Library.UnloadHooks, Entity.Shutdown)
 end
 
--- Классификация живого/целевого объекта: "enemy"/"team"/"bot"/"structure"/nil
+ 
 function Entity.Classify(model)
     if not model or not model:IsA("Model") then return nil end
-    -- игрок
+     
     local player = Players:GetPlayerFromCharacter(model)
     if player then
         if player == LocalPlayer then return nil end
         return Entity.IsEnemy(player) and "enemy" or "team"
     end
-    -- не-игрок с HP и корнем
+     
     local humanoid = model:FindFirstChildOfClass("Humanoid")
     local root = findRootPart(model)
     if not (humanoid and humanoid.Health > 0 and root) then return nil end
@@ -169,7 +216,7 @@ local function flag(name, default)
     return v
 end
 
--- \u043f\u0440\u043e\u0437\u0440\u0430\u0447\u043d\u043e\u0441\u0442\u044c \u043a\u043e\u043b\u043e\u0440\u043f\u0438\u043a\u0435\u0440\u0430 (0 = \u0446\u0432\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u0435\u0442 \u043f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e, 1 = \u044d\u0444\u0444\u0435\u043a\u0442 \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d)
+ 
 local function pickerAlpha(name)
     local v = Library and Library.Flags and Library.Flags[name]
     if type(v) == "table" and type(v.Transparency) == "number" then
@@ -322,6 +369,7 @@ local TaskManager = {
 function TaskManager.AddConnection(id, signal, callback)
     TaskManager.RemoveConnection(id)
     TaskManager.Connections[id] = signal:Connect(callback)
+    return TaskManager.Connections[id]
 end
 function TaskManager.RemoveConnection(id)
     if TaskManager.Connections[id] then

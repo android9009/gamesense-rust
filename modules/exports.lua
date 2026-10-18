@@ -1,3 +1,4 @@
+table.insert(Library.UnloadHooks, TaskManager.ClearAll)
 return {
     Library = Library,
     Window = Library and Library.Window,

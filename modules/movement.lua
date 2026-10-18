@@ -14,9 +14,39 @@ local Movement = {
     },
 }
 
+do
+local collisionOriginal = {}
+local flyHumanoid, platformStandOriginal
+local jumpHumanoid, jumpPowerOriginal, jumpHeightOriginal, useJumpOriginal
+local gravityOriginal
+local function restoreFlyState()
+    for part, original in pairs(collisionOriginal) do
+        if part.Parent then part.CanCollide = original end
+    end
+    table.clear(collisionOriginal)
+    if flyHumanoid and flyHumanoid.Parent then flyHumanoid.PlatformStand = platformStandOriginal end
+    flyHumanoid, platformStandOriginal = nil, nil
+end
+local function restoreJump()
+    if jumpHumanoid and jumpHumanoid.Parent then
+        jumpHumanoid.UseJumpPower = useJumpOriginal
+        jumpHumanoid.JumpPower = jumpPowerOriginal
+        jumpHumanoid.JumpHeight = jumpHeightOriginal
+    end
+    jumpHumanoid = nil
+    Movement.JumpPowerApplied = false
+end
+local function restoreGravity()
+    if gravityOriginal ~= nil then Workspace.Gravity = gravityOriginal; gravityOriginal = nil end
+    Movement.GravityApplied = false
+end
+
 function Movement.Update(deltaTime)
     local char = LocalPlayer.Character
     if not char or not Entity.IsAlive(LocalPlayer) then
+        restoreFlyState()
+        restoreJump()
+        if not bindOn(flag("MovementGravity", false) == true, "MovementGravityBind") then restoreGravity() end
         if Movement.Platform and Movement.Platform.Parent then
             Movement.Platform:Destroy()
             Movement.Platform = nil
@@ -34,9 +64,11 @@ function Movement.Update(deltaTime)
         return
     end
 
+    if flyHumanoid and flyHumanoid ~= hum then restoreFlyState() end
+    if jumpHumanoid and jumpHumanoid ~= hum then restoreJump() end
     local cam = Workspace.CurrentCamera
 
-    -- 1. Fly (BodyGyro + BodyVelocity + Noclip loop)
+     
     local flyEnabled = bindOn(flag("MovementFly", false) == true, "MovementFlyBind")
     if flyEnabled and cam then
         local speed = math.clamp(tonumber(flag("MovementFlySpeed", 50)) or 50, 0, 500)
@@ -59,13 +91,15 @@ function Movement.Update(deltaTime)
             bv.Parent = root
             Movement.Fly.BodyVelocity = bv
 
+            if flyHumanoid ~= hum then flyHumanoid, platformStandOriginal = hum, hum.PlatformStand end
             hum.PlatformStand = true
         end
 
-        -- Noclip
-        for _, child in ipairs(char:GetDescendants()) do
-            if child:IsA("BasePart") and child.CanCollide then
-                child.CanCollide = false
+         
+        for _, child in ipairs(Entity.GetParts(char)) do
+            if child.Parent then
+                if collisionOriginal[child] == nil then collisionOriginal[child] = child.CanCollide end
+                if child.CanCollide then child.CanCollide = false end
             end
         end
 
@@ -104,14 +138,9 @@ function Movement.Update(deltaTime)
                 Movement.Fly.BodyVelocity = nil
             end
             if hum and hum.Parent then
-                hum.PlatformStand = false
                 pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
             end
-            for _, child in ipairs(char:GetDescendants()) do
-                if child:IsA("BasePart") and child.Name ~= "HumanoidRootPart" then
-                    child.CanCollide = true
-                end
-            end
+            restoreFlyState()
             pcall(function()
                 cam.CameraType = Enum.CameraType.Custom
                 if hum and hum.Parent then
@@ -121,7 +150,7 @@ function Movement.Update(deltaTime)
         end
     end
 
-    -- 2. Speedhack
+     
     local speedhackEnabled = bindOn(flag("MovementSpeedhack", false) == true, "MovementSpeedhackBind")
     if speedhackEnabled and not flyEnabled then
         local speed = math.clamp(tonumber(flag("MovementSpeedhackSpeed", 50)) or 50, 0, 500)
@@ -134,32 +163,33 @@ function Movement.Update(deltaTime)
         end
     end
 
-    -- 3. Jump power
+     
     local jumpPowerEnabled = bindOn(flag("MovementJumpPower", false) == true, "MovementJumpPowerBind")
     if jumpPowerEnabled then
         local power = math.clamp(tonumber(flag("MovementJumpPowerValue", 50)) or 50, 0, 1000)
+        if jumpHumanoid ~= hum then
+            jumpHumanoid, jumpPowerOriginal, jumpHeightOriginal, useJumpOriginal = hum, hum.JumpPower, hum.JumpHeight, hum.UseJumpPower
+        end
         hum.UseJumpPower = true
         hum.JumpPower = power
         hum.JumpHeight = power * 0.144
         Movement.JumpPowerApplied = true
     elseif Movement.JumpPowerApplied then
-        hum.JumpPower = 50
-        hum.JumpHeight = 7.2
-        Movement.JumpPowerApplied = false
+        restoreJump()
     end
 
-    -- 4. Gravity
+     
     local gravityEnabled = bindOn(flag("MovementGravity", false) == true, "MovementGravityBind")
     if gravityEnabled then
         local grav = math.clamp(tonumber(flag("MovementGravityValue", 196)) or 196, 0, 1000)
-        Workspace.Gravity = grav
+        if gravityOriginal == nil then gravityOriginal = Workspace.Gravity end
+        if Workspace.Gravity ~= grav then Workspace.Gravity = grav end
         Movement.GravityApplied = true
     elseif Movement.GravityApplied then
-        Workspace.Gravity = 196.2
-        Movement.GravityApplied = false
+        restoreGravity()
     end
 
-    -- 5. Walk on (Platform)
+     
     local walkOnEnabled = bindOn(flag("MovementWalkOn", false) == true, "MovementWalkOnBind")
     if walkOnEnabled then
         local mode = flag("MovementWalkOnMode", "Water")
@@ -194,18 +224,19 @@ function Movement.Update(deltaTime)
                 p.Transparency = 1
                 p.Material = Enum.Material.SmoothPlastic
                 p.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5, 1, 1)
+                Movement.LockedY = root.Position.Y - (hum.HipHeight or 2) - 1.2
+                p.CFrame = CFrame.new(root.Position.X, Movement.LockedY, root.Position.Z)
                 p.Parent = Workspace
                 Movement.Platform = p
-                Movement.LockedY = root.Position.Y - (hum.HipHeight or 2) - 1.2
             end
 
-            -- Высота фиксируется строго на одном уровне, чтобы платформа не вела игрока
+             
             if Movement.LockedY == nil then
                 Movement.LockedY = root.Position.Y - (hum.HipHeight or 2) - 1.2
             end
 
-            -- Смещаем платформу только когда игрок отходит от центра больше чем на 4 стада,
-            -- при этом высота Y остается неизменной, исключая эффект конвейера
+             
+             
             local currentPos = Movement.Platform.Position
             local deltaX = root.Position.X - currentPos.X
             local deltaZ = root.Position.Z - currentPos.Z
@@ -233,7 +264,7 @@ function Movement.Start()
     Movement.Started = true
     TaskManager.AddConnection("MovementApply", RunService.Heartbeat, Movement.Update)
 
-    -- Infinite jump
+     
     Movement.InfJumpConn = TaskManager.AddConnection("MovementInfJump", UserInputService.JumpRequest, function()
         if flag("MovementInfJump", false) == true then
             local char = LocalPlayer.Character
@@ -249,7 +280,7 @@ function Movement.Start()
         end
     end)
 
-    -- Click TP
+     
     Movement.ClickTPConn = TaskManager.AddConnection("MovementClickTP", UserInputService.InputBegan, function(input, gameProcessed)
         if gameProcessed then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -301,24 +332,15 @@ function Movement.Shutdown()
         Movement.Platform:Destroy()
         Movement.Platform = nil
     end
-    Workspace.Gravity = 196.2
-    if LocalPlayer.Character then
-        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.PlatformStand = false
-            hum.JumpPower = 50
-            hum.JumpHeight = 7.2
-        end
-        for _, child in ipairs(LocalPlayer.Character:GetDescendants()) do
-            if child:IsA("BasePart") and child.Name ~= "HumanoidRootPart" then
-                child.CanCollide = true
-            end
-        end
-    end
+    restoreFlyState()
+    restoreJump()
+    restoreGravity()
     Movement.Started = false
 end
 Movement.Start()
 
------------------------------------------------------------------------
---- Misc: FPS unlocker, Removals, Anti-fling, Hide name
------------------------------------------------------------------------
+ 
+ 
+ 
+
+end

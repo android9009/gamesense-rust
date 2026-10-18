@@ -1,15 +1,15 @@
--- Backtrack chams: визуальная копия цели с задержкой по истории CFrame (полная копия персонажа со сглаживанием прозрачности при совпадении).
+ 
 
--- =========================================================================
--- // RageBot & AntiAim Modules (True 1-Tick RenderStepped/Heartbeat Silent Aim)
--- =========================================================================
--- Умный бектрек: общее состояние между бектрек-чамсами и аимботом.
--- BacktrackAim[targetKey] = позиция призрака бектрека (куда аимбот целится,
--- когда противник за стеной/невидим). Заполняется в btUpdate, читается в getClosestTarget.
+ 
+ 
+ 
+ 
+ 
+ 
 local BacktrackAim = {}
-local BacktrackAimCache = {}   -- targetKey -> {Character, Pos} для чистки
-local BacktrackAimByChar = {}  -- Character/model -> Pos (для reposition на время выстрела)
-local BacktrackAimHitboxes = {} -- Character/model -> { {Position=..., Name=...}, ... } (хитбоксы чамса)
+local BacktrackAimCache = {}    
+local BacktrackAimByChar = {}   
+local BacktrackAimHitboxes = {}  
 local RageBot = {
     Started = false,
     Active = false,
@@ -20,20 +20,20 @@ local RageBot = {
     OriginalCFrame = nil,
     FovCircle = nil,
     HooksInstalled = false,
-    GameShoot = nil,          -- оригинал функции shoot игры (возврат из hookfunction)
-    GameShootFn = nil,        -- сама функция shoot (объект, который хукаем)
-    GameShootHooked = false,  -- true = хук на shoot установлен
-    GameShootTried = false,   -- true = уже пытались хукнуть (чтобы не повторять)
+    GameShoot = nil,           
+    GameShootFn = nil,         
+    GameShootHooked = false,   
+    GameShootTried = false,    
 }
 
 local AntiAim = {
     Started = false,
     OriginalAutoRotate = nil,
-    PinnedPosition = nil,   -- точка фиксации позиции при активном AA
-    PinnedCharacter = nil,  -- модель, для которой посчитан пин (сброс при респауне)
+    PinnedPosition = nil,    
+    PinnedCharacter = nil,   
 }
 
--- состояние джиттера: счётчик кадров текущего тика и какое из двух значений активно
+ 
 local aaJitterTicks = 0
 local aaJitterFlip = false
 
@@ -42,29 +42,11 @@ local cachedNPCs = {}
 local npcScanTimer = 0
 
 local function scanBots(deltaTime)
-    npcScanTimer = npcScanTimer + (deltaTime or 0.016)
-    if npcScanTimer < 0.5 then return end
-    npcScanTimer = 0
+    npcScanTimer -= deltaTime or (1 / 60)
+    if npcScanTimer > 0 then return end
+    npcScanTimer = 0.5
     table.clear(cachedNPCs)
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj:IsA("Model") and not Players:GetPlayerFromCharacter(obj) then
-            local hum = obj:FindFirstChildOfClass("Humanoid")
-            local root = findRootPart(obj)
-            if hum and hum.Health > 0 and root then
-                table.insert(cachedNPCs, obj)
-            end
-        elseif obj:IsA("Folder") then
-            for _, child in ipairs(obj:GetChildren()) do
-                if child:IsA("Model") and not Players:GetPlayerFromCharacter(child) then
-                    local hum = child:FindFirstChildOfClass("Humanoid")
-                    local root = findRootPart(child)
-                    if hum and hum.Health > 0 and root then
-                        table.insert(cachedNPCs, child)
-                    end
-                end
-            end
-        end
-    end
+    for _, model in ipairs(Entity.GetNPCs()) do cachedNPCs[#cachedNPCs + 1] = model end
 end
 
 function RageBot.IsAimbotActive()
@@ -89,19 +71,33 @@ local function getScreenFOVRadius()
     return math.clamp(radius, 2, 4000)
 end
 
+local visibilityQueries = {{}, {}}
+local function visibilityParams(camera, backtrack)
+    local state = visibilityQueries[backtrack and 2 or 1]
+    local character, folder = LocalPlayer.Character, Library and Library.Folder
+    local ghostFolder = backtrack and Workspace:FindFirstChild("GS_BacktrackFolder") or nil
+    if not state.Params then
+        state.Params = RaycastParams.new()
+        state.Params.FilterType = Enum.RaycastFilterType.Exclude
+        state.Params.IgnoreWater = true
+    end
+    if state.Camera ~= camera or state.Character ~= character or state.Folder ~= folder or state.Ghost ~= ghostFolder then
+        local filter = {camera}
+        if character then filter[#filter + 1] = character end
+        if folder then filter[#filter + 1] = folder end
+        if ghostFolder then filter[#filter + 1] = ghostFolder end
+        state.Params.FilterDescendantsInstances = filter
+        state.Camera, state.Character, state.Folder, state.Ghost = camera, character, folder, ghostFolder
+    end
+    return state.Params
+end
+
 local function isPartVisible(cam, targetPart, targetPos, targetModel)
     local localChar = LocalPlayer.Character
     local origin = cam.CFrame.Position
     local dir = targetPos - origin
 
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    local ignore = {localChar, cam}
-    if Library and Library.Folder then
-        table.insert(ignore, Library.Folder)
-    end
-    rayParams.FilterDescendantsInstances = ignore
-    rayParams.IgnoreWater = true
+    local rayParams = visibilityParams(cam, false)
 
     local result = Workspace:Raycast(origin, dir, rayParams)
     if not result then
@@ -139,12 +135,12 @@ function RageBot.GetHitboxParts(model)
         return false
     end
 
-    -- Priority: Head -> Neck -> Chest -> Stomach -> Legs -> Feet
+     
     if hasHitbox("Head") then
         local head = model:FindFirstChild("Head")
         if head and head:IsA("BasePart") then
-            -- мультипоинт: целимся в макушку (верх головы), а не в центр —
-            -- так хедшоты попадают по верхушке черепа
+             
+             
             local up = head.CFrame.UpVector
             local crown = head.CFrame.Position + up * (head.Size.Y * 0.5)
             table.insert(results, {Part = head, Position = crown, Name = "Head"})
@@ -212,20 +208,13 @@ function RageBot.GetHitboxParts(model)
     return results
 end
 
--- видимость позиции бектрек-чамса (призрака) из камеры: луч не должен
--- упираться в сплошную стену между камерой и точкой. Свой фолдер призраков
--- исключаем, чтобы сам призрак не считался "стеной".
+ 
+ 
+ 
 local function btPosVisible(cam, pos)
     local localChar = LocalPlayer.Character
     local origin = cam.CFrame.Position
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    local ignore = {localChar, cam}
-    if Library and Library.Folder then table.insert(ignore, Library.Folder) end
-    local gb = Workspace:FindFirstChild("GS_BacktrackFolder")
-    if gb then table.insert(ignore, gb) end
-    rayParams.FilterDescendantsInstances = ignore
-    rayParams.IgnoreWater = true
+    local rayParams = visibilityParams(cam, true)
     local res = Workspace:Raycast(origin, pos - origin, rayParams)
     if not res then return true end
     local inst = res.Instance
@@ -245,10 +234,10 @@ local function getClosestTarget()
     local closestPos = nil
     local mousePos = UserInputService:GetMouseLocation()
     local visibleCheck = flag("AimbotVisibleCheck", false) == true
-    -- умный бектрек активен, если есть позиции призраков
+     
     local backtrackActive = next(BacktrackAim) ~= nil
-    -- при активном бектреке видимость проверяем всегда: если противник невидим,
-    -- direct-наведение его пропустит и сработает фолбэк на позицию бектрека
+     
+     
     local needVis = visibleCheck or backtrackActive
 
     local targetSel = flag("AimbotTargetSel", {"Players"})
@@ -266,16 +255,16 @@ local function getClosestTarget()
         elseif s == "Structures" then allowsStructures = true end
     end
 
-    -- Приоритет цели в обычной стрельбе:
-    --   1) Враг ВИДЕН -> стреляем в живую модель (по приоритетному видимому
-    --      хитбоксу: голова -> шея -> грудь -> ...).
-    --   2) Врага НЕ видно, но бектрек-чамс виден -> стреляем в бектрек-чамс.
-    --   3) Оба не видны -> не стреляем вообще.
-    -- Для этого при активном бектреке видимость живой цели проверяем всегда:
-    --  нужна она, чтобы решить, использовать ли живую модель или бектрек.
-    -- needVis = visibleCheck or backtrackActive (см. выше)
+     
+     
+     
+     
+     
+     
+     
+     
 
-    -- 1. Scan Players
+     
     if allowsPlayers or allowsTeam then
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and Entity.IsAlive(player) then
@@ -308,7 +297,7 @@ local function getClosestTarget()
         end
     end
 
-    -- 2. Scan Bots
+     
     if allowsBots and #cachedNPCs > 0 then
         for _, npc in ipairs(cachedNPCs) do
             if Entity.IsAliveModel(npc) then
@@ -335,7 +324,7 @@ local function getClosestTarget()
         end
     end
 
-    -- 3. Scan Structures
+     
     if allowsStructures then
         local structures = Entity.GetStructures()
         for _, structure in ipairs(structures) do
@@ -364,9 +353,9 @@ local function getClosestTarget()
         end
     end
 
-    -- 4. Живой цели не видно => пробуем видимый бектрек-чамс (призрак).
-    --    Стреляем в призрака только если он ВИДЕН; если и призрак не виден —
-    --    не стреляем вообще (ниже вернётся nil).
+     
+     
+     
     if backtrackActive and not closestPart then
         local btFov = maxFOV
         local btDist = btFov
@@ -377,7 +366,7 @@ local function getClosestTarget()
             if char then
                 local hits = BacktrackAimHitboxes[char]
                 if hits and #hits > 0 then
-                    -- фильтр по типам целей (Players/Team/Bots)
+                     
                     local isEnemyPlayer = false
                     local isBot = false
                     if typeof(targetKey) == "Instance" and targetKey:IsA("Player") then
@@ -394,8 +383,8 @@ local function getClosestTarget()
                         allowed = true
                     end
                     if allowed then
-                        -- хитбоксы в приоритете (голова -> ...): берём первую
-                        -- видимую и в пределах FOV
+                         
+                         
                         for _, hb in ipairs(hits) do
                             local screenPos, onScreen = camera:WorldToViewportPoint(hb.Position)
                             if onScreen and screenPos.Z > 0 then
@@ -403,7 +392,7 @@ local function getClosestTarget()
                                 if dist <= btDist and btPosVisible(camera, hb.Position) then
                                     btDist = dist
                                     btPos = hb.Position
-                                    btPart = findRootPart(char) -- для silent aim
+                                    btPart = findRootPart(char)  
                                     break
                                 end
                             end
@@ -413,7 +402,7 @@ local function getClosestTarget()
             end
         end
         if btPos then
-            return btPart or nil, btPos, true -- true = стреляем по бектрек-чамсу
+            return btPart or nil, btPos, true  
         end
     end
 
@@ -422,7 +411,7 @@ end
 
 function RageBot.AutoFire()
     local now = os.clock()
-    -- очень быстрый автофайр: почти без лимита, чтобы пули летели на макс. скорости игры
+     
     if now - RageBot.LastFireTick < 0.001 then return end
     RageBot.LastFireTick = now
 
@@ -457,9 +446,9 @@ local function setupSilentAimHooks()
                             if typeof(origin) == "Vector3" and (not direction or typeof(direction) ~= "Vector3" or direction.Magnitude >= 10) then
                                 args[2] = (targetPos - origin).Unit * 1000
                                 local result = Hooks.Namecall(self, table.unpack(args))
-                                -- on-shot: по факту попадания (любая часть тела)
-                                -- спавним гоуст — берём реальный результат рейкаста игры,
-                                -- а не серверные remote'ы (те только про туловище).
+                                 
+                                 
+                                 
                                 if result and result.Instance and result.Instance:IsA("BasePart") then
                                     pcall(spawnGhostOnHit, { result.Instance })
                                 end
@@ -470,7 +459,7 @@ local function setupSilentAimHooks()
                             if typeof(ray) == "Ray" and ray.Direction.Magnitude >= 10 then
                                 args[1] = Ray.new(ray.Origin, (targetPos - ray.Origin).Unit * 1000)
                                 local res = { Hooks.Namecall(self, table.unpack(args)) }
-                                -- on-shot: FindPartOnRay возвращает часть первым значением
+                                 
                                 local hitPart = res[1]
                                 if typeof(hitPart) == "Instance" and hitPart:IsA("BasePart") then
                                     pcall(spawnGhostOnHit, { hitPart })
@@ -512,13 +501,13 @@ local function setupSilentAimHooks()
     end)
 end
 
--- REPOSITIONING (бектрек): перенос хитбокса цели в позицию призрака бектрека,
--- чтобы пули в чамс засчитывались (у Roblox нет серверного отката времени, как
--- в CS:GO). Телепорт включается ТОЛЬКО пока мы стреляем в чамс; как только
--- перестали стрелять (или сменили цель) — тело сразу возвращается на место, так
--- что видно, куда реально идёт противник. История бектрека в это время пишет
--- снимок реальных позиций (см. btCapture), поэтому чамс не замирает.
-local ReposActive = {}  -- model -> { Root, OldCFrame, OldCFrames }
+ 
+ 
+ 
+ 
+ 
+ 
+local ReposActive = {}   
 
 local function clearReposActive()
     for model, saved in pairs(ReposActive) do
@@ -542,7 +531,7 @@ local function restoreReposModel(model)
     end)
 end
 
--- Снимок реальных CFrame всех частей тела (для чистой истории во время репозиции)
+ 
 local function snapshotModelCFrames(model)
     local out = {}
     for _, bp in ipairs(model:GetDescendants()) do
@@ -553,13 +542,13 @@ local function snapshotModelCFrames(model)
     return out
 end
 
--- Вызывается каждый кадр из RageBot.UpdateRender. Телепортит цель в позицию чамса,
--- пока мы в неё стреляем; все остальные (ранее телепортированные) сразу возвращает.
+ 
+ 
 local function updateBacktrackReposition(targetPart, isShooting, isBacktrackShot)
     local reposTarget = nil
-    -- Репозиция нужна ТОЛЬКО когда мы реально стреляем по бектрек-чамсу.
-    -- Если стреляем в живого видимого противника (isBacktrackShot = false) —
-    -- не телепортируем его: он и так на месте.
+     
+     
+     
     if isShooting and isBacktrackShot and targetPart and targetPart.Parent then
         local model = targetPart:FindFirstAncestorOfClass("Model")
         if model and model ~= LocalPlayer.Character and BacktrackAimByChar[model] then
@@ -567,7 +556,7 @@ local function updateBacktrackReposition(targetPart, isShooting, isBacktrackShot
         end
     end
 
-    -- возвращаем все ранее телепортированные тела, кроме того, что стреляем сейчас
+     
     for model, saved in pairs(ReposActive) do
         if model ~= reposTarget then
             pcall(function()
@@ -596,13 +585,13 @@ local function updateBacktrackReposition(targetPart, isShooting, isBacktrackShot
     end
 end
 
--- Silent aim через хук РЕАЛЬНОЙ функции shoot игры (как в отдельном скрипте):
--- ищем функцию по имени через filtergc и подменяем её hookfunction'ом.
--- В момент выстрела игра сама вызывает shoot -> мы на время вызова разворачиваем
--- камеру на цель, стреляем, возвращаем камеру обратно. Работает бесшумно
--- и независимо от того, как игра стреляет (remote / raycast / мгновенно).
--- Если filtergc/hookfunction недоступны или функция не найдена —
--- молча откатываемся на старый вариант (1-tick flick камерой).
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 local function setupGameShootHook()
     if RageBot.GameShootHooked then return true end
     if RageBot.GameShootTried then return false end
@@ -618,8 +607,8 @@ local function setupGameShootHook()
             local cam = Workspace.CurrentCamera
             if RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and cam then
                 local oldCFrame = cam.CFrame
-                -- Silent aim: наводим камеру на цель (цель — живой противник или
-                -- позиция призрака бектрека)
+                 
+                 
                 cam.CFrame = CFrame.lookAt(oldCFrame.Position, RageBot.TargetPosition)
                 local result = RageBot.GameShoot(...)
                 cam.CFrame = oldCFrame
@@ -633,7 +622,6 @@ local function setupGameShootHook()
 end
 
 function RageBot.UpdateRender(deltaTime)
-    scanBots(deltaTime)
 
     local masterEnabled = flag("AimbotEnabled", false) == true
     local active = RageBot.IsAimbotActive()
@@ -642,13 +630,13 @@ function RageBot.UpdateRender(deltaTime)
     RageBot.Active = active
     RageBot.SilentOn = flag("AimbotSilentAim", false) == true
 
-    -- 1. FOV Circle
+     
     local visFOV = flag("AimbotVisFOV", false) == true
     if RageBot.FovCircle then
         if masterEnabled and visFOV and cam then
             local radius = getScreenFOVRadius()
             RageBot.FovCircle.Radius = radius
-            -- круг FOV прикреплён к ЦЕНТРУ экрана, а не к мышке
+             
             local view = cam.ViewportSize
             RageBot.FovCircle.Position = Vector2.new(view.X * 0.5, view.Y * 0.5)
             RageBot.FovCircle.Visible = true
@@ -665,7 +653,8 @@ function RageBot.UpdateRender(deltaTime)
         return
     end
 
-    -- 2. Target Acquisition
+    scanBots(deltaTime)
+     
     local part, pos, isBtShot = getClosestTarget()
     RageBot.TargetPart = part
     RageBot.TargetPosition = pos
@@ -673,23 +662,23 @@ function RageBot.UpdateRender(deltaTime)
 
     local isShooting = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or flag("AimbotAutoFire", false) == true
 
-    -- 2.5 Backtrack reposition: телепортируем цель в чамс ТОЛЬКО пока стреляем
-    -- И при этом целимся именно в бектрек-чамс (не в живого противника);
-    -- как только перестали (или бектрек не используется) — сразу сбрасываем,
-    -- чтобы видеть реальное положение.
+     
+     
+     
+     
     updateBacktrackReposition(part, isShooting, RageBot.TargetIsBacktrack)
 
     if part and pos then
         if not RageBot.SilentOn then
-            -- Direct aimbot
+             
             cam.CFrame = CFrame.new(cam.CFrame.Position, pos)
             RageBot.OriginalCFrame = nil
         else
-            -- Silent aim:
-            --   Приоритет — хук реальной функции shoot игры (setupGameShootHook):
-            --   цель наводится в сам момент выстрела, камера в кадре не дёргается.
-            --   Если хук недоступен — фолбэк: 1-tick flick камерой во время стрельбы
-            --   (наводимся в RenderStepped, возвращаем в Heartbeat после обработки оружия).
+             
+             
+             
+             
+             
             if RageBot.GameShootHooked then
                 RageBot.OriginalCFrame = nil
             elseif isShooting then
@@ -709,7 +698,7 @@ function RageBot.UpdateRender(deltaTime)
 end
 
 function RageBot.UpdateHeartbeat(deltaTime)
-    -- Restore original camera orientation immediately after weapon scripts processed the frame
+     
     if RageBot.OriginalCFrame and Workspace.CurrentCamera then
         Workspace.CurrentCamera.CFrame = RageBot.OriginalCFrame
         RageBot.OriginalCFrame = nil
@@ -756,9 +745,9 @@ function RageBot.Shutdown()
         Workspace.CurrentCamera.CFrame = RageBot.OriginalCFrame
         RageBot.OriginalCFrame = nil
     end
-    -- снять хук с функции shoot игры (best effort: если экзекутор не умеет
-    -- восстанавливать — хук останется, но он сам себя отключает, когда
-    -- аимбот/сайлент выключены)
+     
+     
+     
     if RageBot.GameShootHooked and RageBot.GameShootFn then
         pcall(function()
             hookfunction(RageBot.GameShootFn, RageBot.GameShoot)
@@ -773,36 +762,36 @@ function RageBot.Shutdown()
     RageBot.Active = false
     RageBot.SilentOn = false
     RageBot.Started = false
-    -- вернуть все репонируемые тела на место
+     
     clearReposActive()
 end
 
--- =========================================================================
--- // Anti recoil (Rage -> "Anti recoil"): ПОЛНОЕ удаление отдачи
--- Игра (Project Real) применяет отдачу через модуль
--- ReplicatedStorage.Blaster.Scripts.CameraRecoiler:
---   - при выстреле BlasterController вызывает CameraRecoiler.recoil(p1),
---     p1 -- Vector2-смещение, посчитанное из оружия;
---   - recoil() копит его в u35 и ставит флаг u36 = 1;
---   - рендер-степ "Recoiler" вертит камеру из u35 и сам же сбрасывает u36.
--- НЕ трогаем атрибуты recoilMin/recoilMax (игра падает, если там не Vector) и
--- НЕ блокируем рендер-степ "Recoiler" (иначе u36 навсегда = 1 и стрельба глохнет).
--- Решение: просто делаем CameraRecoiler.recoil НО-ОПОМ. Тогда:
---   - u35 не копится -> камера НЕ качается (отдача убрана полностью);
---   - u36 не ставится (остаётся 0) -> игра не блокирует следующий выстрел;
---   - рендер-степ продолжает спокойно работать -> игра не падает.
--- При выключении чекбокса функция recoil восстанавливается.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 local RecoilKiller = {
     Started = false,
-    ModRef = nil,     -- таблица, которую вернул модуль CameraRecoiler
-    OldRecoil = nil,  -- оригинальная recoil (для восстановления)
+    ModRef = nil,      
+    OldRecoil = nil,   
 }
 
 local function rkActive()
     return flag("AimbotAntiRecoil", false) == true
 end
 
--- найти и закэшировать модуль CameraRecoiler (через require — он уже загружен игрой)
+ 
 local function rkFindModule()
     if RecoilKiller.ModRef then
         return RecoilKiller.ModRef
@@ -827,7 +816,7 @@ local function rkFindModule()
     return nil
 end
 
--- нейтрализуем recoil: no-op
+ 
 local function rkApply()
     local mod = rkFindModule()
     if not mod then
@@ -836,12 +825,12 @@ local function rkApply()
     if RecoilKiller.OldRecoil == nil then
         RecoilKiller.OldRecoil = mod.recoil
         mod.recoil = function(p1)
-            -- no-op: отдача игнорируется, u35/u36 не меняются
+             
         end
     end
 end
 
--- восстановить оригинальную recoil
+ 
 local function rkRestore()
     if RecoilKiller.ModRef and RecoilKiller.OldRecoil then
         RecoilKiller.ModRef.recoil = RecoilKiller.OldRecoil
@@ -873,25 +862,25 @@ function RecoilKiller.Shutdown()
     RecoilKiller.Started = false
 end
 
--- =========================================================================
--- // Anti spread (Rage -> "Anti spread"): убрать разброс полностью
--- =========================================================================
--- Разброс в Project Real генерируется функцией getRayDirections из атрибута
--- "spread" (Constants.SPREAD_ATTRIBUTE, Vector2). КРИТИЧНО: в BlasterController:shoot()
---   local spread = self.blaster:GetAttribute("spread")
---   if not self.isZoomedIn then spread = spread + 4 end  -- без прицела +4!
--- Поэтому простого клампа атрибута мало: без прицела игра всё равно добавляет +4.
--- Решение (2 слоя, оба live по чекбоксу AimbotAntiSpread):
---   1) hookfunction(getRayDirections) -> все пули строго в центр прицела.
---      Убирает и базовый спред, и "+4" без прицела. (главное)
---   2) клампим атрибут "spread" к крошечному ненулевому Vector2 (запасной слой).
--- При выключении чекбокса перехват снимается и атрибуты восстанавливаются.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 local NoSpread = {
     Started = false,
-    ToolCache = {},     -- tool -> { [holder] = original }
+    ToolCache = {},      
     LastTool = nil,
-    -- перехват getRayDirections (убирает +4 спреда без прицела)
-    RayModRef = nil,    -- возврат require(getRayDirections)
+     
+    RayModRef = nil,     
     OldRayDirections = nil,
     RaysPatched = false,
 }
@@ -904,7 +893,7 @@ local function nsActive()
 end
 
 local function nsIsClampable(value)
-    -- принимаем только Vector2/таблицу (как игра их хранит) — числа не трогаем
+     
     return typeof(value) == "Vector2" or type(value) == "table"
 end
 
@@ -938,7 +927,7 @@ local function nsRestoreTool(tool)
     NoSpread.ToolCache[tool] = nil
 end
 
--- найти и закэшировать модуль getRayDirections
+ 
 local function nsFindRayMod()
     if NoSpread.RayModRef then
         return NoSpread.RayModRef
@@ -958,10 +947,10 @@ local function nsFindRayMod()
     return nil
 end
 
--- getRayDirections без разброса: возвращаем все лучи строго в центр прицела.
--- Это убирает и базовый спред, и тот самый "+4", который игра добавляет,
--- когда прицел НЕ открыт (isZoomedIn=false). Оригинальная сигнатура:
---   getRayDirections(cameraCFrame, rayCount, spreadRadians, seed) -> array of Vector3
+ 
+ 
+ 
+ 
 local function nsNoSpreadRays(cameraCFrame, rayCount, spreadRadians, seed)
     local dir = cameraCFrame.LookVector
     local out = {}
@@ -971,7 +960,7 @@ local function nsNoSpreadRays(cameraCFrame, rayCount, spreadRadians, seed)
     return out
 end
 
--- найти функцию getRayDirections через filtergc (она уже захвачена игрой)
+ 
 local function nsFindRayFn()
     if NoSpread.RayModRef then
         return NoSpread.RayModRef
@@ -985,7 +974,7 @@ local function nsFindRayFn()
     return nil
 end
 
--- применить перехват (hookfunction), если чекбокс включён
+ 
 local function nsPatchRays()
     if NoSpread.RaysPatched then return end
     local fn = nsFindRayFn()
@@ -996,7 +985,7 @@ local function nsPatchRays()
     end)
 end
 
--- восстановить оригинальную getRayDirections
+ 
 local function nsUnpatchRays()
     if not NoSpread.RaysPatched then return end
     pcall(function()
@@ -1009,7 +998,7 @@ end
 local function nsUpdate()
     local on = nsActive()
 
-    -- перехват getRayDirections (убирает спред и "+4" без прицела)
+     
     if on then
         nsPatchRays()
     else
@@ -1019,7 +1008,7 @@ local function nsUpdate()
     local char = LocalPlayer.Character
     local tool = on and char and char:FindFirstChildOfClass("Tool") or nil
 
-    -- смена оружия / выключение -> восстановить оригиналы прошлого
+     
     if NoSpread.LastTool and NoSpread.LastTool ~= tool then
         nsRestoreTool(NoSpread.LastTool)
     end
@@ -1029,7 +1018,7 @@ local function nsUpdate()
         return
     end
 
-    -- запомнить оригиналы при первом контакте с этим оружием
+     
     if not NoSpread.ToolCache[tool] then
         local saved = {}
         for holder in pairs(nsCollectHolders(tool)) do
@@ -1038,7 +1027,7 @@ local function nsUpdate()
         NoSpread.ToolCache[tool] = saved
     end
 
-    -- заклампить разброс к крошечному ненулевому значению
+     
     local saved = NoSpread.ToolCache[tool]
     for holder in pairs(saved) do
         local current = holder:GetAttribute(NS_ATTR)
@@ -1049,7 +1038,7 @@ local function nsUpdate()
             elseif type(current) == "table" then
                 x, y = current.X or 0, current.Y or 0
             end
-            -- ставим только если ещё не закламплено (чтобы не дёргать каждый кадр)
+             
             if x ~= NS_CLAMP.X or y ~= NS_CLAMP.Y then
                 pcall(function()
                     holder:SetAttribute(NS_ATTR, NS_CLAMP)
@@ -1082,22 +1071,22 @@ function NoSpread.Shutdown()
     NoSpread.Started = false
 end
 
--- =========================================================================
--- // Air shot (Rage -> "Air shot"): стрельба в воздухе
--- =========================================================================
--- Игра (Project Real, BlasterController:canShoot) запрещает стрелять, пока
--- гуманоид в воздухе: canShoot ставит humanoid=true, если состояние Jumping
--- или Freefall, и требует `not humanoid`, чтобы вернуть true. Из-за этого
--- в прыжке/падении оружие молчит.
--- Решение: перехватываем метод canShoot у модуля BlasterController (через
--- require) и, когда чекбокс "Air shot" (AimbotAirShot) включён, возвращаем
--- ВЕРСИЮ БЕЗ проверки на воздух: все остальные проверки (жив/экипирован/
--- патроны/перезарядка/блокировка стеной/спринт) остаются, но прыжок и
--- падение больше не запрещают стрельбу. При выключении метод восстанавливается.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 local AirShot = {
     Started = false,
-    ModuleRef = nil,   -- возврат require(BlasterController) -> u176
-    OldCanShoot = nil, -- оригинальный canShoot
+    ModuleRef = nil,    
+    OldCanShoot = nil,  
     Patched = false,
 }
 
@@ -1129,8 +1118,8 @@ local function airFindModule()
     return nil
 end
 
--- canShoot без ограничения "в воздухе" (повторяет оригинал, но пропускает
--- проверку humanoid == Jumping/Freefall)
+ 
+ 
 local function airCanShootNoAir(self)
     local SprintController = _G.SprintController
     local sprinting = false

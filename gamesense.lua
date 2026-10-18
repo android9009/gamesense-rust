@@ -22,7 +22,7 @@ local Library
         ConfigFlags = {},
         Connections = {},
         Notifications = {Notifs = {}},
-        OpenElement = {}; -- type: table or userdata
+        OpenElement = {};  
         EasingStyle = Enum.EasingStyle.Quint;
         TweeningSpeed = 0.25;
         AllDropdowns = {};
@@ -220,7 +220,7 @@ local Library
             local IsResizing = false
             local Size
             local InputLost
-            local ParentSize = dim2(0, 400, 0, 300) -- минимальный размер окна
+            local ParentSize = dim2(0, 400, 0, 300)  
             Resizing.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
                     if Library.DragLock then
@@ -333,9 +333,9 @@ local Library
                 Name = properties.Name or "Color",
                 Flag = properties.Flag or properties.Name or "Colorpicker",
                 Callback = properties.Callback or function() end,
-                Color = properties.Color or color(1, 1, 1), -- Default to white color if not provided
+                Color = properties.Color or color(1, 1, 1),  
                 Alpha = properties.Alpha or properties.Transparency or 0,
-                Mode = properties.Mode or "Keypicker"; -- Animation
+                Mode = properties.Mode or "Keypicker";  
                 Open = false,
                 Items = {};
             }
@@ -742,7 +742,7 @@ local Library
         function Library:Themify(instance, theme, property)
             table.insert(themes.utility[theme][property], instance)
         end
-        function Library:SaveGradient(instance, theme) -- instance, tabfill or background, color
+        function Library:SaveGradient(instance, theme)  
             table.insert(themes.gradients[theme], instance)
         end
         function Library:RefreshTheme(theme, color)
@@ -1109,7 +1109,7 @@ local Library
                         BackgroundColor3 = rgb(20, 20, 20)
                     });
             end
-            do -- Other
+            do  
                 Library.Window = Items.Window
                 Library:LoadLayout(Items.Window)
                 Library:Draggify(Items.Window)
@@ -2108,7 +2108,7 @@ local Library
                 Name = properties.Name or "Color",
                 Flag = properties.Flag or properties.Name or "Colorpicker",
                 Callback = properties.Callback or function() end,
-                Color = properties.Color or color(1, 1, 1), -- Default to white color if not provided
+                Color = properties.Color or color(1, 1, 1),  
                 Alpha = properties.Alpha or properties.Transparency or 0,
                 Open = false;
                 Mode = properties.Mode or "Animation";
@@ -3881,8 +3881,8 @@ do
                 end
                 self.Refresh()
                 if not silent and self.Callback then
-                    -- мульти-комбо: передаём ЯВНЫЙ boolean — раньше при снятии галки
-                    -- уходил nil, флаг затирался и лоадер падал в свой дефолт
+                     
+                     
                     if self.Multi then
                         self.Callback(value, self.Selected[value] == true)
                     else
@@ -4509,7 +4509,7 @@ do
                 MakeSlot(side .. part, {
                     Side = side;
                     Anchor = vec2(anchorX, isTop and 1 or 0);
-                    -- Extra breathing room between the three bottom text columns.
+                     
                     Position = dim2(part == "Left" and 0.10 or (part == "Center" and 0.5 or 0.90),
                         not isTop and (part == "Left" and -12 or (part == "Right" and 12 or 0)) or 0,
                         isTop and 0 or 1, isTop and -3 or 3);
@@ -4550,7 +4550,7 @@ do
                 TextColor3 = color or rgb(235, 235, 235);
                 TextStrokeTransparency = 0;
                 BackgroundTransparency = 1;
-                -- Only the visible text owns the mouse hitbox, not the entire slot.
+                 
                 Size = dim2(0, 0, 0, 13);
                 AutomaticSize = Enum.AutomaticSize.X;
                 LayoutOrder = order or 1;
@@ -4592,7 +4592,7 @@ do
                 Ping.TextColor3 = PingSettings.Color
             end
         end
-        -- название оружия мельче остальных флагов — вокруг него свободное место
+         
         local ItemName = MakeText("AK-47", "BottomCenter", rgb(190, 190, 190), 3, 10)
         local ItemSettings = {Text = true}
         Flags.ESPItemText = true
@@ -4695,7 +4695,7 @@ do
                 end
                 Ghost.Visible = true
             end
-            -- Do not depend on Roblox GUI hit ordering between overlapping slots.
+             
             element.BeginPreviewDrag = BeginDrag
         end
         Library:Connection(InputService.InputBegan, function(input)
@@ -4986,7 +4986,7 @@ do
         RefreshGradientVisibility()
         RefreshHealth()
         local NameSection = MakeSection(ContextInline)
-        local DraggingAvatar = false -- avatar slider removed, оставлено для обработчика закрытия контекста
+        local DraggingAvatar = false  
         local _, NameHost = MakeColorRow(NameSection, "Color", 1)
         local NamePicker = LiftPicker(NameHost:Colorpicker({
             Flag = "ESPNameColor";
@@ -5542,8 +5542,8 @@ do
             Flags.AntiUntrusted = state
         end
     })
-    -- FPS-счётчик в правом верхнем углу (активируется тоглом "Low FPS warning").
-    -- Цвет меняется по уровню FPS: белый (высокий) -> жёлтый (средний) -> красный (низкий).
+     
+     
     local LowFPSLabel = Library:Create("TextLabel", {
         Parent = Library.Items;
         Name = "\0";
@@ -5562,7 +5562,7 @@ do
         Visible = false;
         BackgroundColor3 = rgb(255, 255, 255);
     })
-    -- плавный цвет по FPS: >=100 белый, <=30 красный, между ними белый->жёлтый->красный
+     
     local function lowFpsColor(fps)
         local high = 100
         local low = 30
@@ -5593,8 +5593,8 @@ do
             end
         end
     })
-    -- кэшируем последний FPS: текст/цвет обновляем только при изменении значения,
-    -- чтобы не дёргать свойства GUI каждый кадр впустую
+     
+     
     local lastFps = -1
     Library:Connection(RunService.RenderStepped, function(delta)
         if not Flags.LowFPSWarning then
@@ -5721,7 +5721,7 @@ do
         SortOrder = Enum.SortOrder.LayoutOrder;
     })
     local SelectedPlayer = nil
-    local RefreshInfo -- объявляем заранее, используется в колбэках выше по коду
+    local RefreshInfo  
     local Entries = {}
     local function RefreshEntryVisuals()
         for name, entry in Entries do
@@ -5952,9 +5952,9 @@ do
         ClearInfo()
     end
     ClearInfo()
-    -- лоадер пишет сюда данные выбранного игрока:
-    -- data = {Wood = "1250", Metal = "нет информации", Health = "85 / 100", ...}
-    -- data == nil -> очистить панель; ключи без значения -> "-"
+     
+     
+     
     local InfoRowMap = {
         Wood = WoodRow,
         Scrap = ScrapRow,
@@ -6070,7 +6070,7 @@ do
     local SelectedConfig = nil
     local ConfigEntries = {}
     local NameBox
-    local ConfigActions -- заполняется ниже, используется в обработчиках списка
+    local ConfigActions  
     local DefaultFlags = {}
     for flag, value in Flags do
         if type(value) == "table" then
@@ -6334,7 +6334,7 @@ do
     local SelectedScript = nil
     local ScriptEntries = {}
     local RefreshScriptList
-    local OpenScriptInEditor -- задаётся ниже, при создании редактора
+    local OpenScriptInEditor  
     local LuaEnabled = LuaSection:Toggle({Name = "Enabled", Flag = "LuaEnabled", Default = true})
     local LuaUnsafe = LuaSection:Toggle({Name = "Allow unsafe scripts", Flag = "LuaAllowUnsafe"})
     LuaEnabled.Items.Toggle.LayoutOrder = 1

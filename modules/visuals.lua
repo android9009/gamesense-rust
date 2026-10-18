@@ -80,7 +80,7 @@ local function modelPosition(model)
 end
 local function collectChamsParts(model)
     local parts = {}
-    for _, object in ipairs(model:GetDescendants()) do
+    for _, object in ipairs(Entity.GetParts(model)) do
         if object:IsA("BasePart")
             and object.Name ~= "HumanoidRootPart"
             and object.Transparency < 0.99
@@ -152,13 +152,14 @@ local function partIsOccluded(camera, part, character)
     end
     return true
 end
--- Общий флаг: тело локального игрока сейчас скрыто системой LocalTransparency
--- (активен Player overlap или Weapon). Пишется в lpTransparencyApply,
--- читается чамсами локального игрока, чтобы синхронизировать прозрачность заливки.
+ 
+ 
+ 
+local LP_TRANSPARENCY = 0.15
 local localBodyTransparent = false
 
--- alwaysOn: чамсы рисуются ВСЕГДА одним цветом, без visible/wall-логики
--- (для локал плеера: и на открытой местности, и за стеной — всегда сквозь геометрию)
+ 
+ 
 local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFlag, wallColorFlag, visibleStyleFlag, wallStyleFlag, refreshOcclusion, alwaysOn)
     if not Entity.IsAliveModel(model) then
         removeModelChams(model)
@@ -178,9 +179,9 @@ local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFla
     end
     local visibleColor, visibleTransparency = chamsColor(visibleColorFlag, Color3.fromRGB(142, 181, 39))
     local wallColor, wallTransparency = chamsColor(wallColorFlag, Color3.fromRGB(79, 143, 214))
-    -- Локальный игрок (alwaysOn): заливка хайлайта становится прозрачной ТОЛЬКО
-    -- когда тело реально скрыто (LocalTransparency активна — Player overlap/Weapon),
-    -- чтобы чамсы не перекрывали модель впустую, пока тело плотное.
+     
+     
+     
     if alwaysOn and localBodyTransparent then
         visibleTransparency = math.max(visibleTransparency, 0.1)
         wallTransparency = math.max(wallTransparency, 0.1)
@@ -206,9 +207,9 @@ local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFla
             local style = occluded and wallStyle or visibleStyle
 
             if style == "Normal" then
-                -- Normal: модель видна «нормально» — лёгкий тинт (заливка
-                -- прозрачнее, сквозь неё просвечивает сам персонаж) + чёткая
-                -- непрозрачная обводка цвета пикера.
+                 
+                 
+                 
                 Chams.CreatePart(part, {
                     FillColor = color,
                     FillTransparency = math.max(transparency, 0.6),
@@ -218,7 +219,7 @@ local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFla
                     Enabled = true,
                 })
             else
-                -- Flat: плоская сплошная заливка цвета пикера, без обводки.
+                 
                 Chams.CreatePart(part, {
                     FillColor = color,
                     FillTransparency = transparency,
@@ -302,24 +303,24 @@ local function applyTargetChams(target, refreshOcclusion)
     end
 end
 
--- On shot: по факту попадания (сервер сам шлёт клиенту remote Hitmarker /
--- BulletHit) оставляем «гоуст» — замороженную копию цели в позе момента
--- попадания, залитую цветом VisOnShotColor (flat-чамсы, "shot record").
--- Стартует плотной, в последнюю секунду плавно тает. Сквозь стены (Highlight).
--- Триггер — только серверный сигнал попадания, поэтому нет ни ложных
--- срабатываний (промах), ни пропусков при разбросе (спред).
+ 
+ 
+ 
+ 
+ 
+ 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local OnShot = {
-    Ghosts = {},         -- массив {Model, Highlight, Parts, Expiry}
-    HitConns = {},       -- список RBXScriptConnection к remote'ам попадания
+    Ghosts = {},          
+    HitConns = {},        
     Hooked = false,
-    LastModelTime = {}   -- model -> tick() последнего гоуста (защита от дублей)
+    LastModelTime = {}    
 }
-local ONSHOT_DURATION = 3  -- сколько живёт гоуст (сек)
-local ONSHOT_FADE = 1      -- длительность затухания в конце (сек)
-local MAX_GHOSTS = 4       -- лимит одновременных гоустов
-local HIT_REMOTES = {"Hitmarker", "BulletHit"}  -- имена remote'ов попадания
+local ONSHOT_DURATION = 3   
+local ONSHOT_FADE = 1       
+local MAX_GHOSTS = 4        
+local HIT_REMOTES = {"Hitmarker", "BulletHit"}   
 
 local function smoothstep(t)
     return t * t * (3 - 2 * t)
@@ -380,7 +381,7 @@ local function spawnGhost(model)
     }
 end
 
--- рекурсивный поиск remote'а по имени в ReplicatedStorage
+ 
 local function findRemoteByName(name)
     local rs = ReplicatedStorage
     local function scan(node)
@@ -400,11 +401,11 @@ local function findRemoteByName(name)
     return scan(rs)
 end
 
--- ближайшая живая модель (игрок или бот) к мировой точке
--- on-shot принимает цель даже если она только что умерла от выстрела
--- (хедшот/летальный урон: health уже 0, но модель ещё есть) - это подтверждённое
--- попадание, гоуст должен рисоваться. Главное - чтобы это был чужой персонаж
--- с Humanoid и корнем, а не наш и не случайный объект.
+ 
+ 
+ 
+ 
+ 
 local function isShotTargetModel(m)
     if not m or not m:IsA("Model") then return false end
     if m == LocalPlayer.Character then return false end
@@ -413,15 +414,15 @@ local function isShotTargetModel(m)
     return humanoid ~= nil and root ~= nil
 end
 
--- ближайший к точке персонаж (живой ИЛИ только что убитый) - ищем по ЛЮБОЙ
--- части тела (голова, конечности и т.д.), а не только по корню, чтобы on-shot
--- чамс рисовался при попадании в любую часть, а не только в туловище.
+ 
+ 
+ 
 local function nearestLivingModel(pos)
     local best, bestDist
     local function consider(model)
-        -- ищем ближайшую к точке ЛЮБУЮ часть тела (голова, конечности и т.д.)
+         
         local minD
-        for _, obj in ipairs(model:GetDescendants()) do
+        for _, obj in ipairs(Entity.GetParts(model)) do
             if obj:IsA("BasePart") then
                 local d = (obj.Position - pos).Magnitude
                 if not minD or d < minD then minD = d end
@@ -444,7 +445,7 @@ local function nearestLivingModel(pos)
     return nil
 end
 
--- вытащить цель из аргументов remote'а (Player / Model / BasePart / позиция)
+ 
 local function locateTarget(args)
     for _, v in ipairs(args) do
         local t = typeof(v)
@@ -468,7 +469,7 @@ local function locateTarget(args)
     return nil
 end
 
--- фолбэк: если аргументы remote'а не несут цель - ищем её под прицелом
+ 
 local function raycastTarget()
     local camera = Workspace.CurrentCamera
     local char = LocalPlayer.Character
@@ -488,8 +489,8 @@ local function spawnGhostOnHit(args)
     if flag("VisOnShot", false) ~= true then return end
     local target = locateTarget(args) or raycastTarget()
     if not target then return end
-    -- защита от дублей: не спавним повторный гоуст одной и той же модели
-    -- слишком часто (одно попадание = один гоуст)
+     
+     
     local nowT = tick()
     if OnShot.LastModelTime[target] and nowT - OnShot.LastModelTime[target] < 0.15 then return end
     OnShot.LastModelTime[target] = nowT
@@ -503,18 +504,25 @@ local function spawnGhostOnHit(args)
     end
 end
 
--- цепляемся к серверным сигналам попадания (один раз)
+ 
 local function ensureHooked()
-    if OnShot.Hooked then return end
-    OnShot.Hooked = true
+    if OnShot.Hooked or os.clock() < (OnShot.NextScan or 0) then return end
+    OnShot.NextScan = os.clock() + 1
+    OnShot.RemoteSet = OnShot.RemoteSet or {}
+    local found = 0
     for _, name in ipairs(HIT_REMOTES) do
         local remote = findRemoteByName(name)
-        if remote and remote.OnClientEvent then
-            OnShot.HitConns[#OnShot.HitConns + 1] = remote.OnClientEvent:Connect(function(...)
-                spawnGhostOnHit({...})
-            end)
+        if remote and remote:IsA("RemoteEvent") then
+            found += 1
+            if not OnShot.RemoteSet[remote] then
+                OnShot.RemoteSet[remote] = true
+                OnShot.HitConns[#OnShot.HitConns + 1] = remote.OnClientEvent:Connect(function(...)
+                    spawnGhostOnHit({...})
+                end)
+            end
         end
     end
+    OnShot.Hooked = found == #HIT_REMOTES
 end
 
 local function OnShotUpdate()
@@ -536,10 +544,10 @@ local function OnShotUpdate()
             local fade = remaining < ONSHOT_FADE and smoothstep(remaining / ONSHOT_FADE) or 1
             local alpha = 1 - fade
 
-            -- Чем ближе текущая модель противника к сохранённому shot-record,
-            -- тем прозрачнее становится сам ghost, чтобы они не наслаивались.
-            -- На расстоянии 0 studs ghost почти скрыт, после 12 studs эффект
-            -- близости полностью исчезает.
+             
+             
+             
+             
             local proximityAlpha = 0
             if g.Target and g.Target.Parent and g.Model and g.Model.Parent then
                 local targetRoot = findRootPart(g.Target)
@@ -563,30 +571,36 @@ end
 
 function ChamsRuntime.Apply(deltaTime)
     OnShotUpdate()
+    local enemies = flag("VisPlayer", false) == true or flag("VisPlayerWall", false) == true
+    local teammates = flag("VisTeammate", false) == true or flag("VisTeammateWall", false) == true
+    local own = flag("VisLocalPlayer", false) == true
+    if not enemies and not teammates and not own then
+        if not ChamsRuntime.Idle then
+            Chams.ClearAll()
+            table.clear(modelPartsCache)
+            table.clear(ChamsRuntime.Bots)
+            ChamsRuntime.Idle = true
+        end
+        return
+    end
+    ChamsRuntime.Idle = false
     local targets = {}
     for _, player in ipairs(Players:GetPlayers()) do
         local kind = player == LocalPlayer and "local" or (Entity.IsEnemy(player) and "enemy" or "teammate")
-        addChamsTarget(targets, player.Character, kind, player)
-    end
-    ChamsRuntime.BotScanTimer -= deltaTime or (1 / 60)
-    if ChamsRuntime.BotScanTimer <= 0 then
-        ChamsRuntime.BotScanTimer = 0.5
-        local bots = {}
-        for _, bot in ipairs(Entity.GetNPCs()) do
-            bots[bot] = true
+        if (kind == "local" and own) or (kind == "enemy" and enemies) or (kind == "teammate" and teammates) then
+            addChamsTarget(targets, player.Character, kind, player)
         end
-        ChamsRuntime.Bots = bots
     end
-    for bot in pairs(ChamsRuntime.Bots) do
-        addChamsTarget(targets, bot, "bot")
+    if enemies then
+        for _, bot in ipairs(Entity.GetNPCs()) do addChamsTarget(targets, bot, "bot") end
     end
     local camera = Workspace.CurrentCamera
     if camera then
+        local position = camera.CFrame.Position
+        for _, target in ipairs(targets) do target.Distance = (modelPosition(target.Model) - position).Magnitude end
         table.sort(targets, function(a, b)
-            if a.Kind == "local" then return true end
-            if b.Kind == "local" then return false end
-            return (modelPosition(a.Model) - camera.CFrame.Position).Magnitude
-                < (modelPosition(b.Model) - camera.CFrame.Position).Magnitude
+            if (a.Kind == "local") ~= (b.Kind == "local") then return a.Kind == "local" end
+            return a.Distance < b.Distance
         end)
     end
     local activeModels = {}
@@ -636,6 +650,10 @@ function ChamsRuntime.Shutdown()
     ChamsRuntime.Bots = {}
     ChamsRuntime.BotScanTimer = 0
     ChamsRuntime.OcclusionTimer = 0
+    ChamsRuntime.Idle = false
+    OnShot.Hooked = false
+    OnShot.RemoteSet = nil
+    OnShot.NextScan = nil
     ChamsRuntime.Started = false
 end
 function ChamsRuntime.Start()
@@ -650,27 +668,26 @@ function ChamsRuntime.Start()
         table.insert(Library.UnloadHooks, ChamsRuntime.Shutdown)
     end
 end
-----------------------------------------------------------------------
--- Local player transparency (Chams -> "Local player transparency"):
---   Player overlap — тело становится прозрачным, когда камера упирается
---   в него вплотную ИЛИ когда моя модель пересекается с другим игроком/ботом
---   (чтобы не загораживало экран); отвёл камеру / разошёлся — тело вернулось
---   Weapon — держишь ЛЮБОЙ инструмент в руках -> прозрачнеет ТЕЛО персонажа
---   (сам инструмент не трогаем вообще)
--- Работает через LocalTransparencyModifier: Transparency игры не трогаем
--- -> конфликтов с игрой нет, форс-шоу исключён
-----------------------------------------------------------------------
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 local LocalTransparency = {Started = false}
-local lpAppliedParts = {}   -- part -> original LocalTransparencyModifier (значение до того, как мы тронули)
-local lpBots = {}           -- model -> true: кэш NPC (скан раз в 0.5с, обход Workspace дорогой)
+local lpAppliedParts = {}    
+local lpBots = {}            
 local lpBotScanTimer = 0
 
-local LP_TRANSPARENCY = 0.15            -- степень прозрачности (небольшая — тело остаётся плотным, слегка просвечивает)
-local LP_PLAYER_OVERLAP_DISTANCE = 2    -- моя модель пересекается с чужой (только когда реально вплотную)
+local LP_PLAYER_OVERLAP_DISTANCE = 2     
 
--- Надёжное чтение multi-select флага: его значение — массив строк выбранных
--- опций (напр. {"Player overlap"}), но на случай кривого executor'а допускаем
--- и обычную строку. Не полагаемся на table.find (в части executor'ов его нет).
+ 
+ 
+ 
 local function lpHasOption(option)
     local v = Library and Library.Flags and Library.Flags["VisLocalPlayerTransparency"]
     if type(v) ~= "table" then
@@ -705,9 +722,9 @@ local function lpScanBots(deltaTime)
     lpBots = bots
 end
 
--- Единая точка принятия решения: true -> тело нужно сделать прозрачным.
--- Все условия читаются заново каждый кадр, поэтому переключение флагов
--- в меню действует мгновенно.
+ 
+ 
+ 
 local function lpShouldTransparent(deltaTime)
     local overlapOn = lpHasOption("Player overlap")
     local weaponOn = lpHasOption("Weapon")
@@ -721,7 +738,7 @@ local function lpShouldTransparent(deltaTime)
         return false
     end
 
-    -- Условие 1 (Weapon): держим любой инструмент в руках
+     
     if weaponOn and character:FindFirstChildOfClass("Tool") then
         return true
     end
@@ -732,14 +749,14 @@ local function lpShouldTransparent(deltaTime)
 
     local myRoot = findRootPart(character)
 
-    -- Условие 2 (Player overlap): камера реально «воткнулась» в тело
-    -- (зум вплотную / камеру затолкало в стену). Считаем оверлапом только
-    -- когда камера оказалась ВНУТРИ части тела. Head пропускаем — в 1-м лице
-    -- камера всегда сидит в голове, это не должно считаться оверлапом.
+     
+     
+     
+     
     local camera = Workspace.CurrentCamera
     if myRoot and camera then
         local camPos = camera.CFrame.Position
-        for _, object in ipairs(character:GetDescendants()) do
+        for _, object in ipairs(Entity.GetParts(character)) do
             if object:IsA("BasePart")
                 and object.Name ~= "Head"
                 and object.Transparency < 1
@@ -750,7 +767,7 @@ local function lpShouldTransparent(deltaTime)
         end
     end
 
-    -- Условие 3 (Player overlap): моя модель пересекается с другим игроком/ботом
+     
     if myRoot then
         local myPos = myRoot.Position
         for _, player in ipairs(Players:GetPlayers()) do
@@ -775,11 +792,11 @@ local function lpShouldTransparent(deltaTime)
     return false
 end
 
--- Собрать все части тела (BasePart), которые можно прятать:
--- инструменты и их детали не трогаем
+ 
+ 
 local function lpCollectBodyParts(character)
     local wanted = {}
-    for _, object in ipairs(character:GetDescendants()) do
+    for _, object in ipairs(Entity.GetParts(character)) do
         if object:IsA("BasePart")
             and object.Transparency < 1
             and not object:FindFirstAncestorOfClass("Tool") then
@@ -789,11 +806,11 @@ local function lpCollectBodyParts(character)
     return wanted
 end
 
--- Снимаем прозрачность со всех частей, что мы трогали: восстанавливаем
--- ИСХОДНОЕ значение каждой части (а не захардкоженный 0). Это гарантирует,
--- что после убирания оружия тело вернётся в норму, даже если игра за это
--- время поменяла прозрачность (точное сравнение с LP_TRANSPARENCY раньше
--- «не замечало» дрейф значения и оставляло тело прозрачным).
+ 
+ 
+ 
+ 
+ 
 local function lpClearApplied()
     for part, original in pairs(lpAppliedParts) do
         if part.Parent then
@@ -806,7 +823,7 @@ end
 local function lpApplyTransparency(character)
     local wanted = lpCollectBodyParts(character)
 
-    -- 1) убрать с частей, которые больше не должны быть прозрачными
+     
     for part, original in pairs(lpAppliedParts) do
         if not wanted[part] then
             if part.Parent then
@@ -816,9 +833,9 @@ local function lpApplyTransparency(character)
         end
     end
 
-    -- 2) навесить на нужные. Поднимаем до нашей прозрачности, только если
-    -- сейчас часть видна плотнее; если игра сама скрыла её (модификатор выше) — не трогаем.
-    -- Исходное значение запоминаем один раз — на нём потом и откатываемся.
+     
+     
+     
     for part in pairs(wanted) do
         if lpAppliedParts[part] == nil then
             lpAppliedParts[part] = part.LocalTransparencyModifier
@@ -830,7 +847,7 @@ local function lpApplyTransparency(character)
 end
 
 local function lpTransparencyApply(deltaTime)
-    -- любой сбой логики не должен спамить ошибками в консоль каждый кадр
+     
     local ok, shouldApply = pcall(lpShouldTransparent, deltaTime)
     local character = LocalPlayer.Character
     if not ok or shouldApply ~= true or not character or not character.Parent then
@@ -855,8 +872,8 @@ end
 function LocalTransparency.Start()
     if LocalTransparency.Started then return end
     LocalTransparency.Started = true
-    -- BindToRenderStep с большим приоритетом = выполняемся ПОСЛЕ камеры
-    -- (камера сбрасывает модификатор — мы пишем поверх), фолбэк — RenderStepped
+     
+     
     local ok = pcall(function()
         RunService:BindToRenderStep("GSLocalTransparency", 2000, lpTransparencyApply)
     end)
@@ -1009,9 +1026,9 @@ local function apply()
     local mode = flag("VisBrightnessMode", "Off")
     local ambient = flag("VisAmbientColor", rgb(128, 128, 128))
     local night = flag("VisBrightnessColor", rgb(60, 80, 140))
-    -- прозрачность пикеров: 0 = выбранный цвет действует полностью,
-    -- 1 = как будто выключено: амбиент возвращается к оригинальному
-    -- освещению игры (по снапшоту), ночник теряет цвет, оставляя затемнение
+     
+     
+     
     local ambientStrength = 1 - pickerAlpha("VisAmbientColor")
     local nightStrength = 1 - pickerAlpha("VisBrightnessColor")
     local ambientIn = snap.Ambient:Lerp(ambient, ambientStrength)
@@ -1123,6 +1140,9 @@ do
     local bodyTransparency = {}
     local thirdpersonMode = nil
     local utilityZoomLocked = false
+    local thirdPersonParams = RaycastParams.new()
+    thirdPersonParams.FilterType = Enum.RaycastFilterType.Exclude
+    local thirdPersonCharacter, thirdPersonCamera
     local WALLMAT = {}
     for _, name in ipairs({
         "Brick", "Concrete", "Cobblestone", "Rock", "Slate", "WoodPlanks",
@@ -1131,10 +1151,8 @@ do
     }) do
         pcall(function() WALLMAT[Enum.Material[name]] = true end)
     end
-    local function isCombatWeaponEquipped()
-        local character = LocalPlayer.Character
-        local tool = character and character:FindFirstChildOfClass("Tool")
-        if not tool then return false end
+    local weaponKinds = setmetatable({}, {__mode = "k"})
+    local function classifyCombatWeapon(tool)
         local name = string.lower(tool.Name):gsub("[%s%p_]", "")
         local excluded = {
             "hammer", "киянка", "c4", "satchel", "satchelcharge",
@@ -1172,6 +1190,18 @@ do
         end
         return false
     end
+    local function isCombatWeaponEquipped()
+        local character = LocalPlayer.Character
+        local tool = character and character:FindFirstChildOfClass("Tool")
+        if not tool then return false end
+        local record = weaponKinds[tool]
+        local now = os.clock()
+        if not record or now >= record.Expires then
+            record = {Value = classifyCombatWeapon(tool), Expires = now + 0.5}
+            weaponKinds[tool] = record
+        end
+        return record.Value
+    end
     local function restoreCamera()
         local current = Workspace.CurrentCamera
         if current and fovApplied then
@@ -1190,7 +1220,7 @@ do
     local function restoreGlass()
         for part in pairs(touched) do
             if part.Parent then
-                part.LocalTransparencyModifier = 0
+                part.LocalTransparencyModifier = touched[part]
             end
         end
         table.clear(touched)
@@ -1207,7 +1237,7 @@ do
     local function forceOwnBodyVisible()
         local character = LocalPlayer.Character
         if not character then return end
-        for _, object in ipairs(character:GetDescendants()) do
+        for _, object in ipairs(Entity.GetParts(character)) do
             if object:IsA("BasePart") and not object:FindFirstAncestorOfClass("Tool") then
                 if bodyTransparency[object] == nil then
                     bodyTransparency[object] = object.LocalTransparencyModifier
@@ -1255,13 +1285,13 @@ do
             end
             if kind then
                 found[part] = true
+                if touched[part] == nil then touched[part] = part.LocalTransparencyModifier end
                 part.LocalTransparencyModifier = kind == "wall" and walls or props
-                touched[part] = true
             end
         end
         for part in pairs(touched) do
             if not found[part] then
-                if part.Parent then part.LocalTransparencyModifier = 0 end
+                if part.Parent then part.LocalTransparencyModifier = touched[part] end
                 touched[part] = nil
                 cache[part] = nil
             end
@@ -1317,10 +1347,13 @@ do
             end)
             if combatWeapon then
                 local dist = math.clamp(flag("VisThirdpersonDistance", 10), 0.5, 128)
-                local params = RaycastParams.new()
-                params.FilterType = Enum.RaycastFilterType.Exclude
-                params.FilterDescendantsInstances = {LocalPlayer.Character, current}
-                local hit = Workspace:Raycast(current.CFrame.Position, -current.CFrame.LookVector * dist, params)
+                if thirdPersonCharacter ~= LocalPlayer.Character or thirdPersonCamera ~= current then
+                    thirdPersonCharacter, thirdPersonCamera = LocalPlayer.Character, current
+                    local filter = {current}
+                    if thirdPersonCharacter then filter[#filter + 1] = thirdPersonCharacter end
+                    thirdPersonParams.FilterDescendantsInstances = filter
+                end
+                local hit = Workspace:Raycast(current.CFrame.Position, -current.CFrame.LookVector * dist, thirdPersonParams)
                 current.CFrame *= CFrame.new(0, 0, hit and math.max(hit.Distance - 0.35, 0) or dist)
             end
         else

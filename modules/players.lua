@@ -14,24 +14,19 @@ function PlayerList.Apply()
         api.SetInfo(nil)
         return
     end
-    local target = nil
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Name == selected then
-            target = player
-            break
-        end
-    end
+    local target = Players:FindFirstChild(selected)
+    if target and not target:IsA("Player") then target = nil end
     if not target then
         api.SetInfo(nil)
         return
     end
     local data = {}
-    -- ресурсы: нет данных -> "нет информации"
+     
     local resources = ESP.ReadResources and ESP.ReadResources(target) or nil
     data.Wood = resources and resources.Wood ~= nil and tostring(resources.Wood) or NO_INFO
     data.Metal = resources and resources.Metal ~= nil and tostring(resources.Metal) or NO_INFO
     data.Scrap = resources and resources.Scrap ~= nil and tostring(resources.Scrap) or NO_INFO
-    -- состояние
+     
     local character = target.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local root = character and findRootPart(character)
@@ -47,7 +42,7 @@ function PlayerList.Apply()
         data.Weapon = NO_INFO
     end
     data.Team = target.Team and target.Team.Name or "-"
-    -- позиция
+     
     if root then
         local pos = root.Position
         data.Coordinates = string.format("%d, %d, %d", pos.X, pos.Y, pos.Z)
@@ -104,7 +99,7 @@ if Library then
     table.insert(Library.UnloadHooks, PlayerList.Shutdown)
 end
 
------------------------------------------------------------------------
---- Movement: Fly, Speedhack, Click teleport, Infinite jump,
---- Jump power, Gravity, Walk on platform
------------------------------------------------------------------------
+ 
+ 
+ 
+ 

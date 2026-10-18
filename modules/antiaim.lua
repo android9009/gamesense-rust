@@ -4,28 +4,26 @@ function AntiAim.Update(deltaTime)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     local root = findRootPart(char)
 
+    if AntiAim.OriginalHumanoid and AntiAim.OriginalHumanoid ~= hum then
+        if AntiAim.OriginalHumanoid.Parent then AntiAim.OriginalHumanoid.AutoRotate = AntiAim.OriginalAutoRotate end
+        AntiAim.OriginalHumanoid, AntiAim.OriginalAutoRotate = nil, nil
+    end
     if not enabled or not hum or hum.Health <= 0 or not root then
-        if hum then
-            if AntiAim.OriginalAutoRotate ~= nil then
-                hum.AutoRotate = AntiAim.OriginalAutoRotate
-                AntiAim.OriginalAutoRotate = nil
-            elseif not hum.AutoRotate then
-                hum.AutoRotate = true
-            end
+        if AntiAim.OriginalHumanoid then
+            if AntiAim.OriginalHumanoid.Parent then AntiAim.OriginalHumanoid.AutoRotate = AntiAim.OriginalAutoRotate end
+            AntiAim.OriginalHumanoid, AntiAim.OriginalAutoRotate = nil, nil
         end
-        AntiAim.PinnedPosition = nil
-        AntiAim.PinnedCharacter = nil
+        AntiAim.PinnedPosition, AntiAim.PinnedCharacter = nil, nil
         return
     end
-
-    if AntiAim.OriginalAutoRotate == nil then
-        AntiAim.OriginalAutoRotate = hum.AutoRotate
+    if not AntiAim.OriginalHumanoid then
+        AntiAim.OriginalHumanoid, AntiAim.OriginalAutoRotate = hum, hum.AutoRotate
     end
     hum.AutoRotate = false
 
-    -- Фиксация позиции: персонаж только вращается, но не двигается.
-    -- Точка пина берётся при включении AA (или при респауне) и держится,
-    -- пока игрок стоит. Идём/прыгаем/падаем — пин едет за игроком.
+     
+     
+     
     if AntiAim.PinnedCharacter ~= char then
         AntiAim.PinnedCharacter = char
         AntiAim.PinnedPosition = root.Position
@@ -38,7 +36,7 @@ function AntiAim.Update(deltaTime)
     if pinMoving then
         AntiAim.PinnedPosition = root.Position
     else
-        -- стоим: гасим инерцию/толчки, чтобы спин не таскал персонажа
+         
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
     end
@@ -93,18 +91,18 @@ function AntiAim.Update(deltaTime)
         local off = tonumber(flag("AAYawOffset", 0)) or 0
         yawOffset = math.rad(180 + off)
     elseif yawValue == "Spin" then
-        -- Spin offset: 0 = НЕ крутит. Знак = направление: минус = влево, плюс = вправо.
-        -- Модуль = скорость: чем больше число, тем быстрее крутит в свою сторону.
+         
+         
         local spinOff = tonumber(flag("AASpinOffset", 0)) or 0
         yawOffset = 0
         if spinOff ~= 0 then
-            local rate = spinOff * 18 -- °/с на единицу слайдера (1 = 3 RPM, 180 = 540 RPM)
+            local rate = spinOff * 18  
             yawOffset = math.rad((os.clock() * rate) % 360)
         end
     elseif yawValue == "Jitter" then
-        -- Jitter: j1/j2 — углы со знаком (минус = влево, плюс = вправо от базы).
-        -- AAJitSpeed — это ТИКИ перед сменой джиттера: 1т = самый быстрый
-        -- (смена каждый кадр), больше тиков = медленнее.
+         
+         
+         
         local j1 = tonumber(flag("AAJitOff1", 0)) or 0
         local j2 = tonumber(flag("AAJitOff2", 0)) or 0
         local ticks = math.max(1, math.floor((tonumber(flag("AAJitSpeed", 5)) or 5) + 0.5))
@@ -118,7 +116,7 @@ function AntiAim.Update(deltaTime)
     end
 
     local finalYaw = baseYaw + yawOffset
-    -- позиция из пина (стоим — зафиксирована), меняем только ориентацию
+     
     local pinned = AntiAim.PinnedPosition or root.Position
     root.CFrame = CFrame.new(pinned) * CFrame.Angles(0, finalYaw, 0)
 end
@@ -135,17 +133,10 @@ end
 
 function AntiAim.Shutdown()
     TaskManager.RemoveConnection("AntiAimApply")
-    if LocalPlayer.Character then
-        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if hum then
-            if AntiAim.OriginalAutoRotate ~= nil then
-                hum.AutoRotate = AntiAim.OriginalAutoRotate
-                AntiAim.OriginalAutoRotate = nil
-            elseif not hum.AutoRotate then
-                hum.AutoRotate = true
-            end
-        end
+    if AntiAim.OriginalHumanoid and AntiAim.OriginalHumanoid.Parent then
+        AntiAim.OriginalHumanoid.AutoRotate = AntiAim.OriginalAutoRotate
     end
+    AntiAim.OriginalHumanoid, AntiAim.OriginalAutoRotate = nil, nil
     AntiAim.Started = false
     aaJitterTicks = 0
     aaJitterFlip = false

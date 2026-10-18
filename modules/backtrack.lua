@@ -1,7 +1,7 @@
 local BacktrackChams = {
     Started = false,
-    History = {},   -- targetKey -> array of {Time, Frames = { [charPart] = CFrame }}
-    Ghosts = {},    -- targetKey -> { Model, Highlight, PartPairs = { {Source = part, Ghost = ghostPart}... }, RootSource, RootGhost, Target = character }
+    History = {},    
+    Ghosts = {},     
     MaxSeconds = 1.5,
     Folder = nil
 }
@@ -11,21 +11,21 @@ local function btActive()
     if flag("VisBacktrack", false) ~= true then
         return false, 0
     end
-    -- 1. Если включен Rage Aimbot + Backtrack
+     
     local rageAimbot = flag("AimbotEnabled", false) == true
     local rageBacktrack = flag("AimbotBacktrack", false) == true
     if rageAimbot and rageBacktrack then
         local ms = tonumber(flag("AimbotBacktrackMs", 200)) or 200
         return true, math.clamp(ms, 0, 1200)
     end
-    -- 2. Если включен Legit Aimbot + Backtrack
+     
     local legitAimbot = bindOn(flag("LegitAimbotEnabled", false) == true, "LegitAimbotBind")
     local legitBacktrack = flag("OtherBacktrack", false) == true
     if legitAimbot and legitBacktrack then
         local ms = tonumber(flag("OtherBacktrackTime", 200)) or 200
         return true, math.clamp(ms, 0, 1200)
     end
-    -- Если ни один из режимов аимбота с бектреком не включен — бектрек чамсы не активны
+     
     return false, 0
 end
 
@@ -144,7 +144,7 @@ local function btMakeGhost(targetKey, character)
     local rootGhost = nil
 
     if ghost then
-        -- Очищаем логику и физику из клонированного персонажа
+         
         for _, obj in ipairs(ghost:GetDescendants()) do
             if obj:IsA("Humanoid") or obj:IsA("AnimationController")
                 or obj:IsA("Script") or obj:IsA("LocalScript")
@@ -167,27 +167,27 @@ local function btMakeGhost(targetKey, character)
             end
         end
 
-        -- Сопоставляем части тела оригинала с частями клона
-        local usedGhosts = {}
-        for _, charPart in ipairs(character:GetDescendants()) do
-            if charPart:IsA("BasePart") and not charPart:FindFirstAncestorOfClass("Tool") then
-                for _, ghostPart in ipairs(ghost:GetDescendants()) do
-                    if ghostPart:IsA("BasePart") and not usedGhosts[ghostPart] and ghostPart.Name == charPart.Name then
-                        usedGhosts[ghostPart] = true
-                        partPairs[#partPairs + 1] = {
-                            Source = charPart,
-                            Ghost = ghostPart
-                        }
-                        if charPart == rootSource then
-                            rootGhost = ghostPart
-                        end
-                        break
-                    end
+         
+        local byName = {}
+        for _, ghostPart in ipairs(ghost:GetDescendants()) do
+            if ghostPart:IsA("BasePart") then
+                local bucket = byName[ghostPart.Name]
+                if not bucket then bucket = {}; byName[ghostPart.Name] = bucket end
+                bucket[#bucket + 1] = ghostPart
+            end
+        end
+        for _, charPart in ipairs(Entity.GetParts(character)) do
+            if not charPart:FindFirstAncestorOfClass("Tool") then
+                local bucket = byName[charPart.Name]
+                local ghostPart = bucket and table.remove(bucket)
+                if ghostPart then
+                    partPairs[#partPairs + 1] = {Source = charPart, Ghost = ghostPart}
+                    if charPart == rootSource then rootGhost = ghostPart end
                 end
             end
         end
     else
-        -- Фоллбэк: ручное создание партов
+         
         ghost = Instance.new("Model")
         for _, charPart in ipairs(character:GetDescendants()) do
             if charPart:IsA("BasePart") and not charPart:FindFirstAncestorOfClass("Tool") then
@@ -256,9 +256,9 @@ local function btCapture(targetKey, ghostData, now)
 
     local frame = {Time = now, RootPos = nil, CFrames = {}}
 
-    -- Пока цель сдвинута в позицию чамса (reposition), пишем снимок РЕАЛЬНЫХ
-    -- позиций (сделан до сдвига), а не сдвинутую — иначе история забивается
-    -- "поддельным" местом и чамс/прицел замирают на одном тике.
+     
+     
+     
     local saved = ghostData.Target and ReposActive[ghostData.Target]
     if saved and saved.OldCFrames then
         for _, pair in ipairs(ghostData.PartPairs) do
@@ -300,33 +300,31 @@ local function btCapture(targetKey, ghostData, now)
     end
 end
 
--- CS:GO-стиль: сканируем окно истории и выбираем кадр, чья позиция реально
--- видима с камеры (не за стеной) — такой кадр можно пробить пулей. Берём самый
--- свежий видимый кадр в окне (wanted..now), чтобы прицел/чамс шли за целью и не
--- застревали на одном тике. Невидимые (застенные) кадры пропускаем: в них всё
--- равно не попасть, поэтому если видимых в окне нет — возвращаем nil (цель не
--- стреляем, чтобы не тратить выстрелы в невалидные позиции).
--- Кадр для ОТРИСОВКИ чамса и ПРИЦЕЛА: всегда возвращает кадр (ближайший к нужной
--- задержке, иначе самый свежий). Чамс рисуется, а аимбот целится прямо в его
--- позицию — простая схема без репозиции и фильтров видимости.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 local function btDisplayFrame(history, wanted)
-    if not history or #history == 0 then
-        return nil
+    if not history or #history == 0 then return nil end
+    local lo, hi = 1, #history
+    while lo < hi do
+        local mid = math.floor((lo + hi) * 0.5)
+        if history[mid].Time < wanted then lo = mid + 1 else hi = mid end
     end
-    local best = history[1]
-    local bestDiff = math.abs(history[1].Time - wanted)
-    for i = 2, #history do
-        local diff = math.abs(history[i].Time - wanted)
-        if diff < bestDiff then
-            bestDiff = diff
-            best = history[i]
-        end
+    local chosen = history[lo]
+    if lo > 1 and math.abs(history[lo - 1].Time - wanted) <= math.abs(chosen.Time - wanted) then
+        chosen = history[lo - 1]
     end
-    return best
+    return chosen
 end
 
--- Хитбоксы ЧАМСА из исторического кадра: голова/грудь/живот/корень — чтобы аим
--- мог реагировать на все хитбоксы призрака, а не только на центр тела.
+ 
+ 
 local function btGetChamHitboxes(character, displayFrame)
     local results = {}
     if not character then return results end
@@ -364,7 +362,7 @@ local function btUpdate()
         table.clear(BacktrackAimCache)
         table.clear(BacktrackAimByChar)
         table.clear(BacktrackAimHitboxes)
-        -- вернуть тела, если бектрек выключен посреди репозиции
+         
         clearReposActive()
         return
     end
@@ -380,7 +378,7 @@ local function btUpdate()
 
     local candidates = {}
 
-    -- 1. Все остальные живые игроки с учётом фильтра (Enemy / Team)
+     
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and btAllowsTarget(player, false) then
             local char = player.Character
@@ -395,7 +393,7 @@ local function btUpdate()
         end
     end
 
-    -- 2. Боты / NPC (считаются как враги)
+     
     if btAllowsTarget(nil, true) and ChamsRuntime and ChamsRuntime.Bots then
         for bot in pairs(ChamsRuntime.Bots) do
             if btIsValidTarget(bot) then
@@ -409,14 +407,14 @@ local function btUpdate()
         end
     end
 
-    -- Сортировка по дистанции от камеры (ближайшие цели в приоритете)
+     
     table.sort(candidates, function(a, b)
         return a.Distance < b.Distance
     end)
 
     local currentTargets = {}
     local maxTargets = math.min(#candidates, MAX_CHAM_TARGETS)
-    local MAX_BT_DISTANCE = 500 -- studs: лимит дальности рендера бектрека
+    local MAX_BT_DISTANCE = 500  
 
     for i = 1, maxTargets do
         local candidate = candidates[i]
@@ -425,14 +423,14 @@ local function btUpdate()
         end
     end
 
-    -- Очистка неактивных / вышедших за пределы дистанции
+     
     for targetKey in pairs(BacktrackChams.Ghosts) do
         if not currentTargets[targetKey] then
             btDestroy(targetKey)
         end
     end
 
-    -- Запись истории и отрисовка призрака
+     
     for targetKey, character in pairs(currentTargets) do
         local ghostData = BacktrackChams.Ghosts[targetKey]
         if not ghostData or not ghostData.Model.Parent or ghostData.Target ~= character then
@@ -444,10 +442,10 @@ local function btUpdate()
             btCapture(targetKey, ghostData, now)
 
             local history = BacktrackChams.History[targetKey]
-            -- единый кадр: и отрисовка чамса, и прицел — на позицию призрака
+             
             local displayFrame = btDisplayFrame(history, wanted)
 
-            -- аимбот целится прямо в позицию чамса
+             
             if displayFrame and displayFrame.RootPos then
                 BacktrackAim[targetKey] = displayFrame.RootPos
                 BacktrackAimCache[targetKey] = {Character = character, Pos = displayFrame.RootPos}
@@ -455,13 +453,13 @@ local function btUpdate()
                 BacktrackAimHitboxes[character] = btGetChamHitboxes(character, displayFrame)
             end
 
-            -- отрисовка чамса (всегда, на displayFrame)
+             
             if displayFrame then
-                -- Логика прозрачности при совпадении с текущим персонажем:
-                -- Когда цель стоит на месте (дистанция 0 studs) — призрак полностью прозрачный (невидим),
-                -- чтобы не создавать двойное наслоение поверх основного тела.
-                -- Когда цель двигается — на дистанции 3.2+ studs призрак становится полностью непрозрачным.
-                local BT_PROXIMITY_DIST = 3.2 -- studs
+                 
+                 
+                 
+                 
+                local BT_PROXIMITY_DIST = 3.2  
                 local proximityAlpha = 0
                 local currentPos = ghostData.RootSource and ghostData.RootSource.Parent and ghostData.RootSource.Position
                 local historicalPos = displayFrame.RootPos
@@ -476,12 +474,12 @@ local function btUpdate()
                     proximityAlpha = 0
                 end
 
-                -- Итоговая прозрачность: плавно уходит в 1 (полная невидимость) при совпадении с телом
+                 
                 local actualFillTrans = fillTrans + (1 - fillTrans) * proximityAlpha
                 local actualOutlineTrans = outlineTrans + (1 - outlineTrans) * proximityAlpha
                 local isVisible = actualFillTrans < 0.99 or actualOutlineTrans < 0.99
 
-                -- Обновляем Highlight
+                 
                 if ghostData.Highlight and ghostData.Highlight.Parent then
                     ghostData.Highlight.FillColor = col
                     ghostData.Highlight.FillTransparency = actualFillTrans
@@ -490,7 +488,7 @@ local function btUpdate()
                     ghostData.Highlight.Enabled = isVisible
                 end
 
-                -- Обновляем CFrame и прозрачность каждой части тела клона
+                 
                 for _, pair in ipairs(ghostData.PartPairs) do
                     local ghostPart = pair.Ghost
                     local cf = displayFrame.CFrames[pair.Source]
@@ -506,8 +504,8 @@ local function btUpdate()
         end
     end
 
-    -- чистка BacktrackAim: если цель больше не имеет призрака (не в списке currentTargets),
-    -- убираем её из умного бектрека, чтобы аимбот не целился в устаревшую позицию.
+     
+     
     for targetKey in pairs(BacktrackAimCache) do
         if not currentTargets[targetKey] then
             local cache = BacktrackAimCache[targetKey]
@@ -545,8 +543,8 @@ function BacktrackChams.Start()
 end
 BacktrackChams.Start()
 
--- // ESP — реальная отрисовка по флагам секции "Preview ESP"
--- Вкл/выкл: ESPBox, ESPHealth, ESPName, ESPDistance, ESPPing, ESPItem, ESPHit (ресурсы в ЕСП удалены; readResources остался для плеер-листа)
--- Слоты:   ESP<Element>Slot (TopLeft..BottomRight / LeftTop..RightBottom) — читаются live,
---          так что перетаскивание чипов в превью сразу двигает реальный ESP
--- Настройки: ESPBoxStyle/Color, ESPHealth*, ESPNameColor, ESPDistance*, ESPPing*, ESPItem*
+ 
+ 
+ 
+ 
+ 
