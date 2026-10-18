@@ -158,6 +158,25 @@ local Library
         })
         Library.Font = Font.new(Verdana, Enum.FontWeight.Regular, Enum.FontStyle.Normal);
     end
+        local function RegisterUIElement(owner, kind, cfg)
+            if not cfg then return cfg end
+            local section = nil
+            if owner then
+                if owner.Items and owner.Items.Elements then
+                    section = owner
+                elseif owner.__section then
+                    section = owner.__section
+                end
+            end
+            cfg.__kind = kind
+            cfg.__section = section
+            cfg.__sectionName = section and section.Name or nil
+            cfg.__tabName = section and section.Tab and section.Tab.RegistryName or nil
+            Library.ElementRegistry = Library.ElementRegistry or {}
+            table.insert(Library.ElementRegistry, cfg)
+            return cfg
+        end
+        Library.RegisterUIElement = RegisterUIElement
         function Library:Tween(Object, Properties, Info)
             local tween = TweenService:Create(Object, Info or TweenInfo.new(Library.TweeningSpeed, Library.EasingStyle, Enum.EasingDirection.InOut, 0, false, 0), Properties)
             tween:Play()
@@ -683,7 +702,7 @@ local Library
             end)
             Cfg.Set(Cfg.Color, Cfg.Alpha)
             ConfigFlags[Cfg.Flag] = Cfg.Set
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, "color_picker", setmetatable(Cfg, Library))
         end
         function Library:GetConfig()
             local Config = {}
@@ -1619,7 +1638,7 @@ local Library
             end)
             Cfg.Set(Cfg.Enabled)
             ConfigFlags[Cfg.Flag] = Cfg.Set
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, "checkbox", setmetatable(Cfg, Library))
         end
         function Library:Slider(properties)
             local Cfg = {
@@ -1817,7 +1836,7 @@ local Library
             end)
             Cfg.Set(Cfg.Value)
             ConfigFlags[Cfg.Flag] = Cfg.Set
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, "slider", setmetatable(Cfg, Library))
         end
         function Library:Dropdown(properties)
             local Cfg = {
@@ -2019,6 +2038,7 @@ local Library
                 Cfg.Callback(Flags[Cfg.Flag])
             end
             function Cfg.RefreshOptions(options)
+                Cfg.Options = options
                 for _,option in Cfg.OptionInstances do
                     option:Destroy()
                 end
@@ -2062,7 +2082,7 @@ local Library
             Cfg.RefreshOptions(Cfg.Options)
             Cfg.Set(Cfg.Default)
             table.insert(Library.AllDropdowns, Cfg)
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, Cfg.Multi and "multiselect" or "combobox", setmetatable(Cfg, Library))
         end
         function Library:Label(properties)
             local Cfg = {
@@ -2117,9 +2137,10 @@ local Library
                 });
             end
             function Cfg.Set(Text)
-                Items.Name.Text = Text
+                Cfg.Name = Text
+                if Items.Title then Items.Title.Text = Text end
             end
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, "label", setmetatable(Cfg, Library))
         end
         function Library:Colorpicker(properties)
             local Cfg = {
@@ -2238,7 +2259,7 @@ local Library
                 Cfg.Set(Cfg.Default)
             end
             ConfigFlags[Cfg.Flag] = Cfg.Set
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, "textbox", setmetatable(Cfg, Library))
         end
         function Library:Keybind(properties)
             local Cfg = {
@@ -2554,7 +2575,7 @@ local Library
             end)
             Cfg.Set({mode = Cfg.Mode, active = Cfg.Active, key = Cfg.Key})
             ConfigFlags[Cfg.Flag] = Cfg.Set
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, "hotkey", setmetatable(Cfg, Library))
         end
         function Library:Button(properties)
             local Cfg = {
@@ -2633,7 +2654,7 @@ local Library
                 Library:Tween(Items.Name, {TextColor3 = themes.preset.text_color})
                 Cfg.Callback()
             end)
-            return setmetatable(Cfg, Library)
+            return RegisterUIElement(self, "button", setmetatable(Cfg, Library))
         end
         function Notifications:RefreshNotifications()
             local offset = 50
@@ -7199,7 +7220,7 @@ do
         api.player = lp
         api.camera = Camera
         api.game = game
-        api.version = "1.0"
+        api.version = "2.0"
         local client = {}
         local function Join(...)
             local parts = {}
@@ -7249,8 +7270,12 @@ do
         end
         api.client = client
         local ui = {}
+        ui.version = "2.0"
         local Elements = {}
         local ElementId = 0
+        local OwnedHandles = {}
+        local SessionTabs = {}
+        local SessionSections = {}
         local ContainerAliases = {
             esp            = "preview esp",
             preview        = "preview esp",
@@ -7276,19 +7301,75 @@ do
             lua            = "lua",
             other          = "other",
         }
+        local function Trim(value)
+            return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+        end
+        local function NormalizeId(value)
+            return string.lower(Trim(value))
+        end
+        local function ResolveTabId(tab)
+            if type(tab) == "number" then
+                local data = Elements[tab]
+                if data and data.kind == "tab" then
+                    return data.extra.id
+                end
+                error("invalid tab handle", 3)
+            end
+            if type(tab) == "table" then
+                if tab.RegistryName then
+                    return string.lower(tostring(tab.RegistryName))
+                end
+                if tab.__tabId then
+                    return string.lower(tostring(tab.__tabId))
+                end
+                error("invalid tab object", 3)
+            end
+            local id = NormalizeId(tab)
+            id = Library.TabAliases[id] or id
+            return id
+        end
+        local function TabObject(tab)
+            if type(tab) == "number" then
+                local data = Elements[tab]
+                if data and data.kind == "tab" then
+                    return data.object, data.extra.id
+                end
+                error("invalid tab handle", 3)
+            end
+            if type(tab) == "table" and tab.Items and tab.Items.ButtonHolder then
+                return tab, ResolveTabId(tab)
+            end
+            local id = ResolveTabId(tab)
+            local object = Library.TabsByName and Library.TabsByName[id]
+            if not object then
+                error("unknown tab '" .. id .. "'", 3)
+            end
+            return object, id
+        end
         local function ResolveSection(tabName, containerName)
-            tabName = string.lower(tostring(tabName or ""))
-            containerName = string.lower(tostring(containerName or ""))
+            local section, tabId = nil, nil
+            if type(containerName) == "number" then
+                local data = Elements[containerName]
+                if data and data.kind == "section" then
+                    return data.object
+                end
+            end
+            if type(containerName) == "table" and containerName.Items and containerName.Items.Elements then
+                return containerName
+            end
+            tabName = NormalizeId(tabName)
             tabName = Library.TabAliases[tabName] or tabName
-            local registry = Library.Registry[tabName]
+            tabId = tabName
+            containerName = NormalizeId(containerName)
+            local registry = Library.Registry[tabId]
             if not registry then
                 local known = {}
                 for name in Library.Registry do
                     table.insert(known, name)
                 end
-                error("unknown tab '" .. tabName .. "' (available: " .. table.concat(known, ", ") .. ")", 3)
+                error("unknown tab '" .. tabId .. "' (available: " .. table.concat(known, ", ") .. ")", 3)
             end
-            local section = registry[containerName]
+            section = registry[containerName]
             if not section then
                 local alias = ContainerAliases[containerName]
                 if alias then
@@ -7309,12 +7390,46 @@ do
                     table.insert(known, "'" .. name .. "'")
                 end
                 error(
-                    "unknown container '" .. containerName .. "' in tab '" .. tabName ..
+                    "unknown container '" .. containerName .. "' in tab '" .. tabId ..
                     "' (available: " .. table.concat(known, ", ") .. ")",
                     3
                 )
             end
             return section
+        end
+        local function ResolveSectionEx(tabName, containerName)
+            if type(containerName) == "number" then
+                local data = Elements[containerName]
+                if data and data.kind == "section" then
+                    return data.object, data.extra.tab
+                end
+            end
+            if type(containerName) == "table" and containerName.Items and containerName.Items.Elements then
+                local owner = containerName.Tab
+                return containerName, owner and owner.RegistryName and string.lower(owner.RegistryName) or nil
+            end
+            local tabId = ResolveTabId(tabName)
+            return ResolveSection(tabId, containerName), tabId
+        end
+        local function FindSectionObject(tab, container)
+            if type(container) == "number" or (type(container) == "table" and container.Items and container.Items.Elements) then
+                return ResolveSectionEx(tab, container)
+            end
+            local tabId = ResolveTabId(tab)
+            local tabObject = Library.TabsByName and Library.TabsByName[tabId]
+            if not tabObject then
+                error("unknown tab '" .. tabId .. "'", 3)
+            end
+            local registry = Library.Registry[tabId] or {}
+            local key = NormalizeId(container)
+            local section = registry[key]
+            if not section and ContainerAliases[key] then
+                section = registry[ContainerAliases[key]]
+            end
+            if not section then
+                return ResolveSectionEx(tabId, container)
+            end
+            return section, tabId
         end
         local function Register(kind, object, extra)
             ElementId += 1
@@ -7326,6 +7441,9 @@ do
                 visible = true,
                 enabled = true,
             }
+            if extra and extra.owned then
+                table.insert(OwnedHandles, handle)
+            end
             return handle
         end
         local function Get(handle)
@@ -7335,108 +7453,1399 @@ do
             end
             return data
         end
-        function ui.new_checkbox(tab, container, name, default)
-            local section = ResolveSection(tab, container)
-            local element = section:Toggle({
-                Name = name,
-                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
-                Default = default or false,
+        local function ElementRoot(data)
+            if not data then
+                return nil
+            end
+            if data.extra and data.extra.root then
+                return data.extra.root
+            end
+            local object = data.object
+            local items = object and object.Items or {}
+            return items.Toggle or items.Slider or items.Dropdown or items.Label
+                or items.List or items.Button or items.ColorpickerObject or items.Keybind
+                or items.Outline or items.ButtonHolder or items.Title
+                or (data.extra and data.extra.label and data.extra.label.Items and data.extra.label.Items.Label)
+        end
+        local function ElementTitleObject(data)
+            local object = data and data.object
+            local items = object and object.Items or {}
+            return items.Title or items.Name or items.InnerText
+                or (data.extra and data.extra.label and data.extra.label.Items and data.extra.label.Items.Title)
+        end
+        local function RemoveFromLibraryRegistry(object)
+            if type(object) ~= "table" then
+                return
+            end
+            object.__removed = true
+            if Library.ElementRegistry then
+                for index = #Library.ElementRegistry, 1, -1 do
+                    if Library.ElementRegistry[index] == object then
+                        table.remove(Library.ElementRegistry, index)
+                    end
+                end
+            end
+        end
+        local function DestroyObjectGui(object)
+            if type(object) ~= "table" or not object.Items then
+                return
+            end
+            local destroyed = {}
+            local function destroy(instance)
+                if instance and typeof(instance) == "Instance" and not destroyed[instance] then
+                    destroyed[instance] = true
+                    pcall(function()
+                        instance:Destroy()
+                    end)
+                end
+            end
+            -- Popup roots live outside the element root (dropdown list, color menu, keybind menu).
+            destroy(object.Items.DropdownElements)
+            destroy(object.Items.Colorpicker)
+            destroy(object.Items.KeybindOutline)
+            destroy(object.Items.Outline)
+            for _, instance in pairs(object.Items) do
+                if typeof(instance) == "Instance" and instance.Parent
+                    and (instance.Parent == Library.Items or instance.Parent == Library.Other) then
+                    destroy(instance)
+                end
+            end
+        end
+        local function InvalidateHandlesForSection(section)
+            for handle, data in pairs(Elements) do
+                if data.object and data.object.__section == section then
+                    Elements[handle] = nil
+                elseif data.extra and data.extra.sectionObject == section then
+                    Elements[handle] = nil
+                end
+            end
+        end
+        local function InvalidateHandlesForTab(tabId)
+            for handle, data in pairs(Elements) do
+                if data.extra and data.extra.tab == tabId then
+                    Elements[handle] = nil
+                elseif data.object and data.object.__tabName == tabId then
+                    Elements[handle] = nil
+                end
+            end
+        end
+
+        ----------------------------------------------------------------
+        -- Tabs: create / open / hide / remove / inspect
+        ----------------------------------------------------------------
+        function ui.new_tab(id, icon, options)
+            if type(icon) == "table" and options == nil then
+                options = icon
+                icon = nil
+            end
+            options = options or {}
+            local tabId = NormalizeId(id)
+            if tabId == "" then
+                error("tab id is empty", 2)
+            end
+            Library.TabsByName = Library.TabsByName or {}
+            Library.Registry = Library.Registry or {}
+            local existing = Library.TabsByName[tabId]
+            if existing then
+                return Register("tab", existing, {id = tabId, custom = existing.__luaCreated == true, root = existing.Items.ButtonHolder})
+            end
+            local iconValue = icon or options.icon or options.Icon or "rbxassetid://8547236654"
+            if type(iconValue) == "number" then
+                iconValue = "rbxassetid://" .. tostring(iconValue)
+            end
+            local tab = Window:Tab({Icon = iconValue})
+            tab.RegistryName = tabId
+            tab.__luaCreated = true
+            tab.__luaTitle = options.title or options.name
+            Library.TabsByName[tabId] = tab
+            Library.Registry[tabId] = {}
+            SessionTabs[tabId] = tab
+            -- Custom tabs get the same two filled columns as the built-in tabs.
+            tab.Items.Left.Size = dim2(0.5, -10, 1, 0)
+            tab.Items.Right.Size = dim2(0.5, -10, 1, 0)
+            for _, column in {tab.Items.Left, tab.Items.Right} do
+                for _, child in pairs(column:GetChildren()) do
+                    if child:IsA("UIListLayout") then
+                        child.VerticalFlex = Enum.UIFlexAlignment.None
+                    end
+                end
+            end
+            if options.leftSize or options.rightSize then
+                tab.Items.Left.Size = dim2(options.leftSize or 0.5, -10, 1, 0)
+                tab.Items.Right.Size = dim2(options.rightSize or 0.5, -10, 1, 0)
+            end
+            if tab.__luaTitle then
+                local title = Library:Create("TextLabel", {
+                    Parent = tab.Items.ButtonHolder;
+                    Name = "\0";
+                    Text = tostring(tab.__luaTitle);
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextSize = 9;
+                    TextColor3 = rgb(150, 150, 150);
+                    BackgroundTransparency = 1;
+                    BorderSizePixel = 0;
+                    Size = dim2(1, 0, 0, 12);
+                    Position = dim2(0, 0, 1, -14);
+                    ZIndex = 5;
+                })
+                tab.Items.LuaTitle = title
+            end
+            if options.aliases then
+                for _, alias in ipairs(options.aliases) do
+                    Library.TabAliases[NormalizeId(alias)] = tabId
+                end
+            end
+            if options.open then
+                tab.OpenTab()
+            end
+            return Register("tab", tab, {id = tabId, custom = true, root = tab.Items.ButtonHolder})
+        end
+        ui.create_tab = ui.new_tab
+        function ui.get_tab(tab)
+            local object, id = TabObject(tab)
+            for handle, data in pairs(Elements) do
+                if data.kind == "tab" and data.object == object then
+                    return handle
+                end
+            end
+            return Register("tab", object, {id = id, custom = object.__luaCreated == true, root = object.Items.ButtonHolder})
+        end
+        function ui.tab_object(tab)
+            local object = TabObject(tab)
+            return object
+        end
+        function ui.open_tab(tab)
+            local object = TabObject(tab)
+            if object and object.OpenTab then
+                object.OpenTab()
+            end
+            return true
+        end
+        ui.select_tab = ui.open_tab
+        function ui.get_current_tab()
+            if not Window or not Window.TabInfo then
+                return nil
+            end
+            for id, tab in pairs(Library.TabsByName or {}) do
+                if tab.Items == Window.TabInfo then
+                    return id
+                end
+            end
+            return nil
+        end
+        function ui.is_tab_visible(tab)
+            local object = TabObject(tab)
+            return object.Items.ButtonHolder.Visible == true
+        end
+        function ui.set_tab_visible(tab, visible)
+            local object, id = TabObject(tab)
+            visible = visible and true or false
+            object.Items.ButtonHolder.Visible = visible
+            if not visible and ui.get_current_tab() == id then
+                for otherId, other in pairs(Library.TabsByName or {}) do
+                    if otherId ~= id and other.Items.ButtonHolder.Visible then
+                        other.OpenTab()
+                        break
+                    end
+                end
+            end
+            return visible
+        end
+        ui.hide_tab = function(tab)
+            return ui.set_tab_visible(tab, false)
+        end
+        ui.show_tab = function(tab)
+            return ui.set_tab_visible(tab, true)
+        end
+        function ui.set_tab_icon(tab, icon)
+            local object = TabObject(tab)
+            if type(icon) == "number" then
+                icon = "rbxassetid://" .. tostring(icon)
+            end
+            object.Icon = icon
+            object.Items.Icon.Image = icon
+            object.Items.Shade.Image = icon
+            return true
+        end
+        function ui.list_tabs()
+            local out = {}
+            for id, tab in pairs(Library.TabsByName or {}) do
+                table.insert(out, {
+                    id = id,
+                    custom = tab.__luaCreated == true,
+                    visible = tab.Items.ButtonHolder.Visible == true,
+                    current = ui.get_current_tab() == id,
+                    icon = tab.Icon,
+                    title = tab.__luaTitle,
+                })
+            end
+            table.sort(out, function(a, b)
+                return a.id < b.id
+            end)
+            return out
+        end
+        function ui.remove_tab(tab, force)
+            local object, id = TabObject(tab)
+            if object.__luaCreated ~= true and not force then
+                return false, "built-in tab: use ui.hide_tab(tab) or pass force=true"
+            end
+            if ui.get_current_tab() == id then
+                for otherId, other in pairs(Library.TabsByName or {}) do
+                    if otherId ~= id and other.Items.ButtonHolder.Visible then
+                        other.OpenTab()
+                        break
+                    end
+                end
+            end
+            local registry = Library.Registry[id] or {}
+            for _, section in pairs(registry) do
+                InvalidateHandlesForSection(section)
+            end
+            InvalidateHandlesForTab(id)
+            pcall(function()
+                object.Items.Page:Destroy()
+            end)
+            pcall(function()
+                object.Items.ButtonHolder:Destroy()
+            end)
+            Library.TabsByName[id] = nil
+            Library.Registry[id] = nil
+            SessionTabs[id] = nil
+            for alias, target in pairs(Library.TabAliases) do
+                if target == id then
+                    Library.TabAliases[alias] = nil
+                end
+            end
+            return true
+        end
+
+        ----------------------------------------------------------------
+        -- Sections: create on any side, move, resize, hide, remove
+        ----------------------------------------------------------------
+        local function NormalizeSide(side)
+            side = string.lower(tostring(side or "Right"))
+            if side == "l" or side == "left" then
+                return "Left"
+            end
+            return "Right"
+        end
+        function ui.new_section(tab, container, side, size)
+            if type(side) == "table" then
+                local config = side
+                side = config.side or config.Side
+                size = config.size or config.Size
+            end
+            local tabObject, tabId = TabObject(tab)
+            local key = NormalizeId(container)
+            Library.Registry[tabId] = Library.Registry[tabId] or {}
+            local existing = Library.Registry[tabId][key]
+            if existing and existing.__luaCreated then
+                return Register("section", existing, {tab = tabId, root = existing.Items.Outline, sectionObject = existing, existing = true})
+            end
+            local section = tabObject:Section({
+                Name = container,
+                Side = NormalizeSide(side),
+                Size = size or 1,
             })
-            return Register("checkbox", element)
+            section.__luaCreated = true
+            if size then
+                section.Items.Outline.Size = dim2(1, 0, size, 0)
+            end
+            table.insert(SessionSections, {tab = tabId, id = key, section = section})
+            return Register("section", section, {tab = tabId, root = section.Items.Outline, sectionObject = section, owned = true})
+        end
+        function ui.new_tab_section(tab, container, side, size)
+            return ui.new_section(tab, container, side, size)
+        end
+        function ui.get_section(tab, container)
+            local section, tabId = FindSectionObject(tab, container)
+            return Register("section", section, {tab = tabId, root = section.Items.Outline, sectionObject = section, existing = true})
+        end
+        function ui.section_object(tab, container)
+            local section = FindSectionObject(tab, container)
+            return section
+        end
+        function ui.list_sections(tab)
+            local _, tabId = TabObject(tab)
+            local out = {}
+            for name, section in pairs(Library.Registry[tabId] or {}) do
+                table.insert(out, {
+                    id = name,
+                    name = section.Name,
+                    side = section.Side,
+                    custom = section.__luaCreated == true,
+                    visible = section.Items.Outline.Visible == true,
+                })
+            end
+            table.sort(out, function(a, b)
+                return a.id < b.id
+            end)
+            return out
+        end
+        local function SectionArgs(tab, container, value)
+            -- supports set_section_*(sectionHandle, value)
+            if type(tab) == "number" and value == nil then
+                local data = Get(tab)
+                if data.kind == "section" then
+                    return data.object, data.extra.tab, container
+                end
+            end
+            local section, tabId = FindSectionObject(tab, container)
+            return section, tabId, value
+        end
+        function ui.set_section_visible(tab, container, visible)
+            local section, _, state = SectionArgs(tab, container, visible)
+            section.Items.Outline.Visible = state and true or false
+            return section.Items.Outline.Visible
+        end
+        ui.hide_section = function(tab, container)
+            return ui.set_section_visible(tab, container, false)
+        end
+        ui.show_section = function(tab, container)
+            return ui.set_section_visible(tab, container, true)
+        end
+        function ui.set_section_side(tab, container, side)
+            local section, _, value = SectionArgs(tab, container, side)
+            local tabObject = section.Tab
+            local sideName = NormalizeSide(value)
+            section.Side = sideName
+            section.Items.Outline.Parent = tabObject.Items[sideName]
+            return sideName
+        end
+        function ui.set_section_size(tab, container, size)
+            local section, _, value = SectionArgs(tab, container, size)
+            local number = tonumber(value) or 1
+            section.Size = number
+            section.Items.Outline.Size = dim2(1, 0, number, 0)
+            return number
+        end
+        function ui.rename_section(tab, container, newName)
+            local section, tabId, value = SectionArgs(tab, container, newName)
+            local registry = Library.Registry[tabId]
+            if registry then
+                for key, candidate in pairs(registry) do
+                    if candidate == section then
+                        registry[key] = nil
+                    end
+                end
+                registry[NormalizeId(value)] = section
+            end
+            section.Name = tostring(value)
+            if section.Items.Title then
+                section.Items.Title.Text = section.Name
+            end
+            if section.Items.Shade then
+                section.Items.Shade.Text = section.Name
+            end
+            return section.Name
+        end
+        function ui.remove_section(tab, container, force)
+            local section, tabId = FindSectionObject(tab, container)
+            if section.__luaCreated ~= true and not force then
+                return false, "built-in section: use ui.hide_section(...) or pass force=true"
+            end
+            if Library.ElementRegistry then
+                for _, candidate in ipairs(Library.ElementRegistry) do
+                    if candidate.__section == section then
+                        DestroyObjectGui(candidate)
+                        candidate.__removed = true
+                    end
+                end
+            end
+            InvalidateHandlesForSection(section)
+            RemoveFromLibraryRegistry(section)
+            DestroyObjectGui(section)
+            if Library.Registry[tabId] then
+                for key, candidate in pairs(Library.Registry[tabId]) do
+                    if candidate == section then
+                        Library.Registry[tabId][key] = nil
+                    end
+                end
+            end
+            return true
+        end
+
+        ----------------------------------------------------------------
+        -- Standard element creation (old constructors stay compatible)
+        ----------------------------------------------------------------
+        local function FlagPrefix(name)
+            return "lua_" .. tostring(name or "element") .. "_" .. tostring(ElementId + 1)
+        end
+        local function FindLuaElement(section, kind, name)
+            if not Library.ElementRegistry then
+                return nil
+            end
+            for index = #Library.ElementRegistry, 1, -1 do
+                local candidate = Library.ElementRegistry[index]
+                if candidate.__luaCreated and not candidate.__removed
+                    and candidate.__section == section and candidate.__kind == kind
+                    and tostring(candidate.Name or "") == tostring(name or "") then
+                    return candidate
+                end
+            end
+            return nil
+        end
+        local function ApplyElementConfig(handle, config)
+            if not config then
+                return handle
+            end
+            local data = Get(handle)
+            if config.callback and data.kind ~= "button" then
+                ui.set_callback(handle, config.callback)
+            elseif config.callback and data.kind == "button" then
+                ui.set_callback(handle, config.callback)
+            end
+            if config.order then
+                ui.set_layout_order(handle, config.order)
+            end
+            if config.visible ~= nil then
+                ui.set_visible(handle, config.visible)
+            end
+            if config.enabled ~= nil then
+                ui.set_enabled(handle, config.enabled)
+            end
+            if config.color then
+                local colorValue = config.color
+                if type(colorValue) == "table" then
+                    ui.set_color(handle, colorValue[1] or 255, colorValue[2] or 255, colorValue[3] or 255)
+                end
+            end
+            return handle
+        end
+        local function CreateStandard(tab, container, kind, config)
+            config = config or {}
+            local section, tabId = ResolveSectionEx(tab, container)
+            local name = config.name or config.Name or config.text or kind
+            if kind == "label" then
+                name = config.text or config.Text or name
+            end
+            if config.reuse then
+                local existing = FindLuaElement(section, kind, name)
+                if existing then
+                    local handle = Register(kind, existing, {tab = tabId, section = section.Name, sectionObject = section, existing = true, label = config.__label})
+                    return ApplyElementConfig(handle, config)
+                end
+            end
+            local element, extraLabel = nil, nil
+            local flag = config.flag or config.Flag or FlagPrefix(name)
+            if kind == "checkbox" then
+                element = section:Toggle({Name = name, Flag = flag, Default = config.default or config.Default or false})
+            elseif kind == "slider" then
+                element = section:Slider({
+                    Name = name,
+                    Min = config.min or config.Min or 0,
+                    Max = config.max or config.Max or 100,
+                    Default = config.default or config.Default or config.min or config.Min or 0,
+                    Decimal = config.decimal or config.step or config.Decimal or 1,
+                    Suffix = config.unit or config.suffix or config.Suffix or "",
+                    Flag = flag,
+                    Formatter = config.formatter,
+                })
+            elseif kind == "combobox" or kind == "multiselect" then
+                local options = config.options or config.Options or {}
+                element = section:Dropdown({
+                    Name = name,
+                    Options = options,
+                    Multi = kind == "multiselect" or config.multi or false,
+                    Default = config.default or config.Default or (kind == "multiselect" and {} or options[1]),
+                    MinSelected = config.minSelected or 0,
+                    Flag = flag,
+                })
+            elseif kind == "button" then
+                element = section:Button({Name = name, Callback = function() end})
+            elseif kind == "label" then
+                element = section:Label({Name = name})
+            elseif kind == "textbox" then
+                element = section:Textbox({
+                    Name = config.name or config.Name,
+                    Flag = flag,
+                    PlaceHolder = config.placeholder or config.PlaceHolder or "Type here...",
+                    Default = config.default or config.Default or "",
+                })
+            elseif kind == "hotkey" then
+                extraLabel = section:Label({Name = name})
+                element = extraLabel:Keybind({Name = name, Flag = flag})
+            elseif kind == "color_picker" then
+                extraLabel = section:Label({Name = name})
+                local colorValue = config.color
+                local pickerColor = rgb(255, 255, 255)
+                if typeof(colorValue) == "Color3" then
+                    pickerColor = colorValue
+                elseif type(colorValue) == "table" then
+                    pickerColor = rgb(colorValue[1] or 255, colorValue[2] or 255, colorValue[3] or 255)
+                elseif config.r then
+                    pickerColor = rgb(config.r or 255, config.g or 255, config.b or 255)
+                end
+                element = extraLabel:Colorpicker({
+                    Flag = flag,
+                    Color = pickerColor,
+                    Alpha = config.alpha or config.Alpha or (config.a and (1 - config.a / 255)) or 0,
+                })
+            else
+                error("unknown element kind '" .. tostring(kind) .. "'", 3)
+            end
+            element.__luaCreated = true
+            element.__luaKind = kind
+            local handle = Register(kind, element, {
+                tab = tabId,
+                section = section.Name,
+                sectionObject = section,
+                owned = true,
+                label = extraLabel,
+            })
+            return ApplyElementConfig(handle, config)
+        end
+        function ui.new_checkbox(tab, container, name, default)
+            return CreateStandard(tab, container, "checkbox", {name = name, default = default})
         end
         function ui.new_slider(tab, container, name, min, max, init, showTooltip, unit, scale)
-            local section = ResolveSection(tab, container)
-            local element = section:Slider({
-                Name = name,
-                Min = min or 0,
-                Max = max or 100,
-                Default = init or min or 0,
-                Suffix = unit or "",
-                Decimal = scale or 1,
-                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
+            return CreateStandard(tab, container, "slider", {
+                name = name, min = min, max = max, default = init, unit = unit, decimal = scale,
             })
-            return Register("slider", element)
         end
         function ui.new_combobox(tab, container, name, ...)
-            local section = ResolveSection(tab, container)
             local options = {...}
             if type(options[1]) == "table" then
                 options = options[1]
             end
-            local element = section:Dropdown({
-                Name = name,
-                Options = options,
-                Default = options[1],
-                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
-            })
-            return Register("combobox", element)
+            return CreateStandard(tab, container, "combobox", {name = name, options = options, default = options[1]})
         end
         function ui.new_multiselect(tab, container, name, ...)
-            local section = ResolveSection(tab, container)
             local options = {...}
             if type(options[1]) == "table" then
                 options = options[1]
             end
-            local element = section:Dropdown({
-                Name = name,
-                Options = options,
-                Multi = true,
-                Flag = "lua_" .. tostring(name) .. "_" .. tostring(ElementId + 1),
-            })
-            return Register("multiselect", element)
+            return CreateStandard(tab, container, "multiselect", {name = name, options = options, default = {}})
         end
         function ui.new_button(tab, container, name, callback)
-            local section = ResolveSection(tab, container)
-            local element = section:Button({
-                Name = name,
-                Callback = function()
-                    pcall(callback)
-                end,
-            })
-            return Register("button", element)
+            local handle = CreateStandard(tab, container, "button", {name = name})
+            if callback then
+                ui.set_callback(handle, function()
+                    callback()
+                end)
+            end
+            return handle
         end
         function ui.new_label(tab, container, name)
-            local section = ResolveSection(tab, container)
-            local element = section:Label({Name = name})
-            return Register("label", element)
+            return CreateStandard(tab, container, "label", {name = name, text = name})
         end
         function ui.new_color_picker(tab, container, name, r, g, b, a)
-            local section = ResolveSection(tab, container)
-            local label = section:Label({Name = name or "color"})
-            local picker = label:Colorpicker({
-                Flag = "lua_color_" .. tostring(ElementId + 1),
-                Color = rgb(r or 255, g or 255, b or 255),
-                Alpha = a and (1 - a / 255) or 0,
+            return CreateStandard(tab, container, "color_picker", {
+                name = name or "color", color = {r or 255, g or 255, b or 255}, a = a,
             })
-            return Register("color_picker", picker, {label = label})
         end
         function ui.new_textbox(tab, container, name)
-            local section = ResolveSection(tab, container)
-            local element = section:Textbox({
-                Name = name,
-                Flag = "lua_text_" .. tostring(ElementId + 1),
-            })
-            return Register("textbox", element)
+            return CreateStandard(tab, container, "textbox", {name = name})
         end
         function ui.new_hotkey(tab, container, name)
-            local section = ResolveSection(tab, container)
-            local label = section:Label({Name = name or "hotkey"})
-            local keybind = label:Keybind({Name = name or "hotkey"})
-            return Register("hotkey", keybind, {label = label})
+            return CreateStandard(tab, container, "hotkey", {name = name or "hotkey"})
         end
+        -- Friendly aliases
+        ui.new_toggle = ui.new_checkbox
+        ui.new_dropdown = ui.new_combobox
+        ui.new_input = ui.new_textbox
+
+        ----------------------------------------------------------------
+        -- Generic list widget (как PlayerList в Skins)
+        ----------------------------------------------------------------
+        local function MakeBox(parent, height)
+            local outline = Library:Create("Frame", {
+                Parent = parent;
+                Name = "\0";
+                BorderSizePixel = 0;
+                BorderColor3 = rgb(0, 0, 0);
+                Size = dim2(1, 0, 0, height or 260);
+                BackgroundColor3 = themes.preset.outline;
+            })
+            Library:Themify(outline, "outline", "BackgroundColor3")
+            local inline = Library:Create("Frame", {
+                Parent = outline;
+                Name = "\0";
+                Position = dim2(0, 1, 0, 1);
+                Size = dim2(1, -2, 1, -2);
+                BorderSizePixel = 0;
+                BorderColor3 = rgb(0, 0, 0);
+                BackgroundColor3 = themes.preset.inline;
+            })
+            Library:Themify(inline, "inline", "BackgroundColor3")
+            local background = Library:Create("Frame", {
+                Parent = inline;
+                Name = "\0";
+                Position = dim2(0, 1, 0, 1);
+                Size = dim2(1, -2, 1, -2);
+                BorderSizePixel = 0;
+                BorderColor3 = rgb(0, 0, 0);
+                BackgroundColor3 = rgb(23, 23, 23);
+            })
+            return outline, background
+        end
+        local function NormalizeListItem(item)
+            if type(item) == "table" then
+                local id = item.id or item.Id or item.value or item.Value or item.text or item.Text or item.name or item.Name
+                local text = item.text or item.Text or item.name or item.Name or tostring(id)
+                return {
+                    id = tostring(id),
+                    text = tostring(text),
+                    data = item.data or item.Data or item.value or item.Value or item,
+                    suffix = item.suffix or item.badge,
+                    color = item.color,
+                }
+            end
+            return {id = tostring(item), text = tostring(item), data = item}
+        end
+        local function CreateList(tab, container, config)
+            config = config or {}
+            local section, tabId = ResolveSectionEx(tab, container)
+            local state = {
+                Name = config.name or config.Name or "List",
+                Callback = function() end,
+                DoubleCallback = nil,
+                ItemsData = {},
+                Entries = {},
+                Selected = nil,
+                SelectedIndex = nil,
+                Filter = "",
+                Height = config.height or config.Height or 260,
+                Items = {},
+            }
+            local showSearch = config.search ~= false
+            local outline, background = MakeBox(section.Items.Elements, state.Height)
+            outline.LayoutOrder = config.order or 0
+            state.Items.List = outline
+            state.Items.Outline = outline
+            local searchBox = nil
+            local holderTop = 2
+            if showSearch then
+                local searchFrame = Library:Create("Frame", {
+                    Parent = background;
+                    Name = "\0";
+                    Position = dim2(0, 2, 0, 2);
+                    Size = dim2(1, -4, 0, 18);
+                    BorderSizePixel = 0;
+                    BackgroundColor3 = rgb(13, 13, 13);
+                    ZIndex = 3;
+                })
+                searchBox = Library:Create("TextBox", {
+                    Parent = searchFrame;
+                    Name = "\0";
+                    Text = "";
+                    PlaceholderText = config.searchPlaceholder or "Search...";
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextSize = 13;
+                    TextColor3 = rgb(205, 205, 205);
+                    PlaceholderColor3 = rgb(120, 120, 120);
+                    BackgroundTransparency = 1;
+                    BorderSizePixel = 0;
+                    Position = dim2(0, 5, 0, 0);
+                    Size = dim2(1, -10, 1, 0);
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    ClearTextOnFocus = false;
+                    ZIndex = 4;
+                })
+                holderTop = 23
+                state.Items.Search = searchBox
+            end
+            local holder = Library:Create("ScrollingFrame", {
+                Parent = background;
+                Name = "\0";
+                Active = true;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Position = dim2(0, 0, 0, holderTop);
+                Size = dim2(1, 0, 1, -(holderTop + 2));
+                CanvasSize = dim2(0, 0, 0, 0);
+                AutomaticCanvasSize = Enum.AutomaticSize.Y;
+                ScrollBarThickness = 4;
+                ScrollBarImageColor3 = rgb(65, 65, 65);
+                MidImage = "rbxassetid://74268315755026";
+                TopImage = "rbxassetid://74268315755026";
+                BottomImage = "rbxassetid://74268315755026";
+                ZIndex = 2;
+            })
+            Library:Create("UIListLayout", {
+                Parent = holder;
+                Padding = dim(0, 1);
+                SortOrder = Enum.SortOrder.LayoutOrder;
+            })
+            state.Items.Holder = holder
+            local handle = nil
+            local function itemVisible(item)
+                if state.Filter == "" then
+                    return true
+                end
+                local filter = string.lower(state.Filter)
+                return string.find(string.lower(item.text), filter, 1, true) ~= nil
+                    or string.find(string.lower(item.id), filter, 1, true) ~= nil
+            end
+            local function refreshVisuals()
+                for id, entry in pairs(state.Entries) do
+                    local item = nil
+                    for _, candidate in ipairs(state.ItemsData) do
+                        if candidate.id == id then
+                            item = candidate
+                            break
+                        end
+                    end
+                    local selected = id == state.Selected
+                    entry.BackgroundTransparency = selected and 0 or 1
+                    entry.BackgroundColor3 = themes.preset.accent
+                    entry.TextColor3 = selected and rgb(255, 255, 255) or themes.preset.text_color
+                    entry.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", selected and Enum.FontWeight.SemiBold or Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+                    entry.Visible = item and itemVisible(item) or false
+                end
+            end
+            local function rebuild()
+                for _, entry in pairs(state.Entries) do
+                    pcall(function()
+                        entry:Destroy()
+                    end)
+                end
+                table.clear(state.Entries)
+                for index, item in ipairs(state.ItemsData) do
+                    local display = item.suffix and (item.text .. "  [" .. tostring(item.suffix) .. "]") or item.text
+                    local entry = Library:Create("TextButton", {
+                        Parent = holder;
+                        Name = "\0";
+                        Text = display;
+                        AutoButtonColor = false;
+                        LayoutOrder = index;
+                        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                        TextSize = 13;
+                        TextXAlignment = Enum.TextXAlignment.Left;
+                        TextColor3 = themes.preset.text_color;
+                        BackgroundColor3 = themes.preset.accent;
+                        BackgroundTransparency = 1;
+                        BorderSizePixel = 0;
+                        BorderColor3 = rgb(0, 0, 0);
+                        Size = dim2(1, -2, 0, 14);
+                        Position = dim2(0, 1, 0, 0);
+                        ZIndex = 3;
+                    })
+                    Library:Create("UIPadding", {
+                        Parent = entry;
+                        PaddingLeft = dim(0, 4);
+                    })
+                    if type(item.color) == "table" then
+                        entry.TextColor3 = rgb(item.color[1] or 205, item.color[2] or 205, item.color[3] or 205)
+                    end
+                    local lastClick = 0
+                    table.insert(session.connections, entry.MouseButton1Click:Connect(function()
+                        local now = os.clock()
+                        local double = (now - lastClick) < 0.35
+                        lastClick = now
+                        state.Selected = item.id
+                        state.SelectedIndex = index
+                        refreshVisuals()
+                        if state.Callback then
+                            state.Callback(item.id, item.text, index, item.data)
+                        end
+                        if double and state.DoubleCallback then
+                            state.DoubleCallback(item.id, item.text, index, item.data)
+                        end
+                    end))
+                    state.Entries[item.id] = entry
+                end
+                refreshVisuals()
+            end
+            state.__rebuild = rebuild
+            state.__refresh = refreshVisuals
+            state.__holder = holder
+            if searchBox then
+                table.insert(session.connections, searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+                    state.Filter = searchBox.Text or ""
+                    refreshVisuals()
+                end))
+            end
+            handle = Register("list", state, {
+                tab = tabId,
+                section = section.Name,
+                sectionObject = section,
+                owned = true,
+                root = outline,
+            })
+            if config.items then
+                ui.list_set_items(handle, config.items)
+            end
+            if config.callback then
+                ui.set_callback(handle, config.callback)
+            end
+            if config.doubleCallback then
+                state.DoubleCallback = function(...)
+                    pcall(config.doubleCallback, handle, ...)
+                end
+            end
+            return handle
+        end
+        function ui.new_list(tab, container, name, height, showSearch)
+            if type(name) == "table" then
+                local config = name
+                config.name = config.name or config.Name or "List"
+                return CreateList(tab, container, config)
+            end
+            return CreateList(tab, container, {name = name, height = height, search = showSearch})
+        end
+        local function ListState(handle)
+            local data = Get(handle)
+            if data.kind ~= "list" then
+                error("element is not a list", 3)
+            end
+            return data.object, data
+        end
+        function ui.list_set_items(handle, items, preserveSelection)
+            local state = ListState(handle)
+            local previous = preserveSelection and state.Selected or nil
+            state.ItemsData = {}
+            for _, item in ipairs(items or {}) do
+                table.insert(state.ItemsData, NormalizeListItem(item))
+            end
+            if previous then
+                local found = false
+                for index, item in ipairs(state.ItemsData) do
+                    if item.id == previous then
+                        state.SelectedIndex = index
+                        found = true
+                        break
+                    end
+                end
+                if not found then
+                    state.Selected, state.SelectedIndex = nil, nil
+                end
+            else
+                state.Selected, state.SelectedIndex = nil, nil
+            end
+            state.__rebuild()
+            return #state.ItemsData
+        end
+        function ui.list_add(handle, item, selectIt)
+            local state = ListState(handle)
+            local normalized = NormalizeListItem(item)
+            for _, existing in ipairs(state.ItemsData) do
+                if existing.id == normalized.id then
+                    existing.text, existing.data, existing.suffix = normalized.text, normalized.data, normalized.suffix
+                    state.__rebuild()
+                    if selectIt then
+                        ui.list_set_selected(handle, normalized.id, true)
+                    end
+                    return normalized.id
+                end
+            end
+            table.insert(state.ItemsData, normalized)
+            state.__rebuild()
+            if selectIt then
+                ui.list_set_selected(handle, normalized.id, true)
+            end
+            return normalized.id
+        end
+        function ui.list_remove(handle, id)
+            local state = ListState(handle)
+            id = tostring(id)
+            for index, item in ipairs(state.ItemsData) do
+                if item.id == id then
+                    table.remove(state.ItemsData, index)
+                    if state.Selected == id then
+                        state.Selected, state.SelectedIndex = nil, nil
+                    end
+                    state.__rebuild()
+                    return true
+                end
+            end
+            return false
+        end
+        function ui.list_clear(handle)
+            local state = ListState(handle)
+            state.ItemsData = {}
+            state.Selected, state.SelectedIndex = nil, nil
+            state.__rebuild()
+        end
+        function ui.list_count(handle)
+            local state = ListState(handle)
+            return #state.ItemsData
+        end
+        function ui.list_get_items(handle)
+            local state = ListState(handle)
+            local out = {}
+            for index, item in ipairs(state.ItemsData) do
+                table.insert(out, {id = item.id, text = item.text, index = index, data = item.data})
+            end
+            return out
+        end
+        function ui.list_get_selected(handle)
+            local state = ListState(handle)
+            if not state.Selected then
+                return nil
+            end
+            for index, item in ipairs(state.ItemsData) do
+                if item.id == state.Selected then
+                    return item.id, item.text, index, item.data
+                end
+            end
+            return nil
+        end
+        function ui.list_set_selected(handle, id, silent)
+            local state = ListState(handle)
+            if id == nil then
+                state.Selected, state.SelectedIndex = nil, nil
+                state.__refresh()
+                return nil
+            end
+            for index, item in ipairs(state.ItemsData) do
+                if item.id == tostring(id) then
+                    state.Selected, state.SelectedIndex = item.id, index
+                    state.__refresh()
+                    if not silent and state.Callback then
+                        state.Callback(item.id, item.text, index, item.data)
+                    end
+                    return item.id
+                end
+            end
+            return nil
+        end
+        function ui.list_set_search(handle, text)
+            local state, data = ListState(handle)
+            state.Filter = tostring(text or "")
+            if state.Items.Search then
+                state.Items.Search.Text = state.Filter
+            end
+            state.__refresh()
+            return state.Filter
+        end
+        function ui.list_set_double_callback(handle, callback)
+            local state = ListState(handle)
+            state.DoubleCallback = function(...)
+                pcall(callback, handle, ...)
+            end
+        end
+        function ui.list_set_height(handle, height)
+            local state, data = ListState(handle)
+            state.Height = tonumber(height) or state.Height
+            data.extra.root.Size = dim2(1, 0, 0, state.Height)
+            return state.Height
+        end
+        function ui.list_sort(handle, descending)
+            local state = ListState(handle)
+            table.sort(state.ItemsData, function(a, b)
+                if descending then
+                    return string.lower(a.text) > string.lower(b.text)
+                end
+                return string.lower(a.text) < string.lower(b.text)
+            end)
+            state.__rebuild()
+        end
+
+        ----------------------------------------------------------------
+        -- Info panel (правая часть как в PlayerList)
+        ----------------------------------------------------------------
+        local function CreateInfoPanel(tab, container, config)
+            config = config or {}
+            local section, tabId = ResolveSectionEx(tab, container)
+            local outline, background = MakeBox(section.Items.Elements, config.height or 260)
+            outline.LayoutOrder = config.order or 0
+            local holder = Library:Create("ScrollingFrame", {
+                Parent = background;
+                Name = "\0";
+                Active = true;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Position = dim2(0, 0, 0, 2);
+                Size = dim2(1, 0, 1, -4);
+                CanvasSize = dim2(0, 0, 0, 0);
+                AutomaticCanvasSize = Enum.AutomaticSize.Y;
+                ScrollBarThickness = 4;
+                ScrollBarImageColor3 = rgb(65, 65, 65);
+                MidImage = "rbxassetid://74268315755026";
+                TopImage = "rbxassetid://74268315755026";
+                BottomImage = "rbxassetid://74268315755026";
+                ZIndex = 2;
+            })
+            Library:Create("UIListLayout", {
+                Parent = holder;
+                Padding = dim(0, 1);
+                SortOrder = Enum.SortOrder.LayoutOrder;
+            })
+            local state = {
+                Name = config.name or config.Name or "Info",
+                Rows = {},
+                RowOrder = {},
+                Items = {List = outline, Outline = outline, Holder = holder},
+                Callback = function() end,
+            }
+            local handle = Register("info", state, {
+                tab = tabId,
+                section = section.Name,
+                sectionObject = section,
+                owned = true,
+                root = outline,
+            })
+            if config.title then
+                ui.info_add_header(handle, config.title)
+            end
+            if config.rows then
+                for _, row in ipairs(config.rows) do
+                    if type(row) == "table" then
+                        ui.info_add_row(handle, row.key or row[1], row.label or row[2] or row.key or row[1], row.color)
+                    else
+                        ui.info_add_row(handle, row, row)
+                    end
+                end
+            end
+            return handle
+        end
+        function ui.new_info_panel(tab, container, name, height)
+            if type(name) == "table" then
+                return CreateInfoPanel(tab, container, name)
+            end
+            return CreateInfoPanel(tab, container, {name = name, height = height})
+        end
+        local function InfoState(handle)
+            local data = Get(handle)
+            if data.kind ~= "info" then
+                error("element is not an info panel", 3)
+            end
+            return data.object
+        end
+        function ui.info_add_header(handle, text)
+            local state = InfoState(handle)
+            local holder = state.Items.Holder
+            local order = #state.RowOrder + 100
+            local frame = Library:Create("Frame", {
+                Parent = holder;
+                Name = "\0";
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Size = dim2(1, 0, 0, 26);
+                LayoutOrder = order;
+            })
+            local label = Library:Create("TextLabel", {
+                Parent = frame;
+                Name = "\0";
+                Text = string.upper(tostring(text));
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal);
+                TextSize = 13;
+                TextXAlignment = Enum.TextXAlignment.Left;
+                TextYAlignment = Enum.TextYAlignment.Bottom;
+                TextColor3 = themes.preset.accent;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Position = dim2(0, 10, 0, 0);
+                Size = dim2(1, -20, 1, -5);
+                ZIndex = 3;
+            })
+            Library:Themify(label, "accent", "TextColor3")
+            table.insert(state.RowOrder, {header = true, frame = frame})
+            return label
+        end
+        function ui.info_add_row(handle, key, labelText, color)
+            local state = InfoState(handle)
+            key = tostring(key)
+            if state.Rows[key] then
+                return state.Rows[key]
+            end
+            local holder = state.Items.Holder
+            local order = #state.RowOrder + 1
+            local row = Library:Create("Frame", {
+                Parent = holder;
+                Name = "\0";
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Size = dim2(1, 0, 0, 22);
+                LayoutOrder = order;
+            })
+            local title = Library:Create("TextLabel", {
+                Parent = row;
+                Name = "\0";
+                Text = tostring(labelText or key);
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 14;
+                TextXAlignment = Enum.TextXAlignment.Left;
+                TextYAlignment = Enum.TextYAlignment.Center;
+                TextColor3 = type(color) == "table" and rgb(color[1] or 205, color[2] or 205, color[3] or 205) or rgb(205, 205, 205);
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Position = dim2(0, 10, 0, 0);
+                Size = dim2(0.55, -10, 1, 0);
+                ZIndex = 3;
+            })
+            local value = Library:Create("TextLabel", {
+                Parent = row;
+                Name = "\0";
+                Text = "-";
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+                TextSize = 14;
+                TextXAlignment = Enum.TextXAlignment.Right;
+                TextYAlignment = Enum.TextYAlignment.Center;
+                TextTruncate = Enum.TextTruncate.AtEnd;
+                TextColor3 = themes.preset.text_color;
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                AnchorPoint = vec2(1, 0);
+                Position = dim2(1, -10, 0, 0);
+                Size = dim2(0.45, 0, 1, 0);
+                ZIndex = 3;
+            })
+            Library:Create("UIStroke", {
+                Parent = value;
+                Transparency = 0.6;
+                LineJoinMode = Enum.LineJoinMode.Miter;
+            })
+            local record = {Row = row, Title = title, Value = value, Key = key}
+            state.Rows[key] = record
+            table.insert(state.RowOrder, record)
+            return record
+        end
+        function ui.info_set(handle, key, value, r, g, b)
+            local state = InfoState(handle)
+            if type(key) == "table" and value == nil then
+                for rowKey, rowValue in pairs(key) do
+                    ui.info_set(handle, rowKey, rowValue)
+                end
+                return true
+            end
+            local record = state.Rows[tostring(key)] or ui.info_add_row(handle, key, key)
+            if type(value) == "table" and value.Text ~= nil then
+                record.Value.Text = tostring(value.Text)
+                if value.Color then
+                    record.Value.TextColor3 = value.Color
+                end
+            else
+                record.Value.Text = value == nil and "-" or tostring(value)
+            end
+            if r then
+                record.Value.TextColor3 = rgb(r or 255, g or 255, b or 255)
+            end
+            return true
+        end
+        function ui.info_get(handle, key)
+            local state = InfoState(handle)
+            local record = state.Rows[tostring(key)]
+            return record and record.Value.Text or nil
+        end
+        function ui.info_clear(handle)
+            local state = InfoState(handle)
+            for _, record in pairs(state.Rows) do
+                record.Value.Text = "-"
+            end
+        end
+        function ui.info_remove_row(handle, key)
+            local state = InfoState(handle)
+            local record = state.Rows[tostring(key)]
+            if record then
+                pcall(function()
+                    record.Row:Destroy()
+                end)
+                state.Rows[tostring(key)] = nil
+                return true
+            end
+            return false
+        end
+
+        ----------------------------------------------------------------
+        -- Image / progress / spacer
+        ----------------------------------------------------------------
+        function ui.new_image(tab, container, name, image, width, height)
+            local section, tabId = ResolveSectionEx(tab, container)
+            local root = Library:Create("Frame", {
+                Parent = section.Items.Elements;
+                Name = "\0";
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Size = dim2(1, 0, 0, (height or 80) + 16);
+            })
+            local title = nil
+            if name then
+                title = Library:Create("TextLabel", {
+                    Parent = root;
+                    Name = "\0";
+                    Text = tostring(name);
+                    FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                    TextSize = 13;
+                    TextColor3 = rgb(205, 205, 205);
+                    BackgroundTransparency = 1;
+                    BorderSizePixel = 0;
+                    Position = dim2(0, 21, 0, -2);
+                    Size = dim2(1, -21, 0, 14);
+                    TextXAlignment = Enum.TextXAlignment.Left;
+                    ZIndex = 2;
+                })
+            end
+            local imageValue = image
+            if type(imageValue) == "number" then
+                imageValue = "rbxassetid://" .. tostring(imageValue)
+            end
+            local picture = Library:Create("ImageLabel", {
+                Parent = root;
+                Name = "\0";
+                Image = imageValue or "";
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Position = dim2(0, 20, 0, 14);
+                Size = dim2(0, width or 80, 0, height or 80);
+                ZIndex = 2;
+            })
+            local state = {Name = name, Items = {Label = root, Title = title, Image = picture}, ImageInstance = picture}
+            return Register("image", state, {tab = tabId, section = section.Name, sectionObject = section, owned = true, root = root})
+        end
+        function ui.set_image(handle, image)
+            local data = Get(handle)
+            if data.kind ~= "image" then
+                error("element is not an image", 3)
+            end
+            if type(image) == "number" then
+                image = "rbxassetid://" .. tostring(image)
+            end
+            data.object.ImageInstance.Image = image
+            return true
+        end
+        function ui.new_progress(tab, container, name, default, max)
+            local section, tabId = ResolveSectionEx(tab, container)
+            max = tonumber(max) or 100
+            local root = Library:Create("Frame", {
+                Parent = section.Items.Elements;
+                Name = "\0";
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Size = dim2(1, 0, 0, 30);
+            })
+            local title = Library:Create("TextLabel", {
+                Parent = root;
+                Name = "\0";
+                Text = tostring(name or "Progress");
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 13;
+                TextColor3 = rgb(205, 205, 205);
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Position = dim2(0, 21, 0, -2);
+                Size = dim2(1, -21, 0, 14);
+                TextXAlignment = Enum.TextXAlignment.Left;
+                ZIndex = 2;
+            })
+            local holder = Library:Create("Frame", {
+                Parent = root;
+                Name = "\0";
+                Position = dim2(0, 20, 0, 14);
+                Size = dim2(1, -55, 0, 7);
+                BorderSizePixel = 0;
+                BackgroundColor3 = rgb(12, 12, 12);
+            })
+            local fill = Library:Create("Frame", {
+                Parent = holder;
+                Name = "\0";
+                Position = dim2(0, 1, 0, 1);
+                Size = dim2(0, 0, 1, -2);
+                BorderSizePixel = 0;
+                ZIndex = 2;
+                BackgroundColor3 = themes.preset.accent;
+            })
+            Library:Themify(fill, "accent", "BackgroundColor3")
+            local valueLabel = Library:Create("TextLabel", {
+                Parent = root;
+                Name = "\0";
+                Text = "";
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+                TextSize = 13;
+                TextColor3 = rgb(205, 205, 205);
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                AnchorPoint = vec2(1, 0);
+                Position = dim2(1, -5, 0, 10);
+                Size = dim2(0, 50, 0, 14);
+                TextXAlignment = Enum.TextXAlignment.Right;
+                ZIndex = 2;
+            })
+            local state = {
+                Name = name, Value = tonumber(default) or 0, Max = max,
+                Callback = function() end,
+                Items = {Label = root, Title = title, Holder = holder, Fill = fill, ValueLabel = valueLabel},
+            }
+            state.Update = function()
+                local percent = max > 0 and math.clamp(state.Value / max, 0, 1) or 0
+                fill.Size = dim2(percent, percent == 0 and 0 or -2, 1, -2)
+                valueLabel.Text = tostring(state.Value) .. "/" .. tostring(max)
+            end
+            state.Update()
+            return Register("progress", state, {tab = tabId, section = section.Name, sectionObject = section, owned = true, root = root})
+        end
+        function ui.new_spacer(tab, container, height)
+            local section, tabId = ResolveSectionEx(tab, container)
+            local root = Library:Create("Frame", {
+                Parent = section.Items.Elements;
+                Name = "\0";
+                BackgroundTransparency = 1;
+                BorderSizePixel = 0;
+                Size = dim2(1, 0, 0, tonumber(height) or 8);
+            })
+            local state = {Name = "spacer", Items = {Label = root}}
+            return Register("spacer", state, {tab = tabId, section = section.Name, sectionObject = section, owned = true, root = root})
+        end
+        ui.new_separator = function(tab, container)
+            return ui.new_label(tab, container, "------------------------")
+        end
+
+        ----------------------------------------------------------------
+        -- Unified creation: ui.create(tab, container, kind, config)
+        ----------------------------------------------------------------
+        function ui.create(tab, container, kind, config)
+            config = config or {}
+            kind = string.lower(tostring(kind or "label"))
+            if kind == "toggle" then
+                kind = "checkbox"
+            elseif kind == "dropdown" then
+                kind = "combobox"
+            elseif kind == "multi" or kind == "multiselect_dropdown" then
+                kind = "multiselect"
+            elseif kind == "input" then
+                kind = "textbox"
+            elseif kind == "color" then
+                kind = "color_picker"
+            end
+            if kind == "list" then
+                config.name = config.name or config.Name or "List"
+                return CreateList(tab, container, config)
+            elseif kind == "info" or kind == "info_panel" then
+                return CreateInfoPanel(tab, container, config)
+            elseif kind == "image" then
+                return ui.new_image(tab, container, config.name or config.Name, config.image or config.Image, config.width, config.height)
+            elseif kind == "progress" then
+                return ui.new_progress(tab, container, config.name or config.Name, config.default or 0, config.max or 100)
+            elseif kind == "spacer" then
+                return ui.new_spacer(tab, container, config.height or 8)
+            end
+            return CreateStandard(tab, container, kind, config)
+        end
+        ui.add = ui.create
+
+        ----------------------------------------------------------------
+        -- Get / set / callbacks / visibility / text / colors
+        ----------------------------------------------------------------
         function ui.get(handle)
             local data = Get(handle)
             local object = data.object
+            if data.kind == "list" then
+                local id, text, index, itemData = ui.list_get_selected(handle)
+                return id, text, index, itemData
+            end
+            if data.kind == "progress" then
+                return object.Value
+            end
+            if data.kind == "label" then
+                return object.Name
+            end
+            if data.kind == "tab" then
+                return data.extra.id
+            end
+            if data.kind == "section" then
+                return object.Name
+            end
             if data.kind == "color_picker" then
                 local value = Flags[object.Flag]
                 if type(value) == "table" and value.Color then
-                    local color = value.Color
-                    return math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255),
+                    local colorValue = value.Color
+                    return math.floor(colorValue.R * 255), math.floor(colorValue.G * 255), math.floor(colorValue.B * 255),
                         math.floor((1 - (value.Transparency or 0)) * 255)
                 end
                 return 255, 255, 255, 255
             end
-            if object.Flag then
+            if object and object.Flag then
                 return Flags[object.Flag]
             end
             return nil
@@ -7444,6 +8853,20 @@ do
         function ui.set(handle, ...)
             local data = Get(handle)
             local object = data.object
+            if data.kind == "list" then
+                return ui.list_set_selected(handle, (...), false)
+            end
+            if data.kind == "progress" then
+                object.Value = tonumber((...)) or 0
+                object.Update()
+                if object.Callback then
+                    object.Callback(object.Value)
+                end
+                return object.Value
+            end
+            if data.kind == "image" then
+                return ui.set_image(handle, (...))
+            end
             if data.kind == "color_picker" then
                 local r, g, b, a = ...
                 if object.Set then
@@ -7457,63 +8880,163 @@ do
                 end
                 return
             end
-            if object.Set then
+            if data.kind == "tab" then
+                return ui.open_tab(handle)
+            end
+            if data.kind == "section" then
+                return ui.set_section_visible(handle, (...))
+            end
+            if object and object.Set then
                 object.Set((...))
             end
         end
+        ui.set_value = ui.set
         function ui.set_callback(handle, callback)
             local data = Get(handle)
+            if data.kind == "list" or data.kind == "info" or data.kind == "progress" then
+                data.object.Callback = function(...)
+                    pcall(callback, handle, ...)
+                end
+                return handle
+            end
             data.object.Callback = function(...)
                 pcall(callback, handle, ...)
             end
-        end
-        local function ElementInstance(data)
-            local object = data.object
-            local items = object.Items or {}
-            return items.Toggle or items.Slider or items.Dropdown or items.Label
-                or items.List or items.Button or (data.extra and data.extra.label and data.extra.label.Items.Label)
+            return handle
         end
         function ui.set_visible(handle, visible)
             local data = Get(handle)
-            local instance = ElementInstance(data)
             data.visible = visible and true or false
+            if data.kind == "tab" then
+                return ui.set_tab_visible(handle, data.visible)
+            end
+            if data.kind == "section" then
+                data.object.Items.Outline.Visible = data.visible
+                return data.visible
+            end
+            local instance = ElementRoot(data)
             if instance then
                 instance.Visible = data.visible
             end
+            return data.visible
+        end
+        function ui.is_visible(handle)
+            local data = Get(handle)
+            if data.kind == "tab" then
+                return ui.is_tab_visible(handle)
+            end
+            local instance = ElementRoot(data)
+            return instance and instance.Visible == true or data.visible == true
+        end
+        ui.show = ui.set_visible
+        function ui.hide(handle)
+            return ui.set_visible(handle, false)
         end
         function ui.set_enabled(handle, enabled)
             local data = Get(handle)
-            local instance = ElementInstance(data)
+            local instance = ElementRoot(data)
             data.enabled = enabled and true or false
             if instance then
-                for _, child in instance:GetDescendants() do
-                    if child:IsA("TextLabel") or child:IsA("TextButton") then
+                for _, child in ipairs(instance:GetDescendants()) do
+                    if child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox") then
                         child.TextTransparency = data.enabled and 0 or 0.6
                     end
                 end
+                if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+                    instance.TextTransparency = data.enabled and 0 or 0.6
+                end
             end
+            return data.enabled
+        end
+        function ui.is_enabled(handle)
+            return Get(handle).enabled == true
         end
         function ui.set_color(handle, r, g, b)
             local data = Get(handle)
             local object = data.object
             local items = object.Items or {}
-            local color = rgb(r or 255, g or 255, b or 255)
+            local colorValue = rgb(r or 255, g or 255, b or 255)
             local target = items.Title or items.Name
             if target then
-                target.TextColor3 = color
+                target.TextColor3 = colorValue
             end
-            if data.extra and data.extra.label then
-                data.extra.label.Items.Title.TextColor3 = color
+            if data.extra and data.extra.label and data.extra.label.Items then
+                data.extra.label.Items.Title.TextColor3 = colorValue
             end
+            if data.kind == "list" then
+                -- у списка цвет меняет только заголовки строк через пересоздание не трогаем
+            end
+            return true
         end
-        function ui.name(handle)
+        function ui.set_accent_color(handle, r, g, b)
             local data = Get(handle)
             local items = data.object.Items or {}
-            local target = items.Title or items.Name
-            return target and target.Text or ""
+            local colorValue = rgb(r or 255, g or 255, b or 255)
+            if items.Accent and items.Accent:IsA("Frame") then
+                items.Accent.BackgroundColor3 = colorValue
+            end
+            if data.kind == "progress" and items.Fill then
+                items.Fill.BackgroundColor3 = colorValue
+            end
+            return true
+        end
+        function ui.set_text(handle, text)
+            local data = Get(handle)
+            local object = data.object
+            text = tostring(text)
+            if data.kind == "section" then
+                object.Name = text
+                if object.Items.Title then
+                    object.Items.Title.Text = text
+                end
+                if object.Items.Shade then
+                    object.Items.Shade.Text = text
+                end
+                return text
+            end
+            if data.kind == "label" and object.Set then
+                object.Set(text)
+                return text
+            end
+            local target = ElementTitleObject(data)
+            if target then
+                target.Text = text
+            end
+            if object and object.Name ~= nil and data.kind ~= "list" and data.kind ~= "info" then
+                object.Name = text
+            end
+            if data.kind == "list" or data.kind == "info" or data.kind == "image" or data.kind == "progress" then
+                object.Name = text
+                local title = object.Items and object.Items.Title
+                if title then
+                    title.Text = text
+                end
+            end
+            return text
+        end
+        ui.rename = ui.set_text
+        function ui.name(handle)
+            local data = Get(handle)
+            if data.kind == "tab" then
+                return data.extra.id
+            end
+            if data.kind == "section" then
+                return data.object.Name
+            end
+            if data.kind == "list" or data.kind == "info" or data.kind == "image" or data.kind == "progress" then
+                return data.object.Name or ""
+            end
+            local target = ElementTitleObject(data)
+            if target then
+                return target.Text or ""
+            end
+            return data.object.Name or ""
         end
         function ui.type(handle)
             return Get(handle).kind
+        end
+        function ui.raw(handle)
+            return Get(handle).object
         end
         function ui.is_menu_open()
             return Library.Window and Library.Window.Visible or false
@@ -7523,26 +9046,459 @@ do
             local pos = InputService:GetMouseLocation()
             return pos.X, pos.Y
         end
-        function ui.reference(tab, container, name)
-            local section = ResolveSection(tab, container)
-            for _, child in section.Items.Elements:GetDescendants() do
-                if child:IsA("TextLabel") and child.Text == name then
-                    return Register("reference", {Items = {Title = child}})
+        function ui.set_layout_order(handle, order)
+            local data = Get(handle)
+            local instance = ElementRoot(data)
+            if instance then
+                instance.LayoutOrder = tonumber(order) or 0
+            end
+            return tonumber(order) or 0
+        end
+        function ui.get_layout_order(handle)
+            local instance = ElementRoot(Get(handle))
+            return instance and instance.LayoutOrder or 0
+        end
+        function ui.move(handle, tab, container)
+            local data = Get(handle)
+            local section, tabId = ResolveSectionEx(tab, container)
+            local instance = ElementRoot(data)
+            if data.extra and data.extra.label and data.extra.label.Items then
+                instance = data.extra.label.Items.Label or instance
+            end
+            if instance then
+                instance.Parent = section.Items.Elements
+            end
+            data.extra.tab = tabId
+            data.extra.section = section.Name
+            data.extra.sectionObject = section
+            if type(data.object) == "table" then
+                data.object.__section = section
+                data.object.__tabName = tabId
+                data.object.__sectionName = section.Name
+            end
+            return true
+        end
+
+        ----------------------------------------------------------------
+        -- Editing existing elements: range / options / placeholder
+        ----------------------------------------------------------------
+        function ui.set_range(handle, minValue, maxValue)
+            local data = Get(handle)
+            local object = data.object
+            if data.kind ~= "slider" or not object.Set then
+                error("element is not a slider", 3)
+            end
+            object.Min = tonumber(minValue) or object.Min
+            object.Max = tonumber(maxValue) or object.Max
+            if object.Max < object.Min then
+                object.Max = object.Min
+            end
+            object.Set(object.Value)
+            return object.Min, object.Max
+        end
+        function ui.get_range(handle)
+            local object = Get(handle).object
+            return object.Min, object.Max
+        end
+        function ui.set_step(handle, step)
+            local data = Get(handle)
+            local object = data.object
+            if data.kind ~= "slider" then
+                error("element is not a slider", 3)
+            end
+            object.Intervals = tonumber(step) or object.Intervals
+            object.Set(object.Value)
+            return object.Intervals
+        end
+        function ui.set_suffix(handle, suffix)
+            local data = Get(handle)
+            local object = data.object
+            if data.kind ~= "slider" then
+                error("element is not a slider", 3)
+            end
+            object.Suffix = tostring(suffix or "")
+            object.Set(object.Value)
+            return object.Suffix
+        end
+        function ui.get_options(handle)
+            local data = Get(handle)
+            if data.kind ~= "combobox" and data.kind ~= "multiselect" then
+                error("element is not a combobox", 3)
+            end
+            local out = {}
+            for _, option in ipairs(data.object.Options or {}) do
+                table.insert(out, option)
+            end
+            return out
+        end
+        function ui.set_options(handle, options, keepSelection)
+            local data = Get(handle)
+            local object = data.object
+            if data.kind ~= "combobox" and data.kind ~= "multiselect" then
+                error("element is not a combobox", 3)
+            end
+            options = options or {}
+            local current = Flags[object.Flag]
+            object.RefreshOptions(options)
+            object.Options = options
+            if data.kind == "multiselect" then
+                local filtered = {}
+                if keepSelection and type(current) == "table" then
+                    for _, value in ipairs(current) do
+                        if table.find(options, value) then
+                            table.insert(filtered, value)
+                        end
+                    end
+                end
+                object.Set(filtered)
+            else
+                if keepSelection and current ~= nil and table.find(options, current) then
+                    object.Set(current)
+                elseif options[1] ~= nil then
+                    object.Set(options[1])
+                else
+                    object.Set(nil)
+                end
+            end
+            return options
+        end
+        function ui.add_option(handle, option)
+            local options = ui.get_options(handle)
+            if not table.find(options, option) then
+                table.insert(options, option)
+                ui.set_options(handle, options, true)
+            end
+            return options
+        end
+        function ui.remove_option(handle, option)
+            local options = ui.get_options(handle)
+            local index = table.find(options, option)
+            if index then
+                table.remove(options, index)
+                ui.set_options(handle, options, true)
+            end
+            return options
+        end
+        function ui.set_placeholder(handle, text)
+            local data = Get(handle)
+            if data.kind ~= "textbox" then
+                error("element is not a textbox", 3)
+            end
+            if data.object.Items and data.object.Items.Background then
+                data.object.Items.Background.PlaceholderText = tostring(text or "")
+            end
+            return text
+        end
+
+        ----------------------------------------------------------------
+        -- Find / reference / describe existing (built-in) elements
+        ----------------------------------------------------------------
+        local function CandidateSection(candidate)
+            if candidate.__section then
+                return candidate.__section
+            end
+            -- fallback: ищем секцию по GUI-иерархии
+            local root = nil
+            local items = candidate.Items or {}
+            root = items.Toggle or items.Slider or items.Dropdown or items.Label or items.List or items.Button or items.ColorpickerObject or items.Keybind
+            if root then
+                for _, sections in pairs(Library.Registry or {}) do
+                    for _, section in pairs(sections) do
+                        local ok, descendant = pcall(function()
+                            return root:IsDescendantOf(section.Items.Elements)
+                        end)
+                        if ok and descendant then
+                            candidate.__section = section
+                            candidate.__tabName = section.Tab and section.Tab.RegistryName
+                            candidate.__sectionName = section.Name
+                            return section
+                        end
+                    end
                 end
             end
             return nil
         end
-        function ui.new_tab_section(tab, container)
-            local tabName = string.lower(tostring(tab))
-            tabName = Library.TabAliases[tabName] or tabName
-            local target = Library.TabsByName[tabName]
-            if not target then
-                error("unknown tab: " .. tabName, 2)
+        local function CandidateName(candidate)
+            if candidate.Name ~= nil then
+                return tostring(candidate.Name)
             end
-            local section = target:Section({Name = container, Side = "Right"})
-            Library.Registry[tabName] = Library.Registry[tabName] or {}
-            Library.Registry[tabName][string.lower(container)] = section
-            return Register("section", section)
+            local items = candidate.Items or {}
+            local target = items.Title or items.Name
+            return target and target.Text or ""
+        end
+        local function SessionHandleFor(object)
+            for handle, data in pairs(Elements) do
+                if data.object == object then
+                    return handle
+                end
+            end
+            return nil
+        end
+        local function RegisterCandidate(candidate, tabId, section)
+            local existing = SessionHandleFor(candidate)
+            if existing then
+                return existing
+            end
+            local kind = candidate.__kind or candidate.__luaKind or "reference"
+            return Register(kind, candidate, {
+                tab = tabId,
+                section = section and section.Name,
+                sectionObject = section,
+                existing = true,
+            })
+        end
+        function ui.reference(tab, container, name, kind, occurrence)
+            local section, tabId = FindSectionObject(tab, container)
+            local wanted = string.lower(tostring(name or ""))
+            local wantedKind = kind and string.lower(tostring(kind)) or nil
+            occurrence = tonumber(occurrence) or 1
+            local exact, fuzzy = {}, {}
+            for _, candidate in ipairs(Library.ElementRegistry or {}) do
+                if candidate.__removed then
+                    continue
+                end
+                local candidateSection = CandidateSection(candidate)
+                if candidateSection ~= section then
+                    continue
+                end
+                if wantedKind and string.lower(tostring(candidate.__kind or "")) ~= wantedKind then
+                    continue
+                end
+                local candidateName = string.lower(CandidateName(candidate))
+                if candidateName == wanted then
+                    table.insert(exact, candidate)
+                elseif string.find(candidateName, wanted, 1, true) then
+                    table.insert(fuzzy, candidate)
+                end
+            end
+            local chosen = exact[occurrence] or fuzzy[occurrence]
+            if chosen then
+                return RegisterCandidate(chosen, tabId, section)
+            end
+            -- fallback как в старой версии API: просто текстовый лейбл
+            for _, child in ipairs(section.Items.Elements:GetDescendants()) do
+                if child:IsA("TextLabel") and child.Text == name then
+                    return Register("reference", {Items = {Title = child}}, {tab = tabId, section = section.Name, sectionObject = section, existing = true})
+                end
+            end
+            return nil
+        end
+        function ui.reference_by_flag(flag)
+            for _, candidate in ipairs(Library.ElementRegistry or {}) do
+                if not candidate.__removed and candidate.Flag == flag then
+                    local section = CandidateSection(candidate)
+                    local tabId = candidate.__tabName or (section and section.Tab and section.Tab.RegistryName)
+                    return RegisterCandidate(candidate, tabId, section)
+                end
+            end
+            return nil
+        end
+        function ui.find_elements(tab, container, query)
+            local sectionFilter, tabFilter, kindFilter, nameFilter, flagFilter = nil, nil, nil, nil, nil
+            if tab then
+                tabFilter = ResolveTabId(tab)
+            end
+            if container then
+                local ok, section = pcall(FindSectionObject, tab or tabFilter, container)
+                if ok then
+                    sectionFilter = section
+                end
+            end
+            if type(query) == "string" then
+                nameFilter = string.lower(query)
+            elseif type(query) == "table" then
+                kindFilter = query.kind and string.lower(tostring(query.kind)) or nil
+                nameFilter = query.name and string.lower(tostring(query.name)) or nil
+                flagFilter = query.flag
+                if query.tab then
+                    tabFilter = ResolveTabId(query.tab)
+                end
+            end
+            local out = {}
+            for _, candidate in ipairs(Library.ElementRegistry or {}) do
+                if candidate.__removed then
+                    continue
+                end
+                local candidateSection = CandidateSection(candidate)
+                local candidateTab = candidate.__tabName or (candidateSection and candidateSection.Tab and candidateSection.Tab.RegistryName)
+                if tabFilter and candidateTab ~= tabFilter then
+                    continue
+                end
+                if sectionFilter and candidateSection ~= sectionFilter then
+                    continue
+                end
+                if kindFilter and string.lower(tostring(candidate.__kind or "")) ~= kindFilter then
+                    continue
+                end
+                if flagFilter and candidate.Flag ~= flagFilter then
+                    continue
+                end
+                if nameFilter then
+                    local candidateName = string.lower(CandidateName(candidate))
+                    if not string.find(candidateName, nameFilter, 1, true) then
+                        continue
+                    end
+                end
+                table.insert(out, RegisterCandidate(candidate, candidateTab, candidateSection))
+            end
+            return out
+        end
+        function ui.list_elements(tab, container, kind)
+            local handles = ui.find_elements(tab, container, kind and {kind = kind} or nil)
+            local out = {}
+            for _, handle in ipairs(handles) do
+                table.insert(out, ui.describe(handle))
+            end
+            return out
+        end
+        function ui.describe(handle)
+            local data = Get(handle)
+            local object = data.object
+            local info = {
+                handle = handle,
+                kind = data.kind,
+                name = ui.name(handle),
+                tab = data.extra and data.extra.tab or (type(object) == "table" and object.__tabName or nil),
+                section = data.extra and data.extra.section or (type(object) == "table" and object.__sectionName or nil),
+                flag = type(object) == "table" and object.Flag or nil,
+                visible = ui.is_visible(handle),
+                enabled = data.enabled == true,
+                custom = type(object) == "table" and object.__luaCreated == true or false,
+            }
+            local ok, value = pcall(ui.get, handle)
+            if ok then
+                info.value = value
+            end
+            if data.kind == "slider" and type(object) == "table" then
+                info.min, info.max, info.step, info.suffix = object.Min, object.Max, object.Intervals, object.Suffix
+            elseif data.kind == "combobox" or data.kind == "multiselect" then
+                info.options = ui.get_options(handle)
+                info.multi = data.kind == "multiselect"
+            elseif data.kind == "list" then
+                info.count = ui.list_count(handle)
+                info.selected = (ui.list_get_selected(handle))
+            end
+            return info
+        end
+        function ui.get_flag(flag)
+            return Flags[flag]
+        end
+        function ui.set_flag(flag, value)
+            local setter = ConfigFlags[flag]
+            if setter then
+                local ok = pcall(setter, value)
+                return ok
+            end
+            Flags[flag] = value
+            return true
+        end
+        ui.get_by_flag = ui.reference_by_flag
+
+        ----------------------------------------------------------------
+        -- Remove / clone / cleanup
+        ----------------------------------------------------------------
+        function ui.remove(handle)
+            local data = Get(handle)
+            if data.kind == "tab" then
+                local ok, err = ui.remove_tab(handle)
+                if ok then
+                    Elements[handle] = nil
+                end
+                return ok, err
+            end
+            if data.kind == "section" then
+                local ok, err = ui.remove_section(data.extra.tab, data.object.Name, true)
+                if ok then
+                    Elements[handle] = nil
+                end
+                return ok, err
+            end
+            local object = data.object
+            if data.kind == "list" or data.kind == "info" or data.kind == "image" or data.kind == "progress" or data.kind == "spacer" then
+                local root = ElementRoot(data)
+                if root then
+                    pcall(function()
+                        root:Destroy()
+                    end)
+                end
+            else
+                if data.extra and data.extra.label then
+                    DestroyObjectGui(data.extra.label)
+                    RemoveFromLibraryRegistry(data.extra.label)
+                end
+                DestroyObjectGui(object)
+                RemoveFromLibraryRegistry(object)
+            end
+            Elements[handle] = nil
+            return true
+        end
+        function ui.clone(handle, tab, container, newName)
+            local data = Get(handle)
+            local object = data.object
+            local kind = data.kind
+            local section, tabId = ResolveSectionEx(tab, container)
+            local name = newName or ((ui.name(handle) or kind) .. " copy")
+            local element = nil
+            if kind == "checkbox" then
+                element = section:Toggle({Name = name, Flag = FlagPrefix(name), Default = ui.get(handle) == true})
+            elseif kind == "slider" then
+                element = section:Slider({
+                    Name = name, Min = object.Min, Max = object.Max, Decimal = object.Intervals,
+                    Suffix = object.Suffix, Default = ui.get(handle) or object.Min, Flag = FlagPrefix(name),
+                    Formatter = object.Formatter,
+                })
+            elseif kind == "combobox" or kind == "multiselect" then
+                element = section:Dropdown({
+                    Name = name, Options = ui.get_options(handle), Multi = kind == "multiselect",
+                    Default = ui.get(handle), Flag = FlagPrefix(name),
+                })
+            elseif kind == "button" then
+                element = section:Button({Name = name, Callback = object.Callback or function() end})
+            elseif kind == "label" then
+                element = section:Label({Name = name})
+            elseif kind == "textbox" then
+                element = section:Textbox({Name = name, Flag = FlagPrefix(name), Default = ui.get(handle) or ""})
+            else
+                error("clone is not supported for kind '" .. tostring(kind) .. "'", 3)
+            end
+            element.__luaCreated = true
+            local newHandle = Register(kind, element, {tab = tabId, section = section.Name, sectionObject = section, owned = true})
+            if object.Callback and kind ~= "button" then
+                element.Callback = object.Callback
+            end
+            return newHandle
+        end
+        function ui.cleanup(options)
+            options = options or {}
+            local removed = 0
+            for index = #OwnedHandles, 1, -1 do
+                local handle = OwnedHandles[index]
+                if Elements[handle] then
+                    if pcall(ui.remove, handle) then
+                        removed += 1
+                    end
+                end
+            end
+            if options.sections then
+                for index = #SessionSections, 1, -1 do
+                    local record = SessionSections[index]
+                    if pcall(ui.remove_section, record.tab, record.id, true) then
+                        removed += 1
+                    end
+                end
+            end
+            if options.tabs then
+                local ids = {}
+                for id in pairs(SessionTabs) do
+                    table.insert(ids, id)
+                end
+                for _, id in ipairs(ids) do
+                    if pcall(ui.remove_tab, id) then
+                        removed += 1
+                    end
+                end
+            end
+            return removed
         end
         function ui.list()
             local out = {}
@@ -7560,6 +9516,21 @@ do
             for tabName, sections in ui.list() do
                 Notifications:Create({Name = tabName .. ": " .. table.concat(sections, ", ")})
             end
+        end
+        function ui.capabilities()
+            local names = {}
+            for name, value in pairs(ui) do
+                if type(value) == "function" then
+                    table.insert(names, name)
+                end
+            end
+            table.sort(names)
+            return names
+        end
+        function ui.help()
+            local text = "gamesense lua ui v" .. ui.version .. ": " .. table.concat(ui.capabilities(), ", ")
+            Notifications:Create({Name = text})
+            return text
         end
         api.ui = ui
         local entity = {}
