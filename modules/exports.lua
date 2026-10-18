@@ -21,6 +21,7 @@ return {
     NoSpread = NoSpread,
     HitboxExpander = HitboxExpander,
     AirShot = AirShot,
+    RapidFire = RapidFire,
     AntiAim = AntiAim,
     BacktrackChams = BacktrackChams,
     Movement = Movement,

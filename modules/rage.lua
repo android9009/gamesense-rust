@@ -1209,6 +1209,165 @@ function AirShot.Shutdown()
 end
 
 
+local RapidFire = {
+    Started = false,
+    ToolCache = {},
+    LastTool = nil,
+}
+
+local RF_ATTR = "rateOfFire"
+
+local function rfActive()
+    return RapidFire.Started and flag("AimbotRapidFire", false) == true
+end
+
+local function rfDesired()
+    local value = tonumber(flag("AimbotRapidFireValue", 1200))
+    if not value or value ~= value or math.abs(value) == math.huge then
+        return 1200
+    end
+    return math.clamp(math.floor(value + 0.5), 500, 3000)
+end
+
+local function rfCoerce(raw, desired)
+    if typeof(raw) == "Vector2" then
+        return Vector2.new(desired, desired)
+    end
+    if typeof(raw) == "Vector3" then
+        return Vector3.new(desired, desired, desired)
+    end
+    if type(raw) == "string" then
+        return tostring(desired)
+    end
+    if type(raw) == "boolean" then
+        return desired ~= 0
+    end
+    return desired
+end
+
+local function rfRead(record)
+    local ok, value = pcall(function()
+        if record.Kind == "value" then
+            return record.Inst.Value
+        end
+        return record.Inst:GetAttribute(record.Attr)
+    end)
+    if ok then
+        return value
+    end
+    return nil
+end
+
+local function rfWrite(record, value)
+    if not record or not record.Inst or not record.Inst.Parent then
+        return
+    end
+    if rfRead(record) == value then
+        return
+    end
+    pcall(function()
+        if record.Kind == "value" then
+            record.Inst.Value = value
+        else
+            record.Inst:SetAttribute(record.Attr, value)
+        end
+    end)
+end
+
+local function rfCollectHolders(tool)
+    local records = {}
+    local function consider(inst)
+        local ok, value = pcall(function()
+            return inst:GetAttribute(RF_ATTR)
+        end)
+        if ok and value ~= nil then
+            records[#records + 1] = {Inst = inst, Attr = RF_ATTR, Kind = "attribute", Original = value}
+            return
+        end
+        if (inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("StringValue") or inst:IsA("BoolValue"))
+            and inst.Name == RF_ATTR then
+            records[#records + 1] = {Inst = inst, Attr = RF_ATTR, Kind = "value", Original = inst.Value}
+        end
+    end
+    consider(tool)
+    for _, descendant in ipairs(tool:GetDescendants()) do
+        consider(descendant)
+    end
+    return records
+end
+
+local function rfRestoreTool(tool)
+    local records = RapidFire.ToolCache[tool]
+    if not records then
+        return
+    end
+    for _, record in ipairs(records) do
+        rfWrite(record, record.Original)
+    end
+    RapidFire.ToolCache[tool] = nil
+end
+
+local function rfRestoreAll()
+    if RapidFire.LastTool then
+        rfRestoreTool(RapidFire.LastTool)
+        RapidFire.LastTool = nil
+    end
+    local tools = {}
+    for tool in pairs(RapidFire.ToolCache) do
+        tools[#tools + 1] = tool
+    end
+    for _, tool in ipairs(tools) do
+        rfRestoreTool(tool)
+    end
+end
+
+local function rfUpdate()
+    local on = rfActive()
+    local character = LocalPlayer and LocalPlayer.Character
+    local tool = on and character and character:FindFirstChildOfClass("Tool") or nil
+    if RapidFire.LastTool and RapidFire.LastTool ~= tool then
+        rfRestoreTool(RapidFire.LastTool)
+    end
+    RapidFire.LastTool = tool
+    if not on or not tool then
+        return
+    end
+    local records = RapidFire.ToolCache[tool]
+    if not records then
+        records = rfCollectHolders(tool)
+        RapidFire.ToolCache[tool] = records
+    end
+    local desired = rfDesired()
+    for _, record in ipairs(records) do
+        rfWrite(record, rfCoerce(record.Original, desired))
+    end
+end
+
+function RapidFire.Status()
+    return {
+        Enabled = rfActive(),
+        Value = rfDesired(),
+        Tool = RapidFire.LastTool,
+    }
+end
+
+function RapidFire.Start()
+    if RapidFire.Started then return end
+    RapidFire.Started = true
+    TaskManager.AddConnection("RapidFireApply", RunService.RenderStepped, rfUpdate)
+    if Library then
+        Library.UnloadHooks = Library.UnloadHooks or {}
+        table.insert(Library.UnloadHooks, RapidFire.Shutdown)
+    end
+end
+
+function RapidFire.Shutdown()
+    TaskManager.RemoveConnection("RapidFireApply")
+    rfRestoreAll()
+    RapidFire.Started = false
+end
+
+
 local HitboxExpander = {Started = false, Records = {}}
 RageBot.ExpandedParts = HitboxExpander.Records
 do

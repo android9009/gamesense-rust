@@ -3176,6 +3176,21 @@ do
     local RiskyColor = rgb(182, 182, 101)
     local AirShot = Aimbot:Toggle({Name = "Air shot", Flag = "AimbotAirShot"})
     AirShot.Items.Title.TextColor3 = RiskyColor
+    local RapidFireToggle = Aimbot:Toggle({Name = "Rapid fire", Flag = "AimbotRapidFire"})
+    RapidFireToggle.Items.Title.TextColor3 = RiskyColor
+    local RapidFireSlider = Aimbot:Slider({
+        Name = "Rate of fire",
+        Min = 500,
+        Max = 3000,
+        Default = 1200,
+        Decimal = 1,
+        Suffix = " rpm",
+        Flag = "AimbotRapidFireValue"
+    })
+    if RapidFireSlider.Items.Title then
+        RapidFireSlider.Items.Title.TextColor3 = RiskyColor
+    end
+    BindVisibility(RapidFireToggle, {RapidFireSlider})
     local ReachToggle = Aimbot:Toggle({Name = "Hitbox expander", Flag = "AimbotReach"})
     ReachToggle.Items.Title.TextColor3 = RiskyColor
     local ReachSlider = Aimbot:Slider({
@@ -5409,6 +5424,7 @@ do
     BindVisibility(RemovalsToggle, {RemovalsList})
     Misc:Toggle({Name = "Anti-fling", Flag = "MiscAntiFling"})
     Misc:Toggle({Name = "Hide name", Flag = "MiscHideName"})
+    Misc:Toggle({Name = "Infinite ammo", Flag = "MiscInfiniteAmmo"})
     local Movement = Tabs.Settings:Section({Name = "Movement", Side = "Right", Size = 0.55})
     Movement.Items.Outline.Size = dim2(1, 0, 0.55, -10)
     local SettingsSection = Tabs.Settings:Section({Name = "Settings", Side = "Right", Size = 0.45})

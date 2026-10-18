@@ -148,5 +148,6 @@ RageBot.Start()
 RecoilKiller.Start()
 NoSpread.Start()
 AirShot.Start()
+RapidFire.Start()
 AntiAim.Start()
 

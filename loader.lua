@@ -30,7 +30,6 @@ local manifest = {
         "modules/movement.lua",
         "modules/misc.lua",
         "modules/legit.lua",
-        "modules/weapon_editor.lua",
         "modules/exports.lua",
     },
 }

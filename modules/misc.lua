@@ -5,6 +5,125 @@ do
     local shadowOriginal, terrainOriginal, nameHumanoid, nameOriginal
     local fpsOriginal, fpsLast, cameraLast
     local active = false
+
+    -- Infinite ammo: _ammo + magazineSize -> 9999999, reloadTime -> 0.1 on the equipped tool.
+    local INF_AMMO_VALUE = 9999999
+    local INF_RELOAD_TIME = 0.1
+    local INF_AMMO_ATTRS = {"_ammo", "magazineSize", "reloadTime"}
+    local infAmmoOriginals = {}
+    local infAmmoLastTool = nil
+    local function infCoerce(raw, desired)
+        if typeof(raw) == "Vector2" then
+            return Vector2.new(desired, desired)
+        end
+        if typeof(raw) == "Vector3" then
+            return Vector3.new(desired, desired, desired)
+        end
+        if type(raw) == "string" then
+            return tostring(desired)
+        end
+        if type(raw) == "boolean" then
+            return desired ~= 0
+        end
+        return desired
+    end
+    local function infRead(record)
+        local ok, value = pcall(function()
+            if record.Kind == "value" then
+                return record.Inst.Value
+            end
+            return record.Inst:GetAttribute(record.Attr)
+        end)
+        if ok then
+            return value
+        end
+        return nil
+    end
+    local function infWrite(record, value)
+        if not record or not record.Inst or not record.Inst.Parent then
+            return
+        end
+        if infRead(record) == value then
+            return
+        end
+        pcall(function()
+            if record.Kind == "value" then
+                record.Inst.Value = value
+            else
+                record.Inst:SetAttribute(record.Attr, value)
+            end
+        end)
+    end
+    local function infCollectHolders(tool)
+        local records = {}
+        local function consider(inst)
+            for _, attr in ipairs(INF_AMMO_ATTRS) do
+                local ok, value = pcall(function()
+                    return inst:GetAttribute(attr)
+                end)
+                if ok and value ~= nil then
+                    records[#records + 1] = {Inst = inst, Attr = attr, Kind = "attribute", Original = value}
+                end
+            end
+            if (inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("StringValue") or inst:IsA("BoolValue")) then
+                for _, attr in ipairs(INF_AMMO_ATTRS) do
+                    if inst.Name == attr then
+                        records[#records + 1] = {Inst = inst, Attr = attr, Kind = "value", Original = inst.Value}
+                    end
+                end
+            end
+        end
+        consider(tool)
+        for _, descendant in ipairs(tool:GetDescendants()) do
+            consider(descendant)
+        end
+        return records
+    end
+    local function infRestoreTool(tool)
+        local records = infAmmoOriginals[tool]
+        if not records then
+            return
+        end
+        for _, record in ipairs(records) do
+            infWrite(record, record.Original)
+        end
+        infAmmoOriginals[tool] = nil
+    end
+    local function restoreInfiniteAmmo()
+        if infAmmoLastTool then
+            infRestoreTool(infAmmoLastTool)
+            infAmmoLastTool = nil
+        end
+        local tools = {}
+        for tool in pairs(infAmmoOriginals) do
+            tools[#tools + 1] = tool
+        end
+        for _, tool in ipairs(tools) do
+            infRestoreTool(tool)
+        end
+    end
+    local function applyInfiniteAmmo()
+        local on = flag("MiscInfiniteAmmo", false) == true
+        local character = LocalPlayer and LocalPlayer.Character
+        local tool = on and character and character:FindFirstChildOfClass("Tool") or nil
+        if infAmmoLastTool and infAmmoLastTool ~= tool then
+            infRestoreTool(infAmmoLastTool)
+        end
+        infAmmoLastTool = tool
+        if not on or not tool then
+            return
+        end
+        local records = infAmmoOriginals[tool]
+        if not records then
+            records = infCollectHolders(tool)
+            infAmmoOriginals[tool] = records
+        end
+        for _, record in ipairs(records) do
+            local desired = record.Attr == "reloadTime" and INF_RELOAD_TIME or INF_AMMO_VALUE
+            infWrite(record, infCoerce(record.Original, desired))
+        end
+    end
+
     local function isParticle(object)
         return object:IsA("ParticleEmitter") or object:IsA("Trail") or object:IsA("Smoke")
             or object:IsA("Fire") or object:IsA("Sparkles") or object:IsA("Beam")
@@ -66,6 +185,7 @@ do
         local root = character and findRootPart(character)
         local camera = Workspace.CurrentCamera
         refreshCamera(camera)
+        applyInfiniteAmmo()
         if flag("MiscFPSUnlocker", false) == true and setfpscap then
             local requested = math.clamp(tonumber(flag("MiscFPSValue", 240)) or 240, 30, 999)
             if fpsLast ~= requested then
@@ -156,6 +276,7 @@ do
     function Misc.Shutdown()
         active, Misc.Started = false, false
         for _, id in ipairs({"MiscApply", "MiscWorldAdded", "MiscLightingAdded", "MiscCameraEffects"}) do TaskManager.RemoveConnection(id) end
+        restoreInfiniteAmmo()
         restoreProperty(particles, "Enabled"); restoreProperty(textures, "Transparency")
         restoreProperty(collisions, "CanCollide"); restoreEffects(); restoreName(); restoreFPS()
         if shadowOriginal ~= nil then Lighting.GlobalShadows = shadowOriginal; shadowOriginal = nil end
