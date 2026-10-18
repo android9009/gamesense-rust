@@ -8103,9 +8103,24 @@ Library:Connection(RunService.RenderStepped, function()
     end
 end)
 local ContextActionService = game:GetService("ContextActionService")
+local function SetMenuCombatBlock(open)
+    Library.MenuOpen = open
+    if open then
+        ContextActionService:BindActionAtPriority("GS_MenuBlockFire", function()
+            return Enum.ContextActionResult.Sink
+        end, false, 3000, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
+        local character = game:GetService("Players").LocalPlayer.Character
+        local tool = character and character:FindFirstChildOfClass("Tool")
+        if tool then pcall(tool.Deactivate, tool) end
+    else
+        ContextActionService:UnbindAction("GS_MenuBlockFire")
+    end
+end
 local origToggle = Window.ToggleMenu
 Window.ToggleMenu = function(bool)
+    menuOpen = bool == true
     origToggle(bool)
+    SetMenuCombatBlock(menuOpen)
     if bool then
         ContextActionService:BindCoreAction("BlockEscape", function()
             return Enum.ContextActionResult.Sink
@@ -8117,10 +8132,13 @@ end
 ContextActionService:BindCoreAction("BlockEscape", function()
     return Enum.ContextActionResult.Sink
 end, false, Enum.KeyCode.Escape)
+SetMenuCombatBlock(Library.Window.Visible == true)
 Library.UnloadHooks = Library.UnloadHooks or {}
 table.insert(Library.UnloadHooks, function()
     pcall(function()
         ContextActionService:UnbindCoreAction("BlockEscape")
+        ContextActionService:UnbindAction("GS_MenuBlockFire")
+        Library.MenuOpen = false
     end)
 end)
 Library:Connection(InputService.InputBegan, function(input, ge)
