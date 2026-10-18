@@ -25,4 +25,5 @@ return {
     BacktrackChams = BacktrackChams,
     Movement = Movement,
     Misc = Misc,
+    WeaponEditor = WeaponEditor,
 }
