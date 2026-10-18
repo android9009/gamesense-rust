@@ -179,6 +179,29 @@ function RageBot.GetHitboxParts(model)
     return results
 end
 
+-- Точка на хитбоксе, максимально далёкая от тела: считаем по реальной геометрии
+-- парта - луч от ядра тела (торса) через центр хитбокса до его поверхности.
+-- Для головы это верх головы: стреляя туда, пуля даже с погрешностью с гораздо
+-- меньшей вероятностью уйдёт в торс - вокруг только сам хитбокс.
+local function farAimPoint(part, model, fallback)
+    if not (part and part:IsA("BasePart") and model) then return fallback end
+    local core = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
+        or model:FindFirstChild("LowerTorso") or findRootPart(model)
+    if not core or core == part or not core:IsA("BasePart") then return fallback end
+    local cf = part.CFrame
+    local away = cf:VectorToObjectSpace(part.Position - core.Position)
+    if away.Magnitude < 1e-4 then return fallback end
+    local half = part.Size * 0.5
+    local unit = away.Unit
+    local scale = math.huge
+    if math.abs(unit.X) > 1e-6 then scale = math.min(scale, half.X / math.abs(unit.X)) end
+    if math.abs(unit.Y) > 1e-6 then scale = math.min(scale, half.Y / math.abs(unit.Y)) end
+    if math.abs(unit.Z) > 1e-6 then scale = math.min(scale, half.Z / math.abs(unit.Z)) end
+    if scale == math.huge or scale <= 0 then return fallback end
+    -- 0.92: точка чуть внутри поверхности, чтобы не целиться в воздух у граней.
+    return cf:PointToWorldSpace(unit * (scale * 0.92))
+end
+
 local function btPosVisible(cam, pos)
     local localChar = LocalPlayer.Character
     local origin = cam.CFrame.Position
@@ -265,7 +288,12 @@ local function getClosestTarget()
                                     if isVis then
                                         closestDist = dist
                                         closestPart = hb.Part
-                                        closestPos = hb.Position
+                                        local aimPos = farAimPoint(hb.Part, char, hb.Position)
+                                        if needVis and aimPos ~= hb.Position
+                                            and not isPartVisible(camera, hb.Part, aimPos, char) then
+                                            aimPos = hb.Position
+                                        end
+                                        closestPos = aimPos
                                     end
                                 end
                             end
@@ -299,7 +327,12 @@ local function getClosestTarget()
                             if isVis then
                                 closestDist = dist
                                 closestPart = hb.Part
-                                closestPos = hb.Position
+                                local aimPos = farAimPoint(hb.Part, npc, hb.Position)
+                                if needVis and aimPos ~= hb.Position
+                                    and not isPartVisible(camera, hb.Part, aimPos, npc) then
+                                    aimPos = hb.Position
+                                end
+                                closestPos = aimPos
                             end
                         end
                     end
