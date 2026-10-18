@@ -3,6 +3,54 @@ do
     local MASK_ALPHA = 0.9999999
     local MAX_PARTS = 16
     Chams.LayerCache = {}
+    local movingParts, movingFrames = {}, {}
+    local batching, batchStart = false, 0
+    local profileCalls, profileTotal, profileMax, profileMoves = 0, 0, 0, 0
+    local bulkSucceeded, bulkFailed = 0, 0
+    function Chams.BeginLayerFrame()
+        table.clear(movingParts); table.clear(movingFrames)
+        batching, batchStart = true, os.clock()
+    end
+    function Chams.FlushLayerFrame()
+        local count = #movingParts
+        if count > 0 then
+            local ok = pcall(function()
+                Workspace:BulkMoveTo(movingParts, movingFrames, Enum.BulkMoveMode.FireCFrameChanged)
+            end)
+            if ok then bulkSucceeded += 1 else
+                bulkFailed += 1
+                for index, part in ipairs(movingParts) do
+                    if part.Parent then part.CFrame = movingFrames[index] end
+                end
+            end
+        end
+        if batching then
+            local elapsed = os.clock() - batchStart
+            profileCalls += 1; profileTotal += elapsed
+            profileMax = math.max(profileMax, elapsed)
+            profileMoves += count
+        end
+        batching = false
+        table.clear(movingParts); table.clear(movingFrames)
+    end
+    function Chams.Profile(reset)
+        local targets, parts = 0, 0
+        for _, layer in pairs(Chams.LayerCache) do
+            targets += 1
+            for _ in pairs(layer.Parts) do parts += 1 end
+        end
+        local result = {Updates = profileCalls, AverageMs = profileCalls > 0 and profileTotal * 1000 / profileCalls or 0,
+            MaxMs = profileMax * 1000, Targets = targets, ProxyParts = parts,
+            AverageMoved = profileCalls > 0 and profileMoves / profileCalls or 0,
+            BulkCalls = bulkSucceeded, BulkFallbacks = bulkFailed}
+        print(string.format("[Chams Profile] avg=%.3fms max=%.3fms targets=%d parts=%d moved=%.1f bulk=%d fallback=%d",
+            result.AverageMs, result.MaxMs, targets, parts, result.AverageMoved, bulkSucceeded, bulkFailed))
+        if reset then
+            profileCalls, profileTotal, profileMax, profileMoves = 0, 0, 0, 0
+            bulkSucceeded, bulkFailed = 0, 0
+        end
+        return result
+    end
 
     local function destroyLayer(model)
         local layer = Chams.LayerCache[model]
@@ -13,6 +61,8 @@ do
     end
     Chams.RemoveLayer = destroyLayer
     function Chams.ClearLayers()
+        batching = false
+        table.clear(movingParts); table.clear(movingFrames)
         for model in pairs(Chams.LayerCache) do destroyLayer(model) end
         if Chams.LayerFolder then Chams.LayerFolder:Destroy(); Chams.LayerFolder = nil end
     end
@@ -51,7 +101,8 @@ do
     local function reconcile(layer, sourceModel, now)
         if now < layer.NextParts then return end
         layer.NextParts = now + 0.25
-        local wanted, count = {}, 0
+        local wanted, count = layer.Wanted, 0
+        table.clear(wanted)
         for _, source in ipairs(Entity.GetParts(sourceModel)) do
             if count >= MAX_PARTS then break end
             if source.Parent == sourceModel and source.Name ~= "HumanoidRootPart"
@@ -81,7 +132,7 @@ do
             proxy.Parent = ensureFolder()
             local highlight = Instance.new("Highlight")
             highlight.Name = "GS_VisibleLayer"
-            layer = {Model = proxy, Highlight = highlight, Parts = {}, NextParts = 0}
+            layer = {Model = proxy, Highlight = highlight, Parts = {}, Wanted = {}, NextParts = 0}
             Chams.LayerCache[model] = layer
         end
         return layer
@@ -103,17 +154,34 @@ do
         local cameraPosition = camera.CFrame.Position
         local root = findRootPart(model)
         local distance = root and (root.Position - cameraPosition).Magnitude or 10
-        local factor = 1 - math.min(BIAS / math.max(distance, 0.1), 0.001)
+        -- Freeze geometry scale between large distance changes. Resizing every
+        -- frame is unnecessary: a fixed scale still preserves screen alignment.
+        if not layer.ReferenceDistance or distance > layer.ReferenceDistance * 1.5
+            or distance < layer.ReferenceDistance / 1.5 then
+            layer.ReferenceDistance = math.max(distance, 0.1)
+            layer.Factor = 1 - math.min(BIAS / layer.ReferenceDistance, 0.001)
+        end
+        local factor = layer.Factor
         for source, pair in pairs(layer.Parts) do
             local copy = pair.Copy
             if source.Parent == model and copy.Parent then
                 local shift = (cameraPosition - source.Position) * (1 - factor)
-                local size = source.Size * factor
-                if copy.Size ~= size then copy.Size = size end
-                copy.CFrame = source.CFrame + shift
+                if pair.SourceSize ~= source.Size or pair.Factor ~= factor then
+                    copy.Size = source.Size * factor
+                    pair.SourceSize, pair.Factor = source.Size, factor
+                end
+                local nextFrame = source.CFrame + shift
+                if pair.LastFrame ~= nextFrame then
+                    movingParts[#movingParts + 1] = copy
+                    movingFrames[#movingFrames + 1] = nextFrame
+                    pair.LastFrame = nextFrame
+                end
                 if pair.Mesh and pair.SourceMesh and pair.SourceMesh.Parent then
-                    local scale = pair.SourceMesh.Scale * factor
-                    if pair.Mesh.Scale ~= scale then pair.Mesh.Scale = scale end
+                    local sourceScale = pair.SourceMesh.Scale
+                    if pair.SourceScale ~= sourceScale or pair.MeshFactor ~= factor then
+                        pair.Mesh.Scale = sourceScale * factor
+                        pair.SourceScale, pair.MeshFactor = sourceScale, factor
+                    end
                 end
             else
                 copy:Destroy()
@@ -134,6 +202,7 @@ do
                 FillColor = wallOptions.FillColor, OutlineColor = wallOptions.FillColor, Enabled = true,
             }, false, layer.Model)
         end
+        if not batching then Chams.FlushLayerFrame() end
         return back
     end
 end

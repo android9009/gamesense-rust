@@ -186,7 +186,12 @@ local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFla
 end
 local function addChamsTarget(targets, model, kind, player)
     if model and model.Parent and Entity.IsAliveModel(model) then
-        targets[#targets + 1] = {Model = model, Kind = kind, Player = player}
+        local index = #targets + 1
+        ChamsRuntime.RecordPool = ChamsRuntime.RecordPool or {}
+        local record = ChamsRuntime.RecordPool[index]
+        if not record then record = {}; ChamsRuntime.RecordPool[index] = record end
+        record.Model, record.Kind, record.Player = model, kind, player
+        targets[index] = record
     end
 end
 local function applyLocalPlayerChams(model)
@@ -523,7 +528,10 @@ function ChamsRuntime.Apply(deltaTime)
         return
     end
     ChamsRuntime.Idle = false
-    local targets = {}
+    Chams.BeginLayerFrame()
+    ChamsRuntime.TargetBuffer = ChamsRuntime.TargetBuffer or {}
+    local targets = ChamsRuntime.TargetBuffer
+    table.clear(targets)
     for _, player in ipairs(Players:GetPlayers()) do
         local kind = player == LocalPlayer and "local" or (Entity.IsEnemy(player) and "enemy" or "teammate")
         if (kind == "local" and own) or (kind == "enemy" and enemies) or (kind == "teammate" and teammates) then
@@ -542,17 +550,13 @@ function ChamsRuntime.Apply(deltaTime)
             return a.Distance < b.Distance
         end)
     end
-    local activeModels = {}
-    local refreshOcclusion = ChamsRuntime.OcclusionTimer <= 0
+    ChamsRuntime.ActiveModels = ChamsRuntime.ActiveModels or {}
+    local activeModels = ChamsRuntime.ActiveModels
+    table.clear(activeModels)
     for index = 1, math.min(#targets, MAX_CHAM_TARGETS) do
         local target = targets[index]
         activeModels[target.Model] = true
-        applyTargetChams(target, refreshOcclusion)
-    end
-    if refreshOcclusion then
-        ChamsRuntime.OcclusionTimer = 0.08
-    else
-        ChamsRuntime.OcclusionTimer -= deltaTime or (1 / 60)
+        applyTargetChams(target, false)
     end
     for model in pairs(Chams.ModelCache) do
         if not activeModels[model] then Chams.RemoveModel(model) end
@@ -568,6 +572,7 @@ function ChamsRuntime.Apply(deltaTime)
             Chams.LocalHighlight = nil
         end
     end
+    Chams.FlushLayerFrame()
 end
 function ChamsRuntime.Shutdown()
     pcall(function() RunService:UnbindFromRenderStep("GS_ChamsApply") end)
@@ -584,6 +589,7 @@ function ChamsRuntime.Shutdown()
     end
     table.clear(OnShot.Ghosts)
     table.clear(OnShot.LastModelTime)
+    ChamsRuntime.TargetBuffer, ChamsRuntime.RecordPool, ChamsRuntime.ActiveModels = nil, nil, nil
     ChamsRuntime.Bots = {}
     ChamsRuntime.BotScanTimer = 0
     ChamsRuntime.OcclusionTimer = 0
