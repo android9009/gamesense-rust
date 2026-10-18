@@ -967,6 +967,7 @@ local Library
                         Parent = Library.Items;
                         Name = "\0";
                         Visible = false;
+                        ClipsDescendants = true;
                         Position = dim2(0.5, -Cfg.Size.X.Offset / 2, 0.5, -Cfg.Size.Y.Offset / 2);
                         BorderColor3 = rgb(0, 0, 0);
                         Size = Cfg.Size;
@@ -1057,9 +1058,18 @@ local Library
                         BorderSizePixel = 0;
                         BackgroundColor3 = rgb(0, 0, 0)
                     });
-                    Items.Background = Library:Create( "Frame" , {
+                    Items.Background = Library:Create( "ScrollingFrame" , {
                         Parent = Items.Inline;
                         Name = "\0";
+                        Active = true;
+                        CanvasSize = dim2(0, 0, 0, 0);
+                        AutomaticCanvasSize = Enum.AutomaticSize.Y;
+                        ScrollBarThickness = 3;
+                        ScrollBarImageColor3 = rgb(70, 70, 70);
+                        ScrollBarImageTransparency = 0.35;
+                        ScrollingDirection = Enum.ScrollingDirection.Y;
+                        ElasticBehavior = Enum.ElasticBehavior.Never;
+                        ClipsDescendants = true;
                         Position = dim2(0, 1, 0, 1);
                         BorderColor3 = rgb(0, 0, 0);
                         Size = dim2(1, -2, 1, -2);
@@ -7729,6 +7739,13 @@ do
             end
             return "Right"
         end
+        local function NormalizeSectionSize(size, offset)
+            if type(size) == "table" then
+                return tonumber(size.scale or size.Scale or size[1]) or 1,
+                    tonumber(size.offset or size.Offset or size[2] or offset) or 0
+            end
+            return tonumber(size) or 1, tonumber(offset) or 0
+        end
         function ui.new_section(tab, container, side, size)
             if type(side) == "table" then
                 local config = side
@@ -7740,16 +7757,24 @@ do
             Library.Registry[tabId] = Library.Registry[tabId] or {}
             local existing = Library.Registry[tabId][key]
             if existing and existing.__luaCreated then
+                if size then
+                    local sizeScale, sizeOffset = NormalizeSectionSize(size)
+                    existing.Size = sizeScale
+                    existing.SizeOffset = sizeOffset
+                    existing.Items.Outline.Size = dim2(1, 0, sizeScale, sizeOffset)
+                end
                 return Register("section", existing, {tab = tabId, root = existing.Items.Outline, sectionObject = existing, existing = true})
             end
+            local sizeScale, sizeOffset = NormalizeSectionSize(size)
             local section = tabObject:Section({
                 Name = container,
                 Side = NormalizeSide(side),
-                Size = size or 1,
+                Size = sizeScale,
             })
             section.__luaCreated = true
+            section.SizeOffset = sizeOffset
             if size then
-                section.Items.Outline.Size = dim2(1, 0, size, 0)
+                section.Items.Outline.Size = dim2(1, 0, sizeScale, sizeOffset)
             end
             table.insert(SessionSections, {tab = tabId, id = key, section = section})
             return Register("section", section, {tab = tabId, root = section.Items.Outline, sectionObject = section, owned = true})
@@ -7812,12 +7837,13 @@ do
             section.Items.Outline.Parent = tabObject.Items[sideName]
             return sideName
         end
-        function ui.set_section_size(tab, container, size)
+        function ui.set_section_size(tab, container, size, offset)
             local section, _, value = SectionArgs(tab, container, size)
-            local number = tonumber(value) or 1
+            local number, sizeOffset = NormalizeSectionSize(value, offset)
             section.Size = number
-            section.Items.Outline.Size = dim2(1, 0, number, 0)
-            return number
+            section.SizeOffset = sizeOffset
+            section.Items.Outline.Size = dim2(1, 0, number, sizeOffset)
+            return number, sizeOffset
         end
         function ui.rename_section(tab, container, newName)
             local section, tabId, value = SectionArgs(tab, container, newName)
