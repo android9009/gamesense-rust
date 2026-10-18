@@ -4547,7 +4547,9 @@ do
                 TextColor3 = color or rgb(235, 235, 235);
                 TextStrokeTransparency = 0;
                 BackgroundTransparency = 1;
-                Size = dim2(1, 0, 0, 13);
+                -- Only the visible text owns the mouse hitbox, not the entire slot.
+                Size = dim2(0, 0, 0, 13);
+                AutomaticSize = Enum.AutomaticSize.X;
                 LayoutOrder = order or 1;
                 TextXAlignment = slot.Align;
                 BorderSizePixel = 0;
