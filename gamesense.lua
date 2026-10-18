@@ -599,6 +599,9 @@ local Library
                 end
             end
             function Cfg.SetVisible(bool)
+                if Cfg.__removed or not Items.Colorpicker or Items.Colorpicker.Parent == nil then
+                    return
+                end
                 Items.Colorpicker.Visible = bool
                 Items.Colorpicker.Parent = bool and Library.Items or Library.Other
                 local Origin = Items.ColorpickerObject.AbsolutePosition
@@ -2038,6 +2041,11 @@ local Library
                 return Button
             end
             function Cfg.SetVisible(bool)
+                -- Popup may be destroyed (element/section removed, Lua script cleanup):
+                -- Parent is locked then, and reparenting spams errors on every click.
+                if Cfg.__removed or not Items.DropdownElements or Items.DropdownElements.Parent == nil then
+                    return
+                end
                 if Library.OpenElement ~= Cfg then
                     Library:CloseElement(Cfg)
                 end
@@ -2101,12 +2109,24 @@ local Library
                 Cfg.Open = not Cfg.Open
                 Cfg.SetVisible(Cfg.Open)
             end)
-            Library:Connection(InputService.InputBegan, function(input, game_event)
+            local DropdownInputConnection
+            DropdownInputConnection = Library:Connection(InputService.InputBegan, function(input, game_event)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    if Cfg.__removed or not Items.DropdownElements or Items.DropdownElements.Parent == nil then
+                        if DropdownInputConnection then
+                            DropdownInputConnection:Disconnect()
+                        end
+                        return
+                    end
                     if not Library:Hovering({Items.DropdownElements, Items.Dropdown}) then
                         Cfg.SetVisible(false)
                         Cfg.Open = false
                     end
+                end
+            end)
+            Items.DropdownElements.Destroying:Connect(function()
+                if DropdownInputConnection then
+                    DropdownInputConnection:Disconnect()
                 end
             end)
             Flags[Cfg.Flag] = {}
@@ -2552,6 +2572,9 @@ local Library
                 Cfg.Callback(Cfg.Active)
             end
             function Cfg.SetVisible(bool)
+                if Cfg.__removed or not Items.KeybindOutline or Items.KeybindOutline.Parent == nil then
+                    return
+                end
                 Items.KeybindOutline.Visible = bool
                 Items.KeybindOutline.Parent = bool and Library.Items or Library.Other
                 Items.KeybindOutline.Position = dim2(0, Items.Keybind.AbsolutePosition.X + 2, 0, Items.Keybind.AbsolutePosition.Y + 74)
