@@ -1,5 +1,9 @@
 local ESP = {}
 do
+    local ESP_UPDATE_HZ = 45
+    local ESP_UPDATE_INTERVAL = 1 / ESP_UPDATE_HZ
+    local updateAccumulator = 0
+    local elapsedSinceUpdate = 0
     local MAX_TARGETS = 14
     local LINE_HEIGHT = 14
     local BAR_GAP = 3 -- отступ полосок от бокса
@@ -128,12 +132,42 @@ do
         return slotId:sub(#side + 1)
     end
 
+    -- Drawing API writes can cross an executor/native boundary. Only send changes.
+    local function cachedDrawing(native)
+        local values = {}
+        local widthText, widthSize, widthFont, widthBounds
+        return setmetatable({}, {
+            __index = function(_, property)
+                if property == "Remove" then
+                    return function() native:Remove() end
+                end
+                if property == "TextBounds" then
+                    if widthBounds == nil or widthText ~= values.Text
+                        or widthSize ~= values.Size or widthFont ~= values.Font then
+                        widthBounds = native.TextBounds
+                        widthText, widthSize, widthFont = values.Text, values.Size, values.Font
+                    end
+                    return widthBounds
+                end
+                local value = values[property]
+                if value ~= nil then return value end
+                return native[property]
+            end,
+            __newindex = function(_, property, value)
+                if values[property] == value then return end
+                native[property] = value
+                values[property] = value
+            end,
+        })
+    end
+
     local function newDrawing(entry, key, kind)
+        entry.UsedDrawings[key] = entry.Frame
         local existing = entry.Drawings[key]
         if existing then
             return existing
         end
-        local object = Drawing.new(kind)
+        local object = cachedDrawing(Drawing.new(kind))
         -- ВАЖНО: в Drawing API Transparency инвертирована относительно Roblox —
         -- 1 = непрозрачно, 0 = полностью невидимо. Дефолт ставим непрозрачным.
         if kind == "Text" then
@@ -188,7 +222,22 @@ do
         end
     end
 
+    local function finishEntry(entry)
+        for key, object in pairs(entry.Drawings) do
+            if entry.UsedDrawings[key] ~= entry.Frame and object.Visible then
+                object.Visible = false
+            end
+        end
+        if entry.HealthUI and entry.HealthFrame ~= entry.Frame then
+            entry.HealthUI.Root.Visible = false
+        end
+    end
+
     local function clearEntry(entry)
+        if entry.BodyConnections then
+            for _, connection in ipairs(entry.BodyConnections) do connection:Disconnect() end
+            entry.BodyConnections = nil
+        end
         if entry.HealthUI then
             entry.HealthUI.Root:Destroy()
             entry.HealthUI = nil
@@ -257,7 +306,7 @@ do
     -- и на любой дистанции держит правильные пропорции (вытянутый, ~2.2:1)
     local BOX_WIDTH_RATIO = 0.65
 
-    local function getScreenBox(model)
+    local function getScreenBox(model, entry)
         local camera = Workspace.CurrentCamera
         if not camera then
             return nil
@@ -268,8 +317,27 @@ do
         end
         -- Body-only bounds: held tools/accessories must not inflate the ESP.
         local minimum, maximum = math.huge, -math.huge
-        for _, part in ipairs(model:GetChildren()) do
-            if part:IsA("BasePart") then
+        if entry.BodyModel ~= model then
+            if entry.BodyConnections then
+                for _, connection in ipairs(entry.BodyConnections) do connection:Disconnect() end
+            end
+            entry.BodyModel, entry.BodyParts, entry.BodyDirty = model, {}, true
+            local function changed(child)
+                if child:IsA("BasePart") then entry.BodyDirty = true end
+            end
+            entry.BodyConnections = {
+                model.ChildAdded:Connect(changed), model.ChildRemoved:Connect(changed),
+            }
+        end
+        if entry.BodyDirty then
+            table.clear(entry.BodyParts)
+            for _, part in ipairs(model:GetChildren()) do
+                if part:IsA("BasePart") then entry.BodyParts[#entry.BodyParts + 1] = part end
+            end
+            entry.BodyDirty = false
+        end
+        for _, part in ipairs(entry.BodyParts) do
+            if part.Parent == model then
                 local cf, half = part.CFrame, part.Size * 0.5
                 local extentY = math.abs(cf.RightVector.Y) * half.X
                     + math.abs(cf.UpVector.Y) * half.Y
@@ -533,6 +601,7 @@ do
             entry.HealthUI = {Root = root, Clip = clip, Fill = fill, Gradient = gradient}
         end
         local ui = entry.HealthUI
+        entry.HealthFrame = entry.Frame
         local width = vertical and radius * 2 or length
         local height = vertical and length or radius * 2
         ui.Root.Position = UDim2.fromOffset(vertical and (cross - radius) or start,
@@ -545,10 +614,21 @@ do
         -- Keep the gradient aligned to the full HP scale when health decreases.
         ui.Fill.Position = UDim2.fromOffset(0, vertical and -height * (1 - ratio) or 0)
         ui.Fill.Size = UDim2.fromOffset(width, height)
-        ui.Fill.BackgroundColor3 = useGradient and Color3.new(1, 1, 1) or color
-        ui.Gradient.Enabled = useGradient
-        ui.Gradient.Rotation = vertical and 90 or 0
-        ui.Gradient.Color = ColorSequence.new(color, colorTo)
+        local fillColor = useGradient and Color3.new(1, 1, 1) or color
+        if ui.LastFillColor ~= fillColor then
+            ui.Fill.BackgroundColor3, ui.LastFillColor = fillColor, fillColor
+        end
+        if ui.LastGradient ~= useGradient then
+            ui.Gradient.Enabled, ui.LastGradient = useGradient, useGradient
+        end
+        if ui.LastVertical ~= vertical then
+            ui.Gradient.Rotation = vertical and 90 or 0
+            ui.LastVertical = vertical
+        end
+        if ui.LastColor ~= color or ui.LastColorTo ~= colorTo then
+            ui.Gradient.Color = ColorSequence.new(color, colorTo)
+            ui.LastColor, ui.LastColorTo = color, colorTo
+        end
         local lo = vertical and (finish - length * ratio) or start
         local hi = vertical and finish or (start + length * ratio)
         if showText and textValue then
@@ -569,6 +649,7 @@ do
 
     -- тексты: группировка по слоту, вертикальный стек внутри слота, порядок как в превью.
     -- С дистанцией (бокс мельчает) тексты сжимаются: мельче шрифт и плотнее строки
+    local function textOrderLess(a, b) return a.Order < b.Order end
     local function drawTexts(entry, box, pending, barPush)
         local scale = math.clamp((box.ReferenceHeight or box.Height) / 260, 0.7, 1)
         local lineHeight = (LINE_HEIGHT + 2) * scale
@@ -576,16 +657,16 @@ do
         -- мелкий флаг (оружие): ~75% обычного размера, строку не сжимаем —
         -- текст центрируем внутри своей строки, вокруг остаётся свободное место
         local smallSize = math.clamp(math.floor(fontSize * 0.8 + 0.5), 9, 12)
-        local groups = {}
+        local groups = entry.TextGroups
+        for _, items in pairs(groups) do table.clear(items) end
         for _, item in ipairs(pending) do
             local id = item.Slot
             groups[id] = groups[id] or {}
             table.insert(groups[id], item)
         end
         for id, items in pairs(groups) do
-            table.sort(items, function(a, b)
-                return a.Order < b.Order
-            end)
+            if #items == 0 then continue end
+            table.sort(items, textOrderLess)
             local side = sideOf(id)
             local part = partOf(id, side)
             local push = barPush[side] or 0
@@ -645,7 +726,7 @@ do
     end
 
     local function updateEntry(entry, box, enabled, myRoot)
-        hideEntry(entry)
+        entry.Frame = (entry.Frame or 0) + 1
         local character = entryCharacter(entry)
         local humanoid = entryHumanoid(entry)
         local player = entry.Player
@@ -654,16 +735,19 @@ do
             drawBox(entry, box)
         end
 
-        local pending = {}
+        local pending = entry.Pending
+        if not pending then pending = {}; entry.Pending = pending end
+        table.clear(pending)
 
         if enabled.Name then
-            pending[#pending + 1] = {
-                Key = "Name",
-                Text = entryName(entry),
-                Slot = slotOf("Name"),
-                Order = 1,
-                Color = espColor("ESPNameColor", Color3.fromRGB(235, 235, 235)),
-            }
+            local item = entry.TextItems.Name
+            if not item then item = {}; entry.TextItems.Name = item end
+            item.Key = "Name"
+            item.Text = entryName(entry)
+            item.Slot = slotOf("Name")
+            item.Order = 1
+            item.Color = espColor("ESPNameColor", Color3.fromRGB(235, 235, 235))
+            pending[#pending + 1] = item
         end
 
         if enabled.Distance and myRoot then
@@ -677,13 +761,14 @@ do
             else
                 text = math.floor(studs / 3.571) .. "m"
             end
-            pending[#pending + 1] = {
-                Key = "Distance",
-                Text = text,
-                Slot = slotOf("Distance"),
-                Order = 2,
-                Color = espColor("ESPDistanceColor", Color3.fromRGB(235, 235, 235)),
-            }
+            local item = entry.TextItems.Distance
+            if not item then item = {}; entry.TextItems.Distance = item end
+            item.Key = "Distance"
+            item.Text = text
+            item.Slot = slotOf("Distance")
+            item.Order = 2
+            item.Color = espColor("ESPDistanceColor", Color3.fromRGB(235, 235, 235))
+            pending[#pending + 1] = item
         end
 
         if enabled.Ping and player then
@@ -699,26 +784,27 @@ do
                     color = Color3.fromRGB(214, 79, 79)
                 end
             end
-            pending[#pending + 1] = {
-                Key = "Ping",
-                Text = ms .. "ms",
-                Slot = slotOf("Ping"),
-                Order = 3,
-                Color = color,
-            }
+            local item = entry.TextItems.Ping
+            if not item then item = {}; entry.TextItems.Ping = item end
+            item.Key = "Ping"
+            item.Text = ms .. "ms"
+            item.Slot = slotOf("Ping")
+            item.Order = 3
+            item.Color = color
+            pending[#pending + 1] = item
         end
 
         local tool = character and character:FindFirstChildOfClass("Tool")
         if enabled.Item and tool and flag("ESPItemText", true) == true then
-            pending[#pending + 1] = {
-                Key = "Item",
-                Text = tool.Name,
-                Slot = slotOf("Item"),
-                Order = 4,
-                -- название оружия рисуется мельче остальных флагов — вокруг него воздух
-                Small = true,
-                Color = espColor("ESPItemTextColor", Color3.fromRGB(190, 190, 190)),
-            }
+            local item = entry.TextItems.Item
+            if not item then item = {}; entry.TextItems.Item = item end
+            item.Key = "Item"
+            item.Text = tool.Name
+            item.Slot = slotOf("Item")
+            item.Order = 4
+            item.Small = true
+            item.Color = espColor("ESPItemTextColor", Color3.fromRGB(190, 190, 190))
+            pending[#pending + 1] = item
         end
 
         if enabled.Hit then
@@ -730,19 +816,21 @@ do
                 entry.Hittable = camera ~= nil and character ~= nil and targetHittable(camera, character)
             end
             if entry.Hittable then
-                pending[#pending + 1] = {
-                    Key = "Hit",
-                    Text = "Hit",
-                    Slot = slotOf("Hit"),
-                    Order = 1,
-                    Color = Color3.fromRGB(214, 79, 79),
-                }
+                local item = entry.TextItems.Hit
+                if not item then item = {}; entry.TextItems.Hit = item end
+                item.Key = "Hit"
+                item.Text = "Hit"
+                item.Slot = slotOf("Hit")
+                item.Order = 1
+                item.Color = Color3.fromRGB(214, 79, 79)
+                pending[#pending + 1] = item
             end
         end
 
         -- полоски: глубина по стороне как в превью (LayoutBars)
         local thickness = barThickness(box)
-        local depthBySide = {}
+        local depthBySide = entry.BarDepth
+        table.clear(depthBySide)
         if enabled.Health and humanoid then
             local side = sideOf(slotOf("Health"))
             local depth = depthBySide[side] or 0
@@ -757,12 +845,26 @@ do
         end
 
         -- Match preview LayoutBars: reserve space on the occupied side.
-        local barPush = {}
+        local barPush = entry.BarPush
+        table.clear(barPush)
         for side, count in pairs(depthBySide) do
             barPush[side] = 5 + count * (thickness + 2)
         end
         drawTexts(entry, box, pending, barPush)
+        finishEntry(entry)
     end
+
+    local targetBuffer, activeBuffer = {}, {}
+    local targetRecords = setmetatable({}, {__mode = "k"})
+    local function targetRecord(key, isPlayer)
+        local record = targetRecords[key]
+        if not record then
+            record = isPlayer and {Player = key} or {Model = key}
+            targetRecords[key] = record
+        end
+        return record
+    end
+    local function targetLess(a, b) return a.Distance < b.Distance end
 
     local function runApply(deltaTime)
         local enabled = {
@@ -791,10 +893,11 @@ do
         local myRoot = Entity.GetRootPart(LocalPlayer)
 
         -- цели: живые игроки...
-        local targets = {}
+        local targets = targetBuffer
+        table.clear(targets)
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and Entity.IsAlive(player) then
-                targets[#targets + 1] = {Player = player}
+                targets[#targets + 1] = targetRecord(player, true)
             end
         end
 
@@ -810,18 +913,17 @@ do
         end
         for model in pairs(Bots) do
             if Entity.IsAliveModel(model) then
-                targets[#targets + 1] = {Model = model}
+                targets[#targets + 1] = targetRecord(model, false)
             end
         end
 
         for _, target in ipairs(targets) do
             target.Distance = myRoot and entryDistance(target, myRoot) or math.huge
         end
-        table.sort(targets, function(a, b)
-            return a.Distance < b.Distance
-        end)
+        table.sort(targets, targetLess)
 
-        local active = {}
+        local active = activeBuffer
+        table.clear(active)
         local count = math.min(#targets, MAX_TARGETS)
         for index = 1, count do
             active[targets[index].Player or targets[index].Model] = true
@@ -846,11 +948,17 @@ do
                     Player = target.Player,
                     Model = target.Model,
                     Drawings = {},
+                    UsedDrawings = {},
+                    TextItems = {},
+                    TextGroups = {},
+                    BarDepth = {},
+                    BarPush = {},
+                    Frame = 0,
                 }
                 Cache[key] = entry
             end
             local character = entryCharacter(entry)
-            local box = character and getScreenBox(character)
+            local box = character and getScreenBox(character, entry)
             if box then
                 updateEntry(entry, box, enabled, myRoot)
             else
@@ -861,19 +969,34 @@ do
 
     -- любой пад внутри кадра всплывает нотификацией, а не молча
     local function apply(deltaTime)
-        local ok, err = pcall(runApply, deltaTime)
+        local dt = math.max(deltaTime or 0, 0)
+        updateAccumulator += dt
+        elapsedSinceUpdate += dt
+        if updateAccumulator + 1e-9 < ESP_UPDATE_INTERVAL then return end
+        -- Keep fractional phase, but never run catch-up batches after a slow frame.
+        local periods = math.floor((updateAccumulator + 1e-9) / ESP_UPDATE_INTERVAL)
+        updateAccumulator = math.max(0, updateAccumulator - periods * ESP_UPDATE_INTERVAL)
+        local elapsed = elapsedSinceUpdate
+        elapsedSinceUpdate = 0
+        -- Pass actual elapsed time so NPC scan timers do not slow down at 45 Hz.
+        local ok, err = pcall(runApply, elapsed)
         if not ok then
+            for _, entry in pairs(Cache) do hideEntry(entry) end
             notifyOnce("error", "ESP error: " .. tostring(err))
         end
     end
 
     function ESP.Shutdown()
+        updateAccumulator, elapsedSinceUpdate = 0, 0
         TaskManager.RemoveConnection("ESPApply")
         TaskManager.RemoveConnection("ESPPlayers")
         for _, entry in pairs(Cache) do
             clearEntry(entry)
         end
         table.clear(Cache)
+        table.clear(targetBuffer)
+        table.clear(activeBuffer)
+        table.clear(targetRecords)
         if HealthGui then
             HealthGui:Destroy()
             HealthGui = nil
@@ -896,8 +1019,11 @@ do
             notifyOnce("noquad", "ESP: Drawing Quad не поддерживается — боксы не отрисуются")
         end
         Started = true
+        updateAccumulator = ESP_UPDATE_INTERVAL -- first render updates immediately
+        elapsedSinceUpdate = 0
         TaskManager.AddConnection("ESPApply", RunService.RenderStepped, apply)
         TaskManager.AddConnection("ESPPlayers", Players.PlayerRemoving, function(player)
+            targetRecords[player] = nil
             local entry = Cache[player]
             if entry then
                 clearEntry(entry)
@@ -928,6 +1054,7 @@ do
 
     function ESP.Debug()
         local status = {
+            UpdateLimitHz = ESP_UPDATE_HZ,
             Supported = Supported,
             QuadSupported = QuadOk,
             Started = Started,
