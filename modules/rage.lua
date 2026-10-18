@@ -284,7 +284,13 @@ local function getClosestTarget()
                                 if dist <= closestDist then
                                     local isVis = true
                                     if needVis then
-                                        isVis = isPartVisible(camera, hb.Part, hb.Position, char)
+                                        local visiblePoint = RageBot.ResolveVisibleHitbox(camera,hb.Part,hb.Position,char,selectionPoint,mousePos,closestDist)
+                                        isVis = visiblePoint ~= nil
+                                        if visiblePoint then
+                                            hb.Position = visiblePoint
+                                            local projected = camera:WorldToViewportPoint(visiblePoint)
+                                            dist = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
+                                        end
                                     end
                                     if isVis then
                                         closestDist = dist
@@ -315,7 +321,13 @@ local function getClosestTarget()
                         if dist <= closestDist then
                             local isVis = true
                             if needVis then
-                                isVis = isPartVisible(camera, hb.Part, hb.Position, npc)
+                                local visiblePoint = RageBot.ResolveVisibleHitbox(camera,hb.Part,hb.Position,npc,selectionPoint,mousePos,closestDist)
+                                isVis = visiblePoint ~= nil
+                                if visiblePoint then
+                                    hb.Position = visiblePoint
+                                    local projected = camera:WorldToViewportPoint(visiblePoint)
+                                    dist = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
+                                end
                             end
                             if isVis then
                                 closestDist = dist
@@ -347,7 +359,13 @@ local function getClosestTarget()
                     if dist <= closestDist then
                         local isVis = true
                         if needVis then
-                            isVis = isPartVisible(camera, targetPart, targetPos, structure)
+                            local visiblePoint = RageBot.ResolveVisibleHitbox(camera,targetPart,targetPos,structure,selectionPoint,mousePos,closestDist)
+                            isVis = visiblePoint ~= nil
+                            if visiblePoint then
+                                targetPos = visiblePoint
+                                local projected = camera:WorldToViewportPoint(visiblePoint)
+                                dist = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
+                            end
                         end
                         if isVis then
                             closestDist = dist
@@ -1275,6 +1293,61 @@ do
         return part.Position + cf.RightVector*math.clamp(dot(offset,cf.RightVector),-x,x)
             + cf.UpVector*math.clamp(dot(offset,cf.UpVector),-y,y)
             + cf.LookVector*math.clamp(dot(offset,cf.LookVector),-z,z)
+    end
+    local sampleOffsets = {
+        Vector3.new(0,0,0), Vector3.new(1,0,0), Vector3.new(-1,0,0),
+        Vector3.new(0,1,0), Vector3.new(0,-1,0), Vector3.new(0,0,1), Vector3.new(0,0,-1),
+        Vector3.new(1,1,1), Vector3.new(1,1,-1), Vector3.new(1,-1,1), Vector3.new(1,-1,-1),
+        Vector3.new(-1,1,1), Vector3.new(-1,1,-1), Vector3.new(-1,-1,1), Vector3.new(-1,-1,-1)
+    }
+    function RageBot.ResolveVisibleHitbox(cam, part, fallback, model, preferred, mousePos, maxDistance)
+        local record = HitboxExpander.Started and flag("AimbotReach",false) == true
+            and flag("AimbotVisibleCheck",false) == true
+            and (tonumber(flag("AimbotReachValue",5)) or 0) > 0 and HitboxExpander.Records[part]
+        if not record then
+            return isPartVisible(cam,part,fallback,model) and fallback or nil
+        end
+        local now = os.clock()
+        local cached = record.VisibleCache
+        if cached and now < cached.Until and cached.Camera == cam.CFrame and cached.Frame == part.CFrame
+            and cached.Mouse == mousePos and cached.Limit == maxDistance then return cached.Point end
+        local origin, params = cam.CFrame.Position, visibilityParams(cam,false)
+        local preferredProjection = cam:WorldToViewportPoint(preferred)
+        local preferredDistance = (Vector2.new(preferredProjection.X,preferredProjection.Y)-mousePos).Magnitude
+        local testedPreferred = preferredProjection.Z > 0 and preferredDistance <= math.min(maxDistance,.0001)
+        if testedPreferred then
+            local result = Workspace:Raycast(origin,preferred-origin,params)
+            if not result or result.Instance and (result.Instance==part or result.Instance:IsDescendantOf(model)) then
+                record.VisibleCache = {Until=now+.075,Camera=cam.CFrame,Frame=part.CFrame,Mouse=mousePos,Limit=maxDistance,Point=preferred}
+                return preferred
+            end
+        end
+        local candidates = {}
+        local function add(point)
+            local projected = cam:WorldToViewportPoint(point)
+            if projected.Z <= 0 then return end
+            local distance = (Vector2.new(projected.X,projected.Y)-mousePos).Magnitude
+            if distance <= maxDistance then candidates[#candidates+1] = {Point=point,Distance=distance} end
+        end
+        if not testedPreferred then add(preferred) end
+        local half, cf = record.ExpandedSize*.49, part.CFrame
+        for _, offset in ipairs(sampleOffsets) do
+            add(cf.Position + cf.RightVector*(offset.X*half.X) + cf.UpVector*(offset.Y*half.Y)
+                + cf.LookVector*(offset.Z*half.Z))
+        end
+        table.sort(candidates,function(a,b)return a.Distance < b.Distance end)
+        local point
+        for _, sample in ipairs(candidates) do
+            local result = Workspace:Raycast(origin,sample.Point-origin,params)
+            -- A clear segment to virtual space is valid in the selected logical mode.
+            -- Other geometry blocks it; do not use the old transparency/distance shortcut.
+            if not result or result.Instance and (result.Instance==part or result.Instance:IsDescendantOf(model)) then
+                point=sample.Point
+                break
+            end
+        end
+        record.VisibleCache = {Until=now+.075,Camera=cam.CFrame,Frame=part.CFrame,Mouse=mousePos,Limit=maxDistance,Point=point}
+        return point
     end
     local function selection(value, fallback)
         if type(value) ~= "table" then value = {value} end
