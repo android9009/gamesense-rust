@@ -200,7 +200,11 @@ local function getClosestTarget()
     local closestDist = maxFOV
     local closestPart = nil
     local closestPos = nil
-    local mousePos = UserInputService:GetMouseLocation()
+    -- Выбор таргета по ФОВу: опорная точка - ПРИЦЕЛ (центр экрана), а не курсор.
+    -- Круг FOV рисуется в центре экрана, поэтому и ближайшей считается цель,
+    -- чей хитбокс ближе всего к центру. Стреляем всегда в неё.
+    local viewSize = camera.ViewportSize
+    local mousePos = Vector2.new(viewSize.X * 0.5, viewSize.Y * 0.5)
     local expandedRay = RageBot.ExpandedParts and next(RageBot.ExpandedParts)
         and camera:ScreenPointToRay(mousePos.X, mousePos.Y) or nil
     local visibleCheck = flag("AimbotVisibleCheck", false) == true
@@ -262,7 +266,6 @@ local function getClosestTarget()
                                         closestDist = dist
                                         closestPart = hb.Part
                                         closestPos = hb.Position
-                                        break
                                     end
                                 end
                             end
@@ -297,7 +300,6 @@ local function getClosestTarget()
                                 closestDist = dist
                                 closestPart = hb.Part
                                 closestPos = hb.Position
-                                break
                             end
                         end
                     end
@@ -380,7 +382,6 @@ local function getClosestTarget()
                                     btDist = dist
                                     btPos = hb.Position
                                     btPart = findRootPart(char)  
-                                    break
                                 end
                             end
                         end
