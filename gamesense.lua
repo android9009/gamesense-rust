@@ -3235,7 +3235,7 @@ do
     Other:Slider({Name = "Maximum FOV", Min = 1, Max = 180, Suffix = "°", Default = 90, Flag = "AimbotFOV"})
     Other:Toggle({Name = "Lag compensation", Flag = "AimbotLagComp"})
     Other:Toggle({Name = "Backtrack", Flag = "AimbotBacktrack"})
-    Other:Slider({Name = "Backtrack ms", Min = 0, Max = 1000, Suffix = "ms", Default = 200, Flag = "AimbotBacktrackMs"})
+    Other:Slider({Name = "Backtrack ms", Min = 0, Max = 200, Suffix = "ms", Default = 200, Flag = "AimbotBacktrackMs"})
     local AA = Tabs.Rage:Section({Name = "Anti-aimbot angles", Side = "Right", Size = 0.4})
     local function UpdateRageRightSections()
         local gap = 19
@@ -3427,7 +3427,7 @@ do
     local BacktrackTime = Other:Slider({
         Name = "Backtrack time",
         Min = 0,
-        Max = 1000,
+        Max = 200,
         Default = 200,
         Suffix = "ms",
         Flag = "OtherBacktrackTime"

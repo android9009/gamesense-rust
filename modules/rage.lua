@@ -422,6 +422,43 @@ function RageBot.AutoFire()
     end)
 end
 
+-- НОРМАЛЬНЫЙ БЕКТРЕК: модель цели переносится в позицию призрака ТОЛЬКО на время
+-- самого выстрела (вызов shoot / рейкаст выстрела) и сразу возвращается обратно.
+-- Удержания на время зажатой стрельбы больше нет: из-за него призрак залипал
+-- в одной точке, а история добивалась копиями замороженной позы и уезжала
+-- глубже заданных миллисекунд.
+local function beginBacktrackShot()
+    if not (RageBot.Active and RageBot.TargetIsBacktrack) then return nil end
+    local part = RageBot.TargetPart
+    if not (part and part.Parent) then return nil end
+    local model = part:FindFirstAncestorOfClass("Model")
+    if not model or model == LocalPlayer.Character then return nil end
+    local btPos = BacktrackAimByChar[model]
+    if not btPos then return nil end
+    local root = findRootPart(model)
+    if not (root and root.Parent) then return nil end
+    local saved = { Root = root, OldCFrame = root.CFrame, OldCFrames = {} }
+    for _, bp in ipairs(model:GetDescendants()) do
+        if bp:IsA("BasePart") and not bp:FindFirstAncestorOfClass("Tool") then
+            saved.OldCFrames[bp] = bp.CFrame
+        end
+    end
+    local ok = pcall(function()
+        root.CFrame = CFrame.new(btPos) * CFrame.Angles(0, saved.OldCFrame.Rotation.Z, 0)
+    end)
+    if not ok then return nil end
+    return saved
+end
+
+local function endBacktrackShot(saved)
+    if not saved then return end
+    pcall(function()
+        if saved.Root and saved.Root.Parent then
+            saved.Root.CFrame = saved.OldCFrame
+        end
+    end)
+end
+
 local function setupSilentAimHooks()
     if RageBot.HooksInstalled then return end
     if not (hookmetamethod and getrawmetatable and checkcaller and newcclosure) then return end
@@ -442,7 +479,9 @@ local function setupSilentAimHooks()
                             local direction = args[2]
                             if typeof(origin) == "Vector3" and (not direction or typeof(direction) ~= "Vector3" or direction.Magnitude >= 10) then
                                 args[2] = (targetPos - origin).Unit * 1000
+                                local repos = beginBacktrackShot()
                                 local result = Hooks.Namecall(self, table.unpack(args))
+                                endBacktrackShot(repos)
                                 -- on-shot: по факту попадания (любая часть тела)
                                 -- спавним гоуст — берём реальный результат рейкаста игры,
                                 -- а не серверные remote'ы (те только про туловище).
@@ -455,7 +494,9 @@ local function setupSilentAimHooks()
                             local ray = args[1]
                             if typeof(ray) == "Ray" and ray.Direction.Magnitude >= 10 then
                                 args[1] = Ray.new(ray.Origin, (targetPos - ray.Origin).Unit * 1000)
+                                local repos = beginBacktrackShot()
                                 local res = { Hooks.Namecall(self, table.unpack(args)) }
+                                endBacktrackShot(repos)
                                 -- on-shot: FindPartOnRay возвращает часть первым значением
                                 local hitPart = res[1]
                                 if typeof(hitPart) == "Instance" and hitPart:IsA("BasePart") then
@@ -524,59 +565,8 @@ local function restoreReposModel(model)
 end
 
  
-local function snapshotModelCFrames(model)
-    local out = {}
-    for _, bp in ipairs(model:GetDescendants()) do
-        if bp:IsA("BasePart") and not bp:FindFirstAncestorOfClass("Tool") then
-            out[bp] = bp.CFrame
-        end
-    end
-    return out
-end
-
  
  
-local function updateBacktrackReposition(targetPart, isShooting, isBacktrackShot)
-    local reposTarget = nil
-     
-     
-     
-    if isShooting and isBacktrackShot and targetPart and targetPart.Parent then
-        local model = targetPart:FindFirstAncestorOfClass("Model")
-        if model and model ~= LocalPlayer.Character and BacktrackAimByChar[model] then
-            reposTarget = model
-        end
-    end
-
-     
-    for model, saved in pairs(ReposActive) do
-        if model ~= reposTarget then
-            pcall(function()
-                if saved.Root and saved.Root.Parent then
-                    saved.Root.CFrame = saved.OldCFrame
-                end
-            end)
-            ReposActive[model] = nil
-        end
-    end
-
-    if reposTarget then
-        local saved = ReposActive[reposTarget]
-        local root = findRootPart(reposTarget)
-        if root and root.Parent then
-            local old = saved and saved.OldCFrame or root.CFrame
-            local oldCFrames = saved and saved.OldCFrames or snapshotModelCFrames(reposTarget)
-            local btPos = BacktrackAimByChar[reposTarget]
-            if btPos then
-                pcall(function()
-                    root.CFrame = CFrame.new(btPos) * CFrame.Angles(0, old.Rotation.Z, 0)
-                end)
-            end
-            ReposActive[reposTarget] = { Root = root, OldCFrame = old, OldCFrames = oldCFrames }
-        end
-    end
-end
-
  
  
  
@@ -604,6 +594,7 @@ local function setupGameShootHook()
         RageBot.GameShootFn = fn
         RageBot.GameShoot = hookfunction(fn, function(...)
             local cam = Workspace.CurrentCamera
+            local repos = beginBacktrackShot()
             if RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and cam then
                 local oldCFrame = cam.CFrame
                 -- Silent aim: наводим камеру на цель (цель — живой противник или
@@ -611,9 +602,12 @@ local function setupGameShootHook()
                 cam.CFrame = CFrame.lookAt(oldCFrame.Position, RageBot.TargetPosition)
                 local result = RageBot.GameShoot(...)
                 cam.CFrame = oldCFrame
+                endBacktrackShot(repos)
                 return result
             end
-            return RageBot.GameShoot(...)
+            local result = RageBot.GameShoot(...)
+            endBacktrackShot(repos)
+            return result
         end)
         RageBot.GameShootHooked = RageBot.GameShoot ~= nil
     end)
@@ -667,7 +661,6 @@ function RageBot.UpdateRender(deltaTime)
      
      
      
-    updateBacktrackReposition(part, isShooting, RageBot.TargetIsBacktrack)
 
     if part and pos then
         if not RageBot.SilentOn then

@@ -3,6 +3,7 @@ local BacktrackChams = {
     History = {},    
     Ghosts = {},     
     MaxSeconds = 1.5,
+    WindowSec = 0.2,
     Folder = nil
 }
 local BT_STEP = "GS_BacktrackChams"
@@ -16,14 +17,14 @@ local function btActive()
     local rageBacktrack = flag("AimbotBacktrack", false) == true
     if rageAimbot and rageBacktrack then
         local ms = tonumber(flag("AimbotBacktrackMs", 200)) or 200
-        return true, math.clamp(ms, 0, 1200)
+        return true, math.clamp(ms, 0, 200)
     end
      
     local legitAimbot = bindOn(flag("LegitAimbotEnabled", false) == true, "LegitAimbotBind")
     local legitBacktrack = flag("OtherBacktrack", false) == true
     if legitAimbot and legitBacktrack then
         local ms = tonumber(flag("OtherBacktrackTime", 200)) or 200
-        return true, math.clamp(ms, 0, 1200)
+        return true, math.clamp(ms, 0, 200)
     end
      
     return false, 0
@@ -295,7 +296,10 @@ local function btCapture(targetKey, ghostData, now)
 
     history[#history + 1] = frame
 
-    while history[1] and (now - history[1].Time) > BacktrackChams.MaxSeconds do
+    -- История хранится ровно на окно бектрека (+50 мс запаса для интерполяции
+    -- краёв): дальше 200 мс бектрек не уходит и старьё не копится.
+    local keep = math.min(BacktrackChams.MaxSeconds, (BacktrackChams.WindowSec or 0.2) + 0.05)
+    while history[1] and (now - history[1].Time) > keep do
         table.remove(history, 1)
     end
 end
@@ -316,11 +320,32 @@ local function btDisplayFrame(history, wanted)
         local mid = math.floor((lo + hi) * 0.5)
         if history[mid].Time < wanted then lo = mid + 1 else hi = mid end
     end
-    local chosen = history[lo]
-    if lo > 1 and math.abs(history[lo - 1].Time - wanted) <= math.abs(chosen.Time - wanted) then
-        chosen = history[lo - 1]
+    local newer = history[lo]
+    local older = history[lo - 1]
+    if not older then return newer end
+    if not newer or newer.Time <= older.Time then return older end
+    -- Плавное следование по траектории: поза интерполируется между двумя кадрами
+    -- истории вместо прыжков по кадрам захвата - призрак идёт за целью ровно
+    -- на WindowSec позади и не залипает в одной точке.
+    local alpha = math.clamp((wanted - older.Time) / (newer.Time - older.Time), 0, 1)
+    if alpha <= 0 then return older end
+    if alpha >= 1 then return newer end
+    local frame = {Time = wanted, RootPos = nil, CFrames = {}}
+    if older.RootPos and newer.RootPos then
+        frame.RootPos = older.RootPos:Lerp(newer.RootPos, alpha)
+    else
+        frame.RootPos = newer.RootPos or older.RootPos
     end
-    return chosen
+    for part, cf in pairs(newer.CFrames) do
+        local oldCf = older.CFrames[part]
+        frame.CFrames[part] = oldCf and oldCf:Lerp(cf, alpha) or cf
+    end
+    for part, cf in pairs(older.CFrames) do
+        if frame.CFrames[part] == nil then
+            frame.CFrames[part] = cf
+        end
+    end
+    return frame
 end
 
  
@@ -368,6 +393,7 @@ local function btUpdate()
     end
 
     local now = os.clock()
+    BacktrackChams.WindowSec = ms / 1000
     local wanted = now - (ms / 1000)
     local col, trans, style = btColorAndAlpha()
     local fillTrans = style == "Normal" and math.max(trans, 0.6) or trans
