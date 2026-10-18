@@ -421,33 +421,6 @@ function RageBot.AutoFire()
     end)
 end
 
--- Свежая позиция цели в момент выстрела: TargetPosition считается раз в кадр,
--- а при высокой скорострельности выстрелы уходят между кадрами в устаревшую точку.
--- Храним оффсет точки прицела в пространстве парта и пересчитываем её по живому CFrame.
-local function silentAimPosition()
-    if not (RageBot.Active and RageBot.SilentOn) then
-        return nil
-    end
-    local part = RageBot.TargetPart
-    if part then
-        if not part.Parent then
-            RageBot.TargetPart = nil
-            RageBot.TargetOffset = nil
-            RageBot.TargetPosition = nil
-            return nil
-        end
-        if RageBot.TargetOffset then
-            local ok, pos = pcall(function()
-                return part.CFrame:PointToWorldSpace(RageBot.TargetOffset)
-            end)
-            if ok and pos then
-                RageBot.TargetPosition = pos
-            end
-        end
-    end
-    return RageBot.TargetPosition
-end
-
 local function setupSilentAimHooks()
     if RageBot.HooksInstalled then return end
     if not (hookmetamethod and getrawmetatable and checkcaller and newcclosure) then return end
@@ -458,7 +431,7 @@ local function setupSilentAimHooks()
         Hooks.Namecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local method = getnamecallmethod()
             if method == "Raycast" or method == "raycast" or method == "FindPartOnRayWithIgnoreList" or method == "FindPartOnRayWithWhitelist" or method == "FindPartOnRay" or method == "findPartOnRayWithIgnoreList" or method == "findPartOnRayWithWhitelist" or method == "findPartOnRay" or method == "ViewportPointToRay" or method == "ScreenPointToRay" or method == "viewportPointToRay" or method == "screenPointToRay" then
-                if not checkcaller() and RageBot.Active and RageBot.SilentOn and silentAimPosition() then
+                if not checkcaller() and RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition then
                     local targetPos = RageBot.TargetPosition
                     local isWs = (self == Workspace or self.Name == "Workspace")
                     if isWs then
@@ -469,9 +442,9 @@ local function setupSilentAimHooks()
                             if typeof(origin) == "Vector3" and (not direction or typeof(direction) ~= "Vector3" or direction.Magnitude >= 10) then
                                 args[2] = (targetPos - origin).Unit * 1000
                                 local result = Hooks.Namecall(self, table.unpack(args))
-                                 
-                                 
-                                 
+                                -- on-shot: по факту попадания (любая часть тела)
+                                -- спавним гоуст — берём реальный результат рейкаста игры,
+                                -- а не серверные remote'ы (те только про туловище).
                                 if result and result.Instance and result.Instance:IsA("BasePart") then
                                     pcall(spawnGhostOnHit, { result.Instance })
                                 end
@@ -482,7 +455,7 @@ local function setupSilentAimHooks()
                             if typeof(ray) == "Ray" and ray.Direction.Magnitude >= 10 then
                                 args[1] = Ray.new(ray.Origin, (targetPos - ray.Origin).Unit * 1000)
                                 local res = { Hooks.Namecall(self, table.unpack(args)) }
-                                 
+                                -- on-shot: FindPartOnRay возвращает часть первым значением
                                 local hitPart = res[1]
                                 if typeof(hitPart) == "Instance" and hitPart:IsA("BasePart") then
                                     pcall(spawnGhostOnHit, { hitPart })
@@ -491,7 +464,7 @@ local function setupSilentAimHooks()
                             end
                         end
                     elseif self == Workspace.CurrentCamera or self.Name == "Camera" then
-                local cam = Workspace.CurrentCamera
+                        local cam = Workspace.CurrentCamera
                         if cam then
                             return Ray.new(cam.CFrame.Position, (targetPos - cam.CFrame.Position).Unit)
                         end
@@ -504,13 +477,13 @@ local function setupSilentAimHooks()
 
         Hooks.Index = hookmetamethod(game, "__index", newcclosure(function(self, index)
             if self == Mouse then
-                if not checkcaller() and RageBot.Active and RageBot.SilentOn and silentAimPosition() and RageBot.TargetPart then
+                if not checkcaller() and RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and RageBot.TargetPart then
                     if index == "Hit" or index == "hit" then
                         return CFrame.new(RageBot.TargetPosition)
                     elseif index == "Target" or index == "target" then
                         return RageBot.TargetPart
                     elseif index == "UnitRay" or index == "unitRay" then
-                local cam = Workspace.CurrentCamera
+                        local cam = Workspace.CurrentCamera
                         local origin = cam and cam.CFrame.Position or Vector3.zero
                         return Ray.new(origin, (RageBot.TargetPosition - origin).Unit)
                     end
@@ -524,12 +497,7 @@ local function setupSilentAimHooks()
     end)
 end
 
- 
- 
- 
- 
- 
- 
+
 local ReposActive = {}   
 
 local function clearReposActive()
@@ -615,16 +583,18 @@ end
  
  
  
+-- Silent aim через хук РЕАЛЬНОЙ функции shoot игры (как в отдельном скрипте):
+-- ищем функцию по имени через filtergc и подменяем её hookfunction'ом.
+-- В момент выстрела игра сама вызывает shoot -> мы на время вызова разворачиваем
+-- камеру на цель, стреляем, возвращаем камеру обратно. Работает бесшумно
+-- и независимо от того, как игра стреляет (remote / raycast / мгновенно).
+-- Если filtergc/hookfunction недоступны или функция не найдена —
+-- молча откатываемся на старый вариант (1-tick flick камерой).
 local function setupGameShootHook()
     if RageBot.GameShootHooked then return true end
-    if not (filtergc and hookfunction) then return false end
-    -- Улучшение без смены логики: раньше попытка была одна на старте, и если
-    -- функции shoot ещё не было в GC (оружие не взято, модуль не загружен),
-    -- хук не ставился уже никогда. Теперь повторяем, но не чаще раза в 0.5 сек.
-    local now = os.clock()
-    if RageBot.GameShootTryAt and now - RageBot.GameShootTryAt < 0.5 then return false end
-    RageBot.GameShootTryAt = now
+    if RageBot.GameShootTried then return false end
     RageBot.GameShootTried = true
+    if not (filtergc and hookfunction) then return false end
 
     pcall(function()
         local fn = filtergc("function", {Name = "shoot"}, true)
@@ -633,15 +603,14 @@ local function setupGameShootHook()
         RageBot.GameShootFn = fn
         RageBot.GameShoot = hookfunction(fn, function(...)
             local cam = Workspace.CurrentCamera
-            if RageBot.Active and RageBot.SilentOn and silentAimPosition() and cam then
+            if RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and cam then
                 local oldCFrame = cam.CFrame
                 -- Silent aim: наводим камеру на цель (цель — живой противник или
-                -- позиция призрака бектрека); позиция берётся свежая, на момент
-                -- выстрела, а не на момент кадра.
+                -- позиция призрака бектрека)
                 cam.CFrame = CFrame.lookAt(oldCFrame.Position, RageBot.TargetPosition)
-                local results = table.pack(RageBot.GameShoot(...))
+                local result = RageBot.GameShoot(...)
                 cam.CFrame = oldCFrame
-                return table.unpack(results, 1, results.n)
+                return result
             end
             return RageBot.GameShoot(...)
         end)
@@ -659,14 +628,6 @@ function RageBot.UpdateRender(deltaTime)
     RageBot.Active = active
     RageBot.SilentOn = flag("AimbotSilentAim", false) == true
 
-    -- Если хуки не встали на старте (метаметоды недоступны / shoot ещё нет в GC) -
-    -- повторяем установку. Сама логика сайлента от этого не меняется.
-    if not RageBot.HooksInstalled then
-        setupSilentAimHooks()
-    end
-    if not RageBot.GameShootHooked then
-        setupGameShootHook()
-    end
 
      
     local visFOV = flag("AimbotVisFOV", false) == true
@@ -698,8 +659,6 @@ function RageBot.UpdateRender(deltaTime)
     RageBot.TargetPart = part
     RageBot.TargetPosition = pos
     RageBot.TargetIsBacktrack = isBtShot == true
-    RageBot.TargetOffset = (part and pos and not RageBot.TargetIsBacktrack)
-        and part.CFrame:PointToObjectSpace(pos) or nil
 
     local isShooting = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or flag("AimbotAutoFire", false) == true
 
@@ -721,7 +680,7 @@ function RageBot.UpdateRender(deltaTime)
             -- Фолбэк: 1-tick flick - наводимся в RenderStepped, камеру вернёт
             -- UpdateHeartbeat после обработки кадра оружием.
             RageBot.OriginalCFrame = cam.CFrame
-            cam.CFrame = CFrame.new(RageBot.OriginalCFrame.Position, silentAimPosition() or pos)
+            cam.CFrame = CFrame.new(RageBot.OriginalCFrame.Position, pos)
         else
             RageBot.OriginalCFrame = nil
         end
@@ -796,7 +755,6 @@ function RageBot.Shutdown()
     RageBot.GameShootTried = false
     RageBot.TargetPart = nil
     RageBot.TargetPosition = nil
-    RageBot.TargetOffset = nil
     RageBot.Active = false
     RageBot.SilentOn = false
     RageBot.Started = false
