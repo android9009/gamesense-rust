@@ -15,6 +15,9 @@ do
     local Cache = {}
     local BotScanTimer = 0
     local Bots = {}
+    local NPCCandidates = {}
+    local NPCIndexConnection = nil
+    local profileCalls, profileTotal, profileMax = 0, 0, 0
     local Started = false
     local Notified = {}
 
@@ -866,6 +869,26 @@ do
     end
     local function targetLess(a, b) return a.Distance < b.Distance end
 
+    local function indexNPCObject(object)
+        local model
+        if object:IsA("Humanoid") then
+            model = object.Parent
+        elseif object:IsA("Model") and object:FindFirstChildOfClass("Humanoid") then
+            model = object
+        end
+        if model and model:IsA("Model") then NPCCandidates[model] = true end
+    end
+
+    local function ensureNPCIndex()
+        if NPCIndexConnection then return end
+        -- Subscribe first so spawns during the initial enumeration are not lost.
+        NPCIndexConnection = Workspace.DescendantAdded:Connect(indexNPCObject)
+        -- ONE initial enumeration, never a recurring whole-world scan.
+        for _, object in ipairs(Workspace:GetDescendants()) do
+            if object:IsA("Humanoid") then indexNPCObject(object) end
+        end
+    end
+
     local function runApply(deltaTime)
         local enabled = {
             Box = espOn("Box"),
@@ -901,15 +924,21 @@ do
             end
         end
 
-        -- ...и боты/NPC (скан раз в 0.5с, как в чамсах)
+        -- Refresh only humanoid-owning candidates, not every object in the map.
+        ensureNPCIndex()
         BotScanTimer -= deltaTime or (1 / 60)
         if BotScanTimer <= 0 then
             BotScanTimer = 0.5
-            local bots = {}
-            for _, bot in ipairs(Entity.GetNPCs()) do
-                bots[bot] = true
+            table.clear(Bots)
+            for model in pairs(NPCCandidates) do
+                if not model.Parent or not model:IsDescendantOf(Workspace)
+                    or not model:FindFirstChildOfClass("Humanoid") then
+                    NPCCandidates[model] = nil
+                elseif model ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(model)
+                    and isCharacterLike(model) and Entity.IsAliveModel(model) then
+                    Bots[model] = true
+                end
             end
-            Bots = bots
         end
         for model in pairs(Bots) do
             if Entity.IsAliveModel(model) then
@@ -979,7 +1008,12 @@ do
         local elapsed = elapsedSinceUpdate
         elapsedSinceUpdate = 0
         -- Pass actual elapsed time so NPC scan timers do not slow down at 45 Hz.
+        local startedAt = os.clock()
         local ok, err = pcall(runApply, elapsed)
+        local cost = os.clock() - startedAt
+        profileCalls += 1
+        profileTotal += cost
+        profileMax = math.max(profileMax, cost)
         if not ok then
             for _, entry in pairs(Cache) do hideEntry(entry) end
             notifyOnce("error", "ESP error: " .. tostring(err))
@@ -988,6 +1022,8 @@ do
 
     function ESP.Shutdown()
         updateAccumulator, elapsedSinceUpdate = 0, 0
+        if NPCIndexConnection then NPCIndexConnection:Disconnect(); NPCIndexConnection = nil end
+        table.clear(NPCCandidates)
         TaskManager.RemoveConnection("ESPApply")
         TaskManager.RemoveConnection("ESPPlayers")
         for _, entry in pairs(Cache) do
@@ -1019,6 +1055,7 @@ do
             notifyOnce("noquad", "ESP: Drawing Quad не поддерживается — боксы не отрисуются")
         end
         Started = true
+        profileCalls, profileTotal, profileMax = 0, 0, 0
         updateAccumulator = ESP_UPDATE_INTERVAL -- first render updates immediately
         elapsedSinceUpdate = 0
         TaskManager.AddConnection("ESPApply", RunService.RenderStepped, apply)
@@ -1050,6 +1087,25 @@ do
         if getgenv then
             getgenv().GSESP = ESP
         end
+    end
+
+    function ESP.Profile(reset)
+        local candidates, drawings = 0, 0
+        for _ in pairs(NPCCandidates) do candidates += 1 end
+        for _, entry in pairs(Cache) do
+            for _ in pairs(entry.Drawings) do drawings += 1 end
+        end
+        local result = {
+            Updates = profileCalls,
+            AverageMs = profileCalls > 0 and profileTotal * 1000 / profileCalls or 0,
+            MaxMs = profileMax * 1000,
+            NPCCandidates = candidates,
+            DrawingObjects = drawings,
+        }
+        print(string.format("[ESP Profile] updates=%d avg=%.3fms max=%.3fms NPC-candidates=%d drawings=%d",
+            result.Updates, result.AverageMs, result.MaxMs, candidates, drawings))
+        if reset then profileCalls, profileTotal, profileMax = 0, 0, 0 end
+        return result
     end
 
     function ESP.Debug()
