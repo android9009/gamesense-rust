@@ -1,3 +1,13 @@
+-- Зажата ли клавиша движения (WASD/прыжок). Раньше этой функции не существовало,
+-- и AntiAim.Update падал на её вызове каждый кадр - анти-аим был полностью мёртв.
+local function aaInputHeld()
+    return UserInputService:IsKeyDown(Enum.KeyCode.W)
+        or UserInputService:IsKeyDown(Enum.KeyCode.A)
+        or UserInputService:IsKeyDown(Enum.KeyCode.S)
+        or UserInputService:IsKeyDown(Enum.KeyCode.D)
+        or UserInputService:IsKeyDown(Enum.KeyCode.Space)
+end
+
 function AntiAim.Update(deltaTime)
     local enabled = flag("AAEnabled", false) == true
     local char = LocalPlayer.Character
@@ -74,14 +84,14 @@ function AntiAim.Update(deltaTime)
         end
         if closestTarget then
             local dir = closestTarget.Position - root.Position
-            baseYaw = math.atan2(dir.X, dir.Z)
+            baseYaw = math.atan2(-dir.X, -dir.Z)
         else
             local look = cam and cam.CFrame.LookVector or Vector3.new(0, 0, -1)
-            baseYaw = math.atan2(look.X, look.Z)
+            baseYaw = math.atan2(-look.X, -look.Z)
         end
     else
         local look = cam and cam.CFrame.LookVector or Vector3.new(0, 0, -1)
-        baseYaw = math.atan2(look.X, look.Z)
+        baseYaw = math.atan2(-look.X, -look.Z)
     end
 
     local yawValue = flag("AAYawValue", "180")

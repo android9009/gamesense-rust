@@ -23,6 +23,7 @@ return {
     AirShot = AirShot,
     RapidFire = RapidFire,
     AntiAim = AntiAim,
+    LegitBot = LegitBot,
     BacktrackChams = BacktrackChams,
     Movement = Movement,
     Misc = Misc,
