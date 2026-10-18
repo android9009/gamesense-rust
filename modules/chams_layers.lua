@@ -191,7 +191,7 @@ do
             end
         end
     end
-    local function bodyGeometry(model, cameraPosition)
+    local function bodyGeometry(model, cameraPosition, cleanBody)
         local body = Chams.BodyCache[model]
         if not body then
             local proxy = Instance.new("Model")
@@ -200,13 +200,16 @@ do
             body = {Model = proxy, Parts = {}, Wanted = {}, NextParts = 0}
             Chams.BodyCache[model] = body
         end
-        reconcile(body, model, os.clock(), true)
+        reconcile(body, model, os.clock(), cleanBody)
         syncGeometry(body, model, cameraPosition, 1)
         return body.Model
     end
     function Chams.ApplyLayers(model, visibleOptions, wallOptions, camera, cleanBody)
-        if cleanBody and (visibleOptions or wallOptions) then
-            local proxy = bodyGeometry(model, camera.CFrame.Position)
+        -- Model Highlights can expose invisible enlarged parts. Keep both
+        -- Chams passes on original-sized geometry while physical expansion is active.
+        local expandedBody = Entity.ExpandedParts and model:FindFirstChild("GS_HitboxVisuals") ~= nil
+        if (cleanBody or expandedBody) and (visibleOptions or wallOptions) then
+            local proxy = bodyGeometry(model, camera.CFrame.Position, cleanBody)
             if visibleOptions then visibleOptions.Adornee = proxy end
             if wallOptions then wallOptions.Adornee = proxy end
         else
