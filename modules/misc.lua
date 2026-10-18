@@ -6,37 +6,35 @@ do
     local fpsOriginal, fpsLast, cameraLast
     local active = false
 
-    -- Infinite ammo: _ammo + magazineSize -> 99999999999, reloadTime -> 0.1.
-    -- Патроны в магазине игра держит внутри BlasterController (self.ammo),
-    -- поэтому патчится ещё и canShoot. Всё в одной таблице: рантайм склеен в
-    -- один чанк, а у Luau лимит 200 локалов - лишние локалы нельзя плодить.
-    local InfAmmo = {
-        Value = 99999999999,
-        ReloadTime = 0.1,
-        Attrs = {"_ammo", "magazineSize", "reloadTime"},
-        MagFields = {"magazineSize", "magSize", "maxAmmo", "maxMagazineSize"},
+    -- Fast reload: reloadTime -> 0.1 на оружии в руках и в BlasterController.
+    -- Всё одной таблицей: рантайм склеен в один чанк, лимит Luau - 200 локалов.
+    local FastReload = {
+        Value = 0.1,
+        Attrs = {"reloadTime"},
         Originals = {},
         LastTool = nil,
         Controller = nil,
         Wrapper = nil,
         OriginalFn = nil,
+        ReloadWrapper = nil,
+        ReloadOriginal = nil,
     }
-    function InfAmmo.Coerce(raw, desired)
+    function FastReload.Coerce(raw)
         if typeof(raw) == "Vector2" then
-            return Vector2.new(desired, desired)
+            return Vector2.new(FastReload.Value, FastReload.Value)
         end
         if typeof(raw) == "Vector3" then
-            return Vector3.new(desired, desired, desired)
+            return Vector3.new(FastReload.Value, FastReload.Value, FastReload.Value)
         end
         if type(raw) == "string" then
-            return tostring(desired)
+            return tostring(FastReload.Value)
         end
         if type(raw) == "boolean" then
-            return desired ~= 0
+            return true
         end
-        return desired
+        return FastReload.Value
     end
-    function InfAmmo.Read(record)
+    function FastReload.Read(record)
         local ok, value = pcall(function()
             if record.Kind == "value" then
                 return record.Inst.Value
@@ -48,11 +46,11 @@ do
         end
         return nil
     end
-    function InfAmmo.Write(record, value)
+    function FastReload.Write(record, value)
         if not record or not record.Inst or not record.Inst.Parent then
             return
         end
-        if InfAmmo.Read(record) == value then
+        if FastReload.Read(record) == value then
             return
         end
         pcall(function()
@@ -63,10 +61,10 @@ do
             end
         end)
     end
-    function InfAmmo.Collect(tool)
+    function FastReload.Collect(tool)
         local records = {}
         local function consider(inst)
-            for _, attr in ipairs(InfAmmo.Attrs) do
+            for _, attr in ipairs(FastReload.Attrs) do
                 local ok, value = pcall(function()
                     return inst:GetAttribute(attr)
                 end)
@@ -75,7 +73,7 @@ do
                 end
             end
             if inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("StringValue") or inst:IsA("BoolValue") then
-                for _, attr in ipairs(InfAmmo.Attrs) do
+                for _, attr in ipairs(FastReload.Attrs) do
                     if inst.Name == attr then
                         records[#records + 1] = {Inst = inst, Attr = attr, Kind = "value", Original = inst.Value}
                     end
@@ -88,32 +86,32 @@ do
         end
         return records
     end
-    function InfAmmo.RestoreTool(tool)
-        local records = InfAmmo.Originals[tool]
+    function FastReload.RestoreTool(tool)
+        local records = FastReload.Originals[tool]
         if not records then
             return
         end
         for _, record in ipairs(records) do
-            InfAmmo.Write(record, record.Original)
+            FastReload.Write(record, record.Original)
         end
-        InfAmmo.Originals[tool] = nil
+        FastReload.Originals[tool] = nil
     end
-    function InfAmmo.RestoreAll()
-        if InfAmmo.LastTool then
-            InfAmmo.RestoreTool(InfAmmo.LastTool)
-            InfAmmo.LastTool = nil
+    function FastReload.RestoreAll()
+        if FastReload.LastTool then
+            FastReload.RestoreTool(FastReload.LastTool)
+            FastReload.LastTool = nil
         end
         local tools = {}
-        for tool in pairs(InfAmmo.Originals) do
+        for tool in pairs(FastReload.Originals) do
             tools[#tools + 1] = tool
         end
         for _, tool in ipairs(tools) do
-            InfAmmo.RestoreTool(tool)
+            FastReload.RestoreTool(tool)
         end
     end
-    function InfAmmo.FindController()
-        if InfAmmo.Controller then
-            return InfAmmo.Controller
+    function FastReload.FindController()
+        if FastReload.Controller then
+            return FastReload.Controller
         end
         local ok, result = pcall(function()
             local rs = game:GetService("ReplicatedStorage")
@@ -130,86 +128,95 @@ do
             return nil
         end)
         if ok and type(result) == "table" then
-            InfAmmo.Controller = result
+            FastReload.Controller = result
             return result
         end
         return nil
     end
-    function InfAmmo.ForceAmmo(self)
-        if type(self) ~= "table" then
-            return
-        end
-        if type(self.ammo) == "number" then
-            self.ammo = InfAmmo.Value
-        end
-        for _, field in ipairs(InfAmmo.MagFields) do
-            if type(self[field]) == "number" then
-                self[field] = InfAmmo.Value
-            end
-        end
-        if type(self.reloadTime) == "number" then
-            self.reloadTime = InfAmmo.ReloadTime
+    function FastReload.Force(self)
+        if type(self) == "table" and type(self.reloadTime) == "number" then
+            self.reloadTime = FastReload.Value
         end
     end
-    function InfAmmo.PatchController()
-        local mod = InfAmmo.FindController()
+    function FastReload.PatchController()
+        local mod = FastReload.FindController()
         if not mod then
             return
         end
-        if InfAmmo.Wrapper and mod.canShoot == InfAmmo.Wrapper then
-            return
-        end
-        local original = mod.canShoot
-        if type(original) ~= "function" then
-            return
-        end
-        local wrapper = function(self, ...)
-            if flag("MiscInfiniteAmmo", false) == true then
-                pcall(InfAmmo.ForceAmmo, self)
+        if type(mod.canShoot) == "function" and mod.canShoot ~= FastReload.Wrapper then
+            local original = mod.canShoot
+            local wrapper = function(self, ...)
+                if flag("MiscFastReload", false) == true then
+                    pcall(FastReload.Force, self)
+                end
+                return original(self, ...)
             end
-            return original(self, ...)
+            FastReload.OriginalFn = original
+            FastReload.Wrapper = wrapper
+            local ok = pcall(function()
+                mod.canShoot = wrapper
+            end)
+            if not ok then
+                FastReload.Wrapper, FastReload.OriginalFn = nil, nil
+            end
         end
-        InfAmmo.OriginalFn = original
-        InfAmmo.Wrapper = wrapper
-        local ok = pcall(function()
-            mod.canShoot = wrapper
-        end)
-        if not ok then
-            InfAmmo.Wrapper, InfAmmo.OriginalFn = nil, nil
+        if type(mod.reload) == "function" and mod.reload ~= FastReload.ReloadWrapper then
+            local originalReload = mod.reload
+            local reloadWrapper = function(self, ...)
+                if flag("MiscFastReload", false) == true then
+                    pcall(FastReload.Force, self)
+                end
+                return originalReload(self, ...)
+            end
+            FastReload.ReloadOriginal = originalReload
+            FastReload.ReloadWrapper = reloadWrapper
+            local ok = pcall(function()
+                mod.reload = reloadWrapper
+            end)
+            if not ok then
+                FastReload.ReloadWrapper, FastReload.ReloadOriginal = nil, nil
+            end
         end
     end
-    function InfAmmo.RestoreController()
-        local mod = InfAmmo.Controller
-        if mod and InfAmmo.Wrapper and mod.canShoot == InfAmmo.Wrapper then
+    function FastReload.RestoreController()
+        local mod = FastReload.Controller
+        if not mod then
+            return
+        end
+        if FastReload.Wrapper and mod.canShoot == FastReload.Wrapper then
             pcall(function()
-                mod.canShoot = InfAmmo.OriginalFn
+                mod.canShoot = FastReload.OriginalFn
+            end)
+        end
+        if FastReload.ReloadWrapper and mod.reload == FastReload.ReloadWrapper then
+            pcall(function()
+                mod.reload = FastReload.ReloadOriginal
             end)
         end
     end
-    function InfAmmo.Apply()
-        local on = flag("MiscInfiniteAmmo", false) == true
+    function FastReload.Apply()
+        local on = flag("MiscFastReload", false) == true
         if on then
-            InfAmmo.PatchController()
+            FastReload.PatchController()
         else
-            InfAmmo.RestoreController()
+            FastReload.RestoreController()
         end
         local character = LocalPlayer and LocalPlayer.Character
         local tool = on and character and character:FindFirstChildOfClass("Tool") or nil
-        if InfAmmo.LastTool and InfAmmo.LastTool ~= tool then
-            InfAmmo.RestoreTool(InfAmmo.LastTool)
+        if FastReload.LastTool and FastReload.LastTool ~= tool then
+            FastReload.RestoreTool(FastReload.LastTool)
         end
-        InfAmmo.LastTool = tool
+        FastReload.LastTool = tool
         if not on or not tool then
             return
         end
-        local records = InfAmmo.Originals[tool]
+        local records = FastReload.Originals[tool]
         if not records then
-            records = InfAmmo.Collect(tool)
-            InfAmmo.Originals[tool] = records
+            records = FastReload.Collect(tool)
+            FastReload.Originals[tool] = records
         end
         for _, record in ipairs(records) do
-            local desired = record.Attr == "reloadTime" and InfAmmo.ReloadTime or InfAmmo.Value
-            InfAmmo.Write(record, InfAmmo.Coerce(record.Original, desired))
+            FastReload.Write(record, FastReload.Coerce(record.Original))
         end
     end
 
@@ -274,7 +281,7 @@ do
         local root = character and findRootPart(character)
         local camera = Workspace.CurrentCamera
         refreshCamera(camera)
-        InfAmmo.Apply()
+        FastReload.Apply()
         if flag("MiscFPSUnlocker", false) == true and setfpscap then
             local requested = math.clamp(tonumber(flag("MiscFPSValue", 240)) or 240, 30, 999)
             if fpsLast ~= requested then
@@ -365,8 +372,8 @@ do
     function Misc.Shutdown()
         active, Misc.Started = false, false
         for _, id in ipairs({"MiscApply", "MiscWorldAdded", "MiscLightingAdded", "MiscCameraEffects"}) do TaskManager.RemoveConnection(id) end
-        InfAmmo.RestoreController()
-        InfAmmo.RestoreAll()
+        FastReload.RestoreController()
+        FastReload.RestoreAll()
         restoreProperty(particles, "Enabled"); restoreProperty(textures, "Transparency")
         restoreProperty(collisions, "CanCollide"); restoreEffects(); restoreName(); restoreFPS()
         if shadowOriginal ~= nil then Lighting.GlobalShadows = shadowOriginal; shadowOriginal = nil end
