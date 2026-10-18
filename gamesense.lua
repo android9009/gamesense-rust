@@ -736,8 +736,12 @@ local Library
             return true
         end
         function Library:Round(num, float)
-            local Multiplier = 1 / (float or 1)
-            return math.floor(num * Multiplier + 0.5) / Multiplier
+            num, float = tonumber(num), tonumber(float) or 1
+            if not num or num ~= num or math.abs(num) == math.huge then return 0 end
+            if float ~= float or float <= 0 or float == math.huge then float = 1 end
+            local scaled = num / float
+            if math.abs(scaled) == math.huge then return num end
+            return math.floor(scaled + 0.5) * float
         end
         function Library:Themify(instance, theme, property)
             table.insert(themes.utility[theme][property], instance)
@@ -1761,8 +1765,22 @@ local Library
             table.insert(Library.NoDrag, Items.Minus)
             table.insert(Library.NoDrag, Items.Plus)
             function Cfg.Set(value)
-                Cfg.Value = math.clamp(Library:Round(value, Cfg.Intervals), Cfg.Min, Cfg.Max)
-                Items.Accent.Size = dim2((Cfg.Value - Cfg.Min) / (Cfg.Max - Cfg.Min), Cfg.Value == Cfg.Min and 0 or -2, 1, -2)
+                if type(value) == "string" then
+                    value = value:match("^%s*(.-)%s*$")
+                    local suffix = tostring(Cfg.Suffix or "")
+                    if #suffix > 0 and value:sub(-#suffix) == suffix then
+                        value = value:sub(1, #value-#suffix)
+                    end
+                    value = value:gsub(",", ".")
+                end
+                local number = tonumber(value)
+                if not number or number ~= number or math.abs(number) == math.huge then
+                    number = tonumber(Cfg.Value) or tonumber(Cfg.Min) or 0
+                    if number ~= number or math.abs(number) == math.huge then number = 0 end
+                end
+                Cfg.Value = math.clamp(Library:Round(number, Cfg.Intervals), Cfg.Min, Cfg.Max)
+                local range = Cfg.Max - Cfg.Min
+                Items.Accent.Size = dim2(range > 0 and (Cfg.Value - Cfg.Min) / range or 0, Cfg.Value == Cfg.Min and 0 or -2, 1, -2)
                 Items.Value.Text = Cfg.Formatter and Cfg.Formatter(Cfg.Value) or (tostring(Cfg.Value) .. Cfg.Suffix)
                 Flags[Cfg.Flag] = Cfg.Value
                 Cfg.Callback(Flags[Cfg.Flag])
