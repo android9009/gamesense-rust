@@ -4509,7 +4509,10 @@ do
                 MakeSlot(side .. part, {
                     Side = side;
                     Anchor = vec2(anchorX, isTop and 1 or 0);
-                    Position = dim2(part == "Left" and 0.10 or (part == "Center" and 0.5 or 0.90), 0, isTop and 0 or 1, isTop and -3 or 3);
+                    -- Extra breathing room between the three bottom text columns.
+                    Position = dim2(part == "Left" and 0.10 or (part == "Center" and 0.5 or 0.90),
+                        not isTop and (part == "Left" and -12 or (part == "Right" and 12 or 0)) or 0,
+                        isTop and 0 or 1, isTop and -3 or 3);
                     Size = dim2(0.55, 0, 0, isTop and 30 or 46);
                     Horizontal = part == "Left" and Enum.HorizontalAlignment.Left
                         or (part == "Center" and Enum.HorizontalAlignment.Center or Enum.HorizontalAlignment.Right);
