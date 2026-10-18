@@ -4692,8 +4692,52 @@ do
                 end
                 Ghost.Visible = true
             end
-            object.InputBegan:Connect(BeginDrag)
+            -- Do not depend on Roblox GUI hit ordering between overlapping slots.
+            element.BeginPreviewDrag = BeginDrag
         end
+        Library:Connection(InputService.InputBegan, function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 or Dragging then
+                return
+            end
+            local ancestor = Preview
+            while ancestor do
+                if ancestor:IsA("GuiObject") and not ancestor.Visible then return end
+                if ancestor:IsA("ScreenGui") and not ancestor.Enabled then return end
+                ancestor = ancestor.Parent
+            end
+            local mouse = InputService:GetMouseLocation()
+            local point = vec2(mouse.X, mouse.Y - gui_offset)
+            local selected, best = nil, math.huge
+            for _, element in Elements do
+                local object = element.Objects[1]
+                if not element.BeginPreviewDrag or not object.Visible then continue end
+                local pos, size = object.AbsolutePosition, object.AbsoluteSize
+                local left, top, width, height = pos.X, pos.Y, size.X, size.Y
+                if not element.Bar then
+                    if object.Text == "" or object.TextTransparency >= 1 then continue end
+                    local bounds = object.TextBounds
+                    width, height = bounds.X, bounds.Y
+                    if object.TextXAlignment == Enum.TextXAlignment.Center then
+                        left = pos.X + (size.X - width) * 0.5
+                    elseif object.TextXAlignment == Enum.TextXAlignment.Right then
+                        left = pos.X + size.X - width
+                    end
+                    if object.TextYAlignment == Enum.TextYAlignment.Center then
+                        top = pos.Y + (size.Y - height) * 0.5
+                    elseif object.TextYAlignment == Enum.TextYAlignment.Bottom then
+                        top = pos.Y + size.Y - height
+                    end
+                end
+                if point.X >= left - 2 and point.X <= left + width + 2
+                    and point.Y >= top - 2 and point.Y <= top + height + 2 then
+                    local distance = (point - vec2(left + width * 0.5, top + height * 0.5)).Magnitude
+                    if distance < best then
+                        selected, best = element, distance
+                    end
+                end
+            end
+            if selected then selected.BeginPreviewDrag(input) end
+        end)
         Library:Connection(InputService.InputChanged, function(input)
             if not Dragging or not Ghost or input.UserInputType ~= Enum.UserInputType.MouseMovement then
                 return
