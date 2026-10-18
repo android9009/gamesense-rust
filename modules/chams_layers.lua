@@ -138,33 +138,6 @@ do
         if layer.Model.Parent ~= ensureFolder() then layer.Model.Parent = ensureFolder() end
         return layer
     end
-    local function fullyExposed(model, camera)
-        local state = Chams.ModelOcclusion[model]
-        if not state then
-            state = {Next = 0, Points = {}, Ignore = {}}
-            Chams.ModelOcclusion[model] = state
-        end
-        local now = os.clock()
-        if now < state.Next and state.Camera == camera and state.Character == LocalPlayer.Character then
-            return state.Exposed
-        end
-        state.Next, state.Camera, state.Character = now + 0.15, camera, LocalPlayer.Character
-        table.clear(state.Points); table.clear(state.Ignore)
-        state.Ignore[1] = model
-        if LocalPlayer.Character then state.Ignore[#state.Ignore + 1] = LocalPlayer.Character end
-        if Chams.LayerFolder then state.Ignore[#state.Ignore + 1] = Chams.LayerFolder end
-        state.Ignore[#state.Ignore + 1] = camera
-        for _, part in ipairs(Entity.GetParts(model)) do
-            if part.Parent == model and part.Name ~= "HumanoidRootPart" and part.Transparency < 0.99 then
-                state.Points[#state.Points + 1] = part.Position
-                if #state.Points >= MAX_PARTS then break end
-            end
-        end
-        if #state.Points == 0 then state.Exposed = false; return false end
-        local ok, blockers = pcall(camera.GetPartsObscuringTarget, camera, state.Points, state.Ignore)
-        state.Exposed = ok and #blockers == 0
-        return state.Exposed
-    end
     function Chams.ApplyLayers(model, visibleOptions, wallOptions, camera)
         if not wallOptions then
             destroyLayer(model)
@@ -174,20 +147,6 @@ do
             end
             Chams.RemoveModel(model)
             return nil
-        end
-        if fullyExposed(model, camera) then
-            local layer = Chams.LayerCache[model]
-            if layer then
-                if layer.Highlight.Enabled then layer.Highlight.Enabled = false end
-                if layer.Model.Parent then layer.Model.Parent = nil end
-            end
-            if visibleOptions then
-                visibleOptions.AlwaysOnTop = false
-                return Chams.CreateModel(model, visibleOptions)
-            end
-            local existing = Chams.ModelCache[model]
-            if existing and existing.Enabled then existing.Enabled = false end
-            return existing
         end
         wallOptions.AlwaysOnTop = true
         local back = Chams.CreateModel(model, wallOptions)

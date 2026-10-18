@@ -49,14 +49,7 @@ local function scanBots(deltaTime)
     for _, model in ipairs(Entity.GetNPCs()) do cachedNPCs[#cachedNPCs + 1] = model end
 end
 
-local function combatBlockedByMenu()
-    local window = Library and Library.Window
-    if not window or not window.Parent or window.Visible ~= true then return false end
-    return not Library.Items or Library.Items.Enabled ~= false
-end
-
 function RageBot.IsAimbotActive()
-    if combatBlockedByMenu() then return false end
     local enabled = flag("AimbotEnabled", false) == true
     if not enabled then return false end
     local bind = flag("AimbotEnabledBind", nil)
@@ -417,7 +410,6 @@ local function getClosestTarget()
 end
 
 function RageBot.AutoFire()
-    if combatBlockedByMenu() then return end
     local now = os.clock()
      
     if now - RageBot.LastFireTick < 0.001 then return end
@@ -476,7 +468,7 @@ local function setupSilentAimHooks()
                             end
                         end
                     elseif self == Workspace.CurrentCamera or self.Name == "Camera" then
-                        local cam = Workspace.CurrentCamera
+                local cam = Workspace.CurrentCamera
                         if cam then
                             return Ray.new(cam.CFrame.Position, (targetPos - cam.CFrame.Position).Unit)
                         end
@@ -495,7 +487,7 @@ local function setupSilentAimHooks()
                     elseif index == "Target" or index == "target" then
                         return RageBot.TargetPart
                     elseif index == "UnitRay" or index == "unitRay" then
-                        local cam = Workspace.CurrentCamera
+                local cam = Workspace.CurrentCamera
                         local origin = cam and cam.CFrame.Position or Vector3.zero
                         return Ray.new(origin, (RageBot.TargetPosition - origin).Unit)
                     end
@@ -612,7 +604,6 @@ local function setupGameShootHook()
 
         RageBot.GameShootFn = fn
         RageBot.GameShoot = hookfunction(fn, function(...)
-            if combatBlockedByMenu() then return end
             local cam = Workspace.CurrentCamera
             if RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and cam then
                 local oldCFrame = cam.CFrame
@@ -1165,7 +1156,6 @@ local function airApply()
     if not AirShot.Patched then
         AirShot.OldCanShoot = mod.canShoot
         mod.canShoot = function(self, ...)
-            if combatBlockedByMenu() then return false end
             if airActive() then
                 return airCanShootNoAir(self)
             end
@@ -1184,20 +1174,16 @@ local function airRestore()
 end
 
 local function airUpdate()
-    if AirShot.Patched then return end
-    local now = os.clock()
-    if now < (AirShot.NextLookup or 0) then return end
-    AirShot.NextLookup = now + 0.5
-    -- Keep one delegating wrapper installed, so a menu-open event is checked
-    -- inside canShoot immediately, including with Air shot switched off.
-    airApply()
+    if airActive() then
+        airApply()
+    else
+        airRestore()
+    end
 end
 
 function AirShot.Start()
     if AirShot.Started then return end
     AirShot.Started = true
-    AirShot.NextLookup = 0
-    airUpdate()
     TaskManager.AddConnection("AirShotApply", RunService.RenderStepped, airUpdate)
     if Library then
         Library.UnloadHooks = Library.UnloadHooks or {}
