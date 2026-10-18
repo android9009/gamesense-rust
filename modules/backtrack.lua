@@ -363,9 +363,30 @@ local function btGetChamHitboxes(character, displayFrame)
         end
         return nil
     end
-    local head = posOf("Head")
-    if head then results[#results + 1] = {Position = head, Name = "Head"} end
     local chest = posOf("UpperTorso") or posOf("Torso")
+    local head = posOf("Head")
+    if head then
+        -- Как и в обычном аиме: целимся в точку головы, самую далёкую от торса
+        -- (верх головы по геометрии парта в кадре призрака), а не в её центр.
+        local aimPos = head
+        local headPart = character:FindFirstChild("Head")
+        local cf = headPart and frame.CFrames and frame.CFrames[headPart]
+        if headPart and cf and chest then
+            local away = cf:VectorToObjectSpace(cf.Position - chest)
+            if away.Magnitude > 1e-4 then
+                local half = headPart.Size * 0.5
+                local unit = away.Unit
+                local scale = math.huge
+                if math.abs(unit.X) > 1e-6 then scale = math.min(scale, half.X / math.abs(unit.X)) end
+                if math.abs(unit.Y) > 1e-6 then scale = math.min(scale, half.Y / math.abs(unit.Y)) end
+                if math.abs(unit.Z) > 1e-6 then scale = math.min(scale, half.Z / math.abs(unit.Z)) end
+                if scale ~= math.huge and scale > 0 then
+                    aimPos = cf:PointToWorldSpace(unit * (scale * 0.92))
+                end
+            end
+        end
+        results[#results + 1] = {Position = aimPos, Name = "Head"}
+    end
     if chest then results[#results + 1] = {Position = chest, Name = "Chest"} end
     local stomach = posOf("LowerTorso") or posOf("Torso")
     if stomach and chest and (stomach - chest).Magnitude > 0.5 then
