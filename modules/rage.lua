@@ -350,6 +350,13 @@ local function getClosestTarget()
         local btDist = btFov
         local btPos = nil
         local btPart = nil
+        -- Бектрек обязан уважать выбор хитбоксов (AimbotHitbox): если стоит
+        -- только Head - целимся только в голову призрака.
+        local btHitboxSel = flag("AimbotHitbox", {"Head", "Chest"})
+        if type(btHitboxSel) ~= "table" then btHitboxSel = {btHitboxSel} end
+        if #btHitboxSel == 0 then btHitboxSel = {"Head", "Chest"} end
+        local btHitboxEnabled = {}
+        for _, name in ipairs(btHitboxSel) do btHitboxEnabled[name] = true end
         for targetKey, cache in pairs(BacktrackAimCache) do
             local char = cache and cache.Character
             if char then
@@ -372,16 +379,22 @@ local function getClosestTarget()
                         allowed = true
                     end
                     if allowed then
-                         
-                         
+                        -- Оставляем только разрешённые хитбоксы; Root - лишь
+                        -- запасной вариант, когда ничего другого у призрака нет.
+                        local anyEnabled = false
                         for _, hb in ipairs(hits) do
-                            local screenPos, onScreen = camera:WorldToViewportPoint(hb.Position)
-                            if onScreen and screenPos.Z > 0 then
-                                local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                                if dist <= btDist and btPosVisible(camera, hb.Position) then
-                                    btDist = dist
-                                    btPos = hb.Position
-                                    btPart = findRootPart(char)  
+                            if btHitboxEnabled[hb.Name] then anyEnabled = true break end
+                        end
+                        for _, hb in ipairs(hits) do
+                            if btHitboxEnabled[hb.Name] or (not anyEnabled and hb.Name == "Root") then
+                                local screenPos, onScreen = camera:WorldToViewportPoint(hb.Position)
+                                if onScreen and screenPos.Z > 0 then
+                                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                                    if dist <= btDist and btPosVisible(camera, hb.Position) then
+                                        btDist = dist
+                                        btPos = hb.Position
+                                        btPart = findRootPart(char)  
+                                    end
                                 end
                             end
                         end
