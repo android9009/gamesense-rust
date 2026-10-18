@@ -119,98 +119,66 @@ end
 function RageBot.GetHitboxParts(model)
     local results = {}
     if not model then return results end
-
-    local hitboxes = flag("AimbotHitbox", {"Head", "Chest"})
-    if type(hitboxes) ~= "table" then
-        hitboxes = {hitboxes}
-    end
-    if #hitboxes == 0 then
-        hitboxes = {"Head", "Chest"}
-    end
-
-    local function hasHitbox(name)
-        for _, h in ipairs(hitboxes) do
-            if h == name then return true end
+    local selected = flag("AimbotHitbox", {"Head","Chest"})
+    if type(selected) ~= "table" then selected = {selected} end
+    if #selected == 0 then selected = {"Head","Chest"} end
+    local enabled = {}
+    for _,name in ipairs(selected) do enabled[name] = true end
+    local indexed
+    local function part(name)
+        local direct = model:FindFirstChild(name)
+        if direct and direct:IsA("BasePart") then return direct end
+        if not indexed then
+            indexed = {}
+            for _,candidate in ipairs(Entity.GetParts(model)) do
+                if not candidate:FindFirstAncestorOfClass("Tool") and not candidate:FindFirstAncestorOfClass("Accessory") then
+                    indexed[candidate.Name:lower():gsub("[%s%p]", "")] = candidate
+                end
+            end
         end
-        return false
+        return indexed[name:lower():gsub("[%s%p]", "")]
     end
-
-     
-    if hasHitbox("Head") then
-        local head = model:FindFirstChild("Head")
-        if head and head:IsA("BasePart") then
-             
-             
-            local up = head.CFrame.UpVector
-            local crown = head.CFrame.Position + up * (RageBot.GetOriginalHitboxSize(head).Y * 0.5)
-            table.insert(results, {Part = head, Position = crown, Name = "Head"})
+    -- Resolve anatomy from present parts, not a fixed body size or one limb.
+    -- This also handles partial/streamed rigs without requiring every R15 part.
+    local upper, lower, torso = part("UpperTorso"),part("LowerTorso"),part("Torso")
+    local function add(source,group,yFraction)
+        if not source then return end
+        local position = source.Position
+        if yFraction and yFraction ~= 0 then
+            position = position + source.CFrame.UpVector*(source.Size.Y*yFraction)
         end
+        results[#results+1] = {Part=source,Position=position,Name=group}
     end
-
-    if hasHitbox("Neck") then
-        local neck = model:FindFirstChild("Neck")
-        if neck and neck:IsA("BasePart") then
-            table.insert(results, {Part = neck, Position = neck.Position, Name = "Neck"})
-        else
-            local ut = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
-            if ut and ut:IsA("BasePart") then
-                table.insert(results, {Part = ut, Position = ut.Position + Vector3.new(0, RageBot.GetOriginalHitboxSize(ut).Y * 0.45, 0), Name = "Neck"})
+    if enabled.Head then add(part("Head"),"Head",.5) end
+    if enabled.Neck then
+        local neck=part("Neck")
+        add(neck or upper or torso,"Neck",neck and 0 or .45)
+    end
+    if enabled.Chest then add(upper or torso or lower,"Chest") end
+    if enabled.Stomach then add(lower or torso or upper,"Stomach",lower and 0 or -.3) end
+    if enabled.Legs then
+        for _,side in ipairs({"Left","Right"}) do
+            local top,bottom=part(side.."UpperLeg"),part(side.."LowerLeg")
+            if top or bottom then
+                add(top,"Legs");add(bottom,"Legs")
+            else
+                add(part(side.." Leg"),"Legs")
             end
         end
     end
-
-    if hasHitbox("Chest") then
-        local ut = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
-        if ut and ut:IsA("BasePart") then
-            table.insert(results, {Part = ut, Position = ut.Position, Name = "Chest"})
+    if enabled.Feet then
+        for _,side in ipairs({"Left","Right"}) do
+            local foot=part(side.."Foot")
+            add(foot or part(side.."LowerLeg") or part(side.." Leg"),"Feet",foot and 0 or -.4)
         end
     end
-
-    if hasHitbox("Stomach") then
-        local lt = model:FindFirstChild("LowerTorso")
-        if lt and lt:IsA("BasePart") then
-            table.insert(results, {Part = lt, Position = lt.Position, Name = "Stomach"})
-        else
-            local torso = model:FindFirstChild("Torso")
-            if torso and torso:IsA("BasePart") then
-                table.insert(results, {Part = torso, Position = torso.Position - Vector3.new(0, RageBot.GetOriginalHitboxSize(torso).Y * 0.3, 0), Name = "Stomach"})
-            end
-        end
-    end
-
-    if hasHitbox("Legs") then
-        for _, limb in ipairs({"LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "Left Leg", "Right Leg"}) do
-            local p = model:FindFirstChild(limb)
-            if p and p:IsA("BasePart") then
-                table.insert(results, {Part = p, Position = p.Position, Name = "Legs"})
-                break
-            end
-        end
-    end
-
-    if hasHitbox("Feet") then
-        for _, limb in ipairs({"LeftFoot", "RightFoot", "Left Leg", "Right Leg"}) do
-            local p = model:FindFirstChild(limb)
-            if p and p:IsA("BasePart") then
-                table.insert(results, {Part = p, Position = p.Position - Vector3.new(0, RageBot.GetOriginalHitboxSize(p).Y * 0.4, 0), Name = "Feet"})
-                break
-            end
-        end
-    end
-
     if #results == 0 then
-        local root = findRootPart(model)
-        if root and root:IsA("BasePart") then
-            table.insert(results, {Part = root, Position = root.Position, Name = "Root"})
-        end
+        local root=findRootPart(model)
+        if root and root:IsA("BasePart") then add(root,"Root") end
     end
-
     return results
 end
 
- 
- 
- 
 local function btPosVisible(cam, pos)
     local localChar = LocalPlayer.Character
     local origin = cam.CFrame.Position
@@ -1374,7 +1342,6 @@ do
             return
         end
         local allowed = selection(flag("AimbotTargetSel", {"Players"}), {})
-        local boxes = selection(flag("AimbotHitbox", {"Head", "Chest"}), {"Head", "Chest"})
         local wanted = {}
         local function add(part)
             if part and part:IsA("BasePart") and part.Parent then wanted[part] = true end
@@ -1382,13 +1349,7 @@ do
         local function body(model)
             if model == LocalPlayer.Character or not Entity.IsAliveModel(model) then return end
             for _, hitbox in ipairs(RageBot.GetHitboxParts(model)) do add(hitbox.Part) end
-            -- The aimer currently samples one leg/foot; expansion covers both sides.
-            if boxes.Legs then
-                for _, name in ipairs({"LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "Left Leg", "Right Leg", "LeftLeg", "RightLeg"}) do add(model:FindFirstChild(name)) end
-            end
-            if boxes.Feet then
-                for _, name in ipairs({"LeftFoot", "RightFoot", "Left Leg", "Right Leg"}) do add(model:FindFirstChild(name)) end
-            end
+
         end
         if allowed.Players or allowed.Team then
             for _, player in ipairs(Players:GetPlayers()) do
