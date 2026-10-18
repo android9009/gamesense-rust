@@ -1651,15 +1651,30 @@ local Library
             return RegisterUIElement(self, "checkbox", setmetatable(Cfg, Library))
         end
         function Library:Slider(properties)
+            -- All sliders in the menu use whole numbers only: min/max/step/default are
+            -- normalized to integers, values snap to the step and render with %d,
+            -- so a value can never look like 25.000123 again.
+            local function IntegerValue(value, fallback)
+                local number = tonumber(value)
+                if not number or number ~= number or math.abs(number) == math.huge then
+                    return fallback or 0
+                end
+                return math.floor(number + 0.5)
+            end
+            local minValue = IntegerValue(properties.Min, 0)
+            local maxValue = IntegerValue(properties.Max, 100)
+            if maxValue < minValue then
+                maxValue = minValue
+            end
             local Cfg = {
                 Name = properties.Name or nil,
                 Suffix = properties.Suffix or "",
                 Flag = properties.Flag or properties.Name or "Slider",
                 Callback = properties.Callback or function() end,
-                Min = properties.Min or 0,
-                Max = properties.Max or 100,
-                Intervals = properties.Decimal or 1,
-                Value = properties.Default or 10,
+                Min = minValue,
+                Max = maxValue,
+                Intervals = math.max(1, IntegerValue(properties.Decimal, 1)),
+                Value = IntegerValue(properties.Default, minValue),
                 Formatter = properties.Formatter,
                 Dragging = false,
                 Items = {}
@@ -1807,10 +1822,17 @@ local Library
                     number = tonumber(Cfg.Value) or tonumber(Cfg.Min) or 0
                     if number ~= number or math.abs(number) == math.huge then number = 0 end
                 end
-                Cfg.Value = math.clamp(Library:Round(number, Cfg.Intervals), Cfg.Min, Cfg.Max)
+                -- Re-normalize in case code touched Min/Max/Intervals directly.
+                Cfg.Min = IntegerValue(Cfg.Min, 0)
+                Cfg.Max = IntegerValue(Cfg.Max, Cfg.Min)
+                if Cfg.Max < Cfg.Min then
+                    Cfg.Max = Cfg.Min
+                end
+                Cfg.Intervals = math.max(1, IntegerValue(Cfg.Intervals, 1))
+                Cfg.Value = IntegerValue(math.clamp(Library:Round(number, Cfg.Intervals), Cfg.Min, Cfg.Max), Cfg.Min)
                 local range = Cfg.Max - Cfg.Min
                 Items.Accent.Size = dim2(range > 0 and (Cfg.Value - Cfg.Min) / range or 0, Cfg.Value == Cfg.Min and 0 or -2, 1, -2)
-                Items.Value.Text = Cfg.Formatter and Cfg.Formatter(Cfg.Value) or (tostring(Cfg.Value) .. Cfg.Suffix)
+                Items.Value.Text = Cfg.Formatter and Cfg.Formatter(Cfg.Value) or (string.format("%d", Cfg.Value) .. Cfg.Suffix)
                 Flags[Cfg.Flag] = Cfg.Value
                 Cfg.Callback(Flags[Cfg.Flag])
             end
@@ -9114,8 +9136,8 @@ do
             if data.kind ~= "slider" or not object.Set then
                 error("element is not a slider", 3)
             end
-            object.Min = tonumber(minValue) or object.Min
-            object.Max = tonumber(maxValue) or object.Max
+            object.Min = math.floor((tonumber(minValue) or object.Min) + 0.5)
+            object.Max = math.floor((tonumber(maxValue) or object.Max) + 0.5)
             if object.Max < object.Min then
                 object.Max = object.Min
             end
@@ -9132,7 +9154,7 @@ do
             if data.kind ~= "slider" then
                 error("element is not a slider", 3)
             end
-            object.Intervals = tonumber(step) or object.Intervals
+            object.Intervals = math.max(1, math.floor((tonumber(step) or object.Intervals or 1) + 0.5))
             object.Set(object.Value)
             return object.Intervals
         end
