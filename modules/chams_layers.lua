@@ -135,7 +135,6 @@ do
             layer = {Model = proxy, Highlight = highlight, Parts = {}, Wanted = {}, NextParts = 0}
             Chams.LayerCache[model] = layer
         end
-        if layer.Model.Parent ~= ensureFolder() then layer.Model.Parent = ensureFolder() end
         return layer
     end
     function Chams.ApplyLayers(model, visibleOptions, wallOptions, camera)

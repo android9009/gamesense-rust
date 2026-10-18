@@ -20,6 +20,7 @@ local manifest = {
     ui = "gamesense.lua",
     sources = {
         "modules/core.lua",
+        "modules/chams_layers.lua",
         "modules/visuals.lua",
         "modules/rage.lua",
         "modules/antiaim.lua",

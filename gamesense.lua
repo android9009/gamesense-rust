@@ -8105,7 +8105,6 @@ end)
 local ContextActionService = game:GetService("ContextActionService")
 local origToggle = Window.ToggleMenu
 Window.ToggleMenu = function(bool)
-    menuOpen = bool == true
     origToggle(bool)
     if bool then
         ContextActionService:BindCoreAction("BlockEscape", function()
