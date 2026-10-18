@@ -6,109 +6,19 @@ do
     local fpsOriginal, fpsLast, cameraLast
     local active = false
 
-    -- Fast reload: reloadTime -> 0.1 на оружии в руках и в BlasterController.
-    -- Всё одной таблицей: рантайм склеен в один чанк, лимит Luau - 200 локалов.
+    -- Fast reload v2: reloadTime НЕ трогаем (от него игра останавливает анимацию
+    -- через 0.1 сек, а патроны досылает по полному циклу - получался рассинхрон).
+    -- Вместо этого при старте перезарядки: ускоряем анимацию перезарядки до ~0.1 сек
+    -- и через 0.1 сек досылаем патроны в контроллере. Одной таблицей (лимит локалов).
     local FastReload = {
         Value = 0.1,
-        Attrs = {"reloadTime"},
-        Originals = {},
-        LastTool = nil,
         Controller = nil,
         Wrapper = nil,
         OriginalFn = nil,
         ReloadWrapper = nil,
         ReloadOriginal = nil,
+        Pending = nil,
     }
-    function FastReload.Coerce(raw)
-        if typeof(raw) == "Vector2" then
-            return Vector2.new(FastReload.Value, FastReload.Value)
-        end
-        if typeof(raw) == "Vector3" then
-            return Vector3.new(FastReload.Value, FastReload.Value, FastReload.Value)
-        end
-        if type(raw) == "string" then
-            return tostring(FastReload.Value)
-        end
-        if type(raw) == "boolean" then
-            return true
-        end
-        return FastReload.Value
-    end
-    function FastReload.Read(record)
-        local ok, value = pcall(function()
-            if record.Kind == "value" then
-                return record.Inst.Value
-            end
-            return record.Inst:GetAttribute(record.Attr)
-        end)
-        if ok then
-            return value
-        end
-        return nil
-    end
-    function FastReload.Write(record, value)
-        if not record or not record.Inst or not record.Inst.Parent then
-            return
-        end
-        if FastReload.Read(record) == value then
-            return
-        end
-        pcall(function()
-            if record.Kind == "value" then
-                record.Inst.Value = value
-            else
-                record.Inst:SetAttribute(record.Attr, value)
-            end
-        end)
-    end
-    function FastReload.Collect(tool)
-        local records = {}
-        local function consider(inst)
-            for _, attr in ipairs(FastReload.Attrs) do
-                local ok, value = pcall(function()
-                    return inst:GetAttribute(attr)
-                end)
-                if ok and value ~= nil then
-                    records[#records + 1] = {Inst = inst, Attr = attr, Kind = "attribute", Original = value}
-                end
-            end
-            if inst:IsA("NumberValue") or inst:IsA("IntValue") or inst:IsA("StringValue") or inst:IsA("BoolValue") then
-                for _, attr in ipairs(FastReload.Attrs) do
-                    if inst.Name == attr then
-                        records[#records + 1] = {Inst = inst, Attr = attr, Kind = "value", Original = inst.Value}
-                    end
-                end
-            end
-        end
-        consider(tool)
-        for _, descendant in ipairs(tool:GetDescendants()) do
-            consider(descendant)
-        end
-        return records
-    end
-    function FastReload.RestoreTool(tool)
-        local records = FastReload.Originals[tool]
-        if not records then
-            return
-        end
-        for _, record in ipairs(records) do
-            FastReload.Write(record, record.Original)
-        end
-        FastReload.Originals[tool] = nil
-    end
-    function FastReload.RestoreAll()
-        if FastReload.LastTool then
-            FastReload.RestoreTool(FastReload.LastTool)
-            FastReload.LastTool = nil
-        end
-        local tools = {}
-        for tool in pairs(FastReload.Originals) do
-            tools[#tools + 1] = tool
-        end
-        for _, tool in ipairs(tools) do
-            FastReload.RestoreTool(tool)
-        end
-    end
     function FastReload.FindController()
         if FastReload.Controller then
             return FastReload.Controller
@@ -122,7 +32,7 @@ do
                 return nil
             end
             local loaded = require(mod)
-            if type(loaded) == "table" and type(loaded.canShoot) == "function" then
+            if type(loaded) == "table" and (type(loaded.canShoot) == "function" or type(loaded.reload) == "function") then
                 return loaded
             end
             return nil
@@ -133,10 +43,122 @@ do
         end
         return nil
     end
-    function FastReload.Force(self)
-        if type(self) == "table" and type(self.reloadTime) == "number" then
-            self.reloadTime = FastReload.Value
+    function FastReload.Capacity(controller)
+        if type(controller) == "table" then
+            for _, field in ipairs({"magazineSize", "magSize", "maxAmmo", "maxMagazineSize"}) do
+                if type(controller[field]) == "number" then
+                    return controller[field]
+                end
+            end
         end
+        local character = LocalPlayer and LocalPlayer.Character
+        local tool = character and character:FindFirstChildOfClass("Tool")
+        if tool then
+            local ok, value = pcall(function()
+                return tool:GetAttribute("magazineSize")
+            end)
+            if ok and type(value) == "number" then
+                return value
+            end
+            for _, descendant in ipairs(tool:GetDescendants()) do
+                local okDesc, descValue = pcall(function()
+                    return descendant:GetAttribute("magazineSize")
+                end)
+                if okDesc and type(descValue) == "number" then
+                    return descValue
+                end
+            end
+        end
+        return nil
+    end
+    function FastReload.SpeedUpAnimations(controller)
+        local function adjust(track)
+            if track and typeof(track) == "Instance" and track:IsA("AnimationTrack")
+                and not track.Looped and track.Length and track.Length > FastReload.Value then
+                pcall(function()
+                    track:AdjustSpeed(track.Length / FastReload.Value)
+                end)
+            end
+        end
+        if type(controller) == "table" then
+            for _, value in pairs(controller) do
+                adjust(value)
+            end
+        end
+        local roots = {}
+        local character = LocalPlayer and LocalPlayer.Character
+        if character then
+            roots[#roots + 1] = character
+        end
+        local camera = Workspace and Workspace.CurrentCamera
+        if camera then
+            roots[#roots + 1] = camera
+        end
+        for _, root in ipairs(roots) do
+            for _, descendant in ipairs(root:GetDescendants()) do
+                if descendant:IsA("Animator") or descendant:IsA("AnimationController") then
+                    local ok, tracks = pcall(function()
+                        return descendant:GetPlayingAnimationTracks()
+                    end)
+                    if ok and tracks then
+                        for _, track in ipairs(tracks) do
+                            adjust(track)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    function FastReload.Finish(controller)
+        local capacity = FastReload.Capacity(controller)
+        if capacity and type(controller.ammo) == "number" then
+            controller.ammo = capacity
+        end
+        if controller.reloading ~= nil then
+            controller.reloading = false
+        end
+        -- Синхроним атрибут _ammo, чтобы HUD сразу показал полный магазин.
+        if capacity then
+            local character = LocalPlayer and LocalPlayer.Character
+            local tool = character and character:FindFirstChildOfClass("Tool")
+            if tool then
+                local function syncAmmo(inst)
+                    local ok, value = pcall(function()
+                        return inst:GetAttribute("_ammo")
+                    end)
+                    if ok and value ~= nil then
+                        pcall(function()
+                            inst:SetAttribute("_ammo", capacity)
+                        end)
+                    end
+                end
+                syncAmmo(tool)
+                for _, descendant in ipairs(tool:GetDescendants()) do
+                    syncAmmo(descendant)
+                end
+            end
+        end
+    end
+    function FastReload.Begin(controller)
+        if type(controller) ~= "table" or FastReload.Pending == controller then
+            return
+        end
+        FastReload.Pending = controller
+        task.spawn(function()
+            for _ = 1, 5 do
+                FastReload.SpeedUpAnimations(controller)
+                task.wait(0.02)
+            end
+        end)
+        task.delay(FastReload.Value, function()
+            if FastReload.Pending == controller then
+                FastReload.Pending = nil
+            end
+            if flag("MiscFastReload", false) ~= true then
+                return
+            end
+            FastReload.Finish(controller)
+        end)
     end
     function FastReload.PatchController()
         local mod = FastReload.FindController()
@@ -146,10 +168,11 @@ do
         if type(mod.canShoot) == "function" and mod.canShoot ~= FastReload.Wrapper then
             local original = mod.canShoot
             local wrapper = function(self, ...)
-                if flag("MiscFastReload", false) == true then
-                    pcall(FastReload.Force, self)
+                local result = original(self, ...)
+                if flag("MiscFastReload", false) == true and type(self) == "table" and self.reloading == true then
+                    FastReload.Begin(self)
                 end
-                return original(self, ...)
+                return result
             end
             FastReload.OriginalFn = original
             FastReload.Wrapper = wrapper
@@ -163,10 +186,11 @@ do
         if type(mod.reload) == "function" and mod.reload ~= FastReload.ReloadWrapper then
             local originalReload = mod.reload
             local reloadWrapper = function(self, ...)
+                local result = originalReload(self, ...)
                 if flag("MiscFastReload", false) == true then
-                    pcall(FastReload.Force, self)
+                    FastReload.Begin(self)
                 end
-                return originalReload(self, ...)
+                return result
             end
             FastReload.ReloadOriginal = originalReload
             FastReload.ReloadWrapper = reloadWrapper
@@ -195,28 +219,10 @@ do
         end
     end
     function FastReload.Apply()
-        local on = flag("MiscFastReload", false) == true
-        if on then
+        if flag("MiscFastReload", false) == true then
             FastReload.PatchController()
         else
             FastReload.RestoreController()
-        end
-        local character = LocalPlayer and LocalPlayer.Character
-        local tool = on and character and character:FindFirstChildOfClass("Tool") or nil
-        if FastReload.LastTool and FastReload.LastTool ~= tool then
-            FastReload.RestoreTool(FastReload.LastTool)
-        end
-        FastReload.LastTool = tool
-        if not on or not tool then
-            return
-        end
-        local records = FastReload.Originals[tool]
-        if not records then
-            records = FastReload.Collect(tool)
-            FastReload.Originals[tool] = records
-        end
-        for _, record in ipairs(records) do
-            FastReload.Write(record, FastReload.Coerce(record.Original))
         end
     end
 
