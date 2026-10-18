@@ -1,0 +1,2 @@
+-- Reserved for Legit logic. The original script only implements its menu controls.
+-- Intentionally no runtime behavior; no new features have been added.
