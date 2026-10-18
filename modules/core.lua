@@ -277,7 +277,7 @@ function Chams.CreateModel(target, options)
         hl.Name = "GS_ChamsModel"
         Chams.ModelCache[target] = hl
     end
-    configureHighlight(hl, target, options, options.AlwaysOnTop == true, Workspace)
+    configureHighlight(hl, options.Adornee or target, options, options.AlwaysOnTop == true, Workspace)
     return hl
 end
 function Chams.RemoveModel(target)

@@ -3,6 +3,7 @@ do
     local MASK_ALPHA = 0.9999999
     local MAX_PARTS = 16
     Chams.LayerCache = {}
+    Chams.BodyCache = {}
     local movingParts, movingFrames = {}, {}
     local batching, batchStart = false, 0
     local profileCalls, profileTotal, profileMax, profileMoves = 0, 0, 0, 0
@@ -39,6 +40,10 @@ do
             targets += 1
             for _ in pairs(layer.Parts) do parts += 1 end
         end
+        for model, body in pairs(Chams.BodyCache) do
+            if not Chams.LayerCache[model] then targets += 1 end
+            for _ in pairs(body.Parts) do parts += 1 end
+        end
         local result = {Updates = profileCalls, AverageMs = profileCalls > 0 and profileTotal * 1000 / profileCalls or 0,
             MaxMs = profileMax * 1000, Targets = targets, ProxyParts = parts,
             AverageMoved = profileCalls > 0 and profileMoves / profileCalls or 0,
@@ -59,11 +64,19 @@ do
         layer.Model:Destroy()
         Chams.LayerCache[model] = nil
     end
-    Chams.RemoveLayer = destroyLayer
+    local function destroyBody(model)
+        local body = Chams.BodyCache[model]
+        if body then body.Model:Destroy(); Chams.BodyCache[model] = nil end
+    end
+    Chams.RemoveLayer = function(model)
+        destroyLayer(model)
+        destroyBody(model)
+    end
     function Chams.ClearLayers()
         batching = false
         table.clear(movingParts); table.clear(movingFrames)
         for model in pairs(Chams.LayerCache) do destroyLayer(model) end
+        for model in pairs(Chams.BodyCache) do destroyBody(model) end
         if Chams.LayerFolder then Chams.LayerFolder:Destroy(); Chams.LayerFolder = nil end
     end
     local function ensureFolder()
@@ -98,15 +111,26 @@ do
         copy.Parent = parent
         return copy
     end
-    local function reconcile(layer, sourceModel, now)
-        if now < layer.NextParts then return end
-        layer.NextParts = now + 0.25
+    local function isBodyPart(part, model, cleanBody)
+        if part.Parent ~= model or part.Name == "HumanoidRootPart" or part.Transparency >= 0.99 then return false end
+        if not cleanBody then return true end
+        local name = string.lower(part.Name):gsub("[%s%p]", "")
+        if name:find("hitbox", 1, true) or name:find("hurtbox", 1, true)
+            or name:find("collision", 1, true) or name:find("collider", 1, true)
+            or name:find("bounding", 1, true) or name:find("bounds", 1, true)
+            or name == "root" or name == "rootpart" or name == "capsule" then return false end
+        if part:GetAttribute("IsHitbox") == true or part:GetAttribute("Hitbox") == true
+            or part:GetAttribute("CollisionOnly") == true then return false end
+        return true
+    end
+    local function reconcile(layer, sourceModel, now, cleanBody)
+        if now < layer.NextParts and layer.CleanBody == cleanBody then return end
+        layer.NextParts, layer.CleanBody = now + 0.25, cleanBody
         local wanted, count = layer.Wanted, 0
         table.clear(wanted)
         for _, source in ipairs(Entity.GetParts(sourceModel)) do
             if count >= MAX_PARTS then break end
-            if source.Parent == sourceModel and source.Name ~= "HumanoidRootPart"
-                and source.Transparency < 0.99 then
+            if isBodyPart(source, sourceModel, cleanBody) then
                 wanted[source] = true
                 local pair = layer.Parts[source]
                 if not pair then
@@ -137,31 +161,7 @@ do
         end
         return layer
     end
-    function Chams.ApplyLayers(model, visibleOptions, wallOptions, camera)
-        if not wallOptions then
-            destroyLayer(model)
-            if visibleOptions then
-                visibleOptions.AlwaysOnTop = false
-                return Chams.CreateModel(model, visibleOptions)
-            end
-            Chams.RemoveModel(model)
-            return nil
-        end
-        wallOptions.AlwaysOnTop = true
-        local back = Chams.CreateModel(model, wallOptions)
-        local layer = ensureLayer(model)
-        reconcile(layer, model, os.clock())
-        local cameraPosition = camera.CFrame.Position
-        local root = findRootPart(model)
-        local distance = root and (root.Position - cameraPosition).Magnitude or 10
-        -- Freeze geometry scale between large distance changes. Resizing every
-        -- frame is unnecessary: a fixed scale still preserves screen alignment.
-        if not layer.ReferenceDistance or distance > layer.ReferenceDistance * 1.5
-            or distance < layer.ReferenceDistance / 1.5 then
-            layer.ReferenceDistance = math.max(distance, 0.1)
-            layer.Factor = 1 - math.min(BIAS / layer.ReferenceDistance, 0.001)
-        end
-        local factor = layer.Factor
+    local function syncGeometry(layer, model, cameraPosition, factor)
         for source, pair in pairs(layer.Parts) do
             local copy = pair.Copy
             if source.Parent == model and copy.Parent then
@@ -189,6 +189,55 @@ do
                 layer.NextParts = 0
             end
         end
+    end
+    local function bodyGeometry(model, cameraPosition)
+        local body = Chams.BodyCache[model]
+        if not body then
+            local proxy = Instance.new("Model")
+            proxy.Name = "GS_ChamsBody"
+            proxy.Parent = ensureFolder()
+            body = {Model = proxy, Parts = {}, Wanted = {}, NextParts = 0}
+            Chams.BodyCache[model] = body
+        end
+        reconcile(body, model, os.clock(), true)
+        syncGeometry(body, model, cameraPosition, 1)
+        return body.Model
+    end
+    function Chams.ApplyLayers(model, visibleOptions, wallOptions, camera, cleanBody)
+        if cleanBody and (visibleOptions or wallOptions) then
+            local proxy = bodyGeometry(model, camera.CFrame.Position)
+            if visibleOptions then visibleOptions.Adornee = proxy end
+            if wallOptions then wallOptions.Adornee = proxy end
+        else
+            destroyBody(model)
+        end
+        if not wallOptions then
+            destroyLayer(model)
+            if visibleOptions then
+                visibleOptions.AlwaysOnTop = false
+                local highlight = Chams.CreateModel(model, visibleOptions)
+                if not batching then Chams.FlushLayerFrame() end
+                return highlight
+            end
+            Chams.RemoveModel(model)
+            return nil
+        end
+        wallOptions.AlwaysOnTop = true
+        local back = Chams.CreateModel(model, wallOptions)
+        local layer = ensureLayer(model)
+        reconcile(layer, model, os.clock(), cleanBody)
+        local cameraPosition = camera.CFrame.Position
+        local root = findRootPart(model)
+        local distance = root and (root.Position - cameraPosition).Magnitude or 10
+        -- Freeze geometry scale between large distance changes. Resizing every
+        -- frame is unnecessary: a fixed scale still preserves screen alignment.
+        if not layer.ReferenceDistance or distance > layer.ReferenceDistance * 1.5
+            or distance < layer.ReferenceDistance / 1.5 then
+            layer.ReferenceDistance = math.max(distance, 0.1)
+            layer.Factor = 1 - math.min(BIAS / layer.ReferenceDistance, 0.001)
+        end
+        local factor = layer.Factor
+        syncGeometry(layer, model, cameraPosition, factor)
         if visibleOptions then
             if visibleOptions.FillTransparency >= 1 and visibleOptions.OutlineTransparency >= 1 then
                 visibleOptions.OutlineTransparency = MASK_ALPHA

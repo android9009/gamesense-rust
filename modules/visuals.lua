@@ -182,7 +182,10 @@ local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFla
         wallOptions = {FillColor = color, FillTransparency = normal and math.max(alpha, 0.6) or alpha,
             OutlineColor = color, OutlineTransparency = normal and 0 or 1, Enabled = true}
     end
-    Chams.ApplyLayers(model, visibleOptions, wallOptions, camera)
+    local cleanTeammate = visibleFlag == "VisTeammate" and (
+        (visibleEnabled and chamsStyle(visibleStyleFlag) == "Normal")
+        or (wallEnabled and chamsStyle(wallStyleFlag) == "Normal"))
+    Chams.ApplyLayers(model, visibleOptions, wallOptions, camera, cleanTeammate)
 end
 local function addChamsTarget(targets, model, kind, player)
     if model and model.Parent and Entity.IsAliveModel(model) then
