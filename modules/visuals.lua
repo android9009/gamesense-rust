@@ -161,85 +161,50 @@ local localBodyTransparent = false
  
  
 local function applyModelPartChams(model, visibleFlag, wallFlag, visibleColorFlag, wallColorFlag, visibleStyleFlag, wallStyleFlag, refreshOcclusion, alwaysOn)
-    if not Entity.IsAliveModel(model) then
-        removeModelChams(model)
-        return
-    end
     local visibleEnabled = flag(visibleFlag, false) == true
     local wallEnabled = wallFlag and flag(wallFlag, false) == true or false
-    if not visibleEnabled and not wallEnabled then
-        removeModelChams(model)
+    if not Entity.IsAliveModel(model) or (not visibleEnabled and not wallEnabled) then
+        Chams.RemoveModel(model)
         return
     end
     local camera = Workspace.CurrentCamera
-    local parts = getChamsParts(model)
-    if not camera or #parts == 0 then
-        removeModelChams(model)
+    if not camera then Chams.RemoveModel(model); return end
+    local state = Chams.ModelOcclusion[model]
+    if not state then
+        state = {Next = 0, Occluded = false, Ignore = {}}
+        Chams.ModelOcclusion[model] = state
+    end
+    local now = os.clock()
+    if not alwaysOn and (now >= state.Next or state.Camera ~= camera or state.Character ~= LocalPlayer.Character) then
+        state.Next = now + 0.08
+        state.Camera, state.Character = camera, LocalPlayer.Character
+        table.clear(state.Ignore)
+        state.Ignore[1] = model
+        if LocalPlayer.Character and LocalPlayer.Character ~= model then state.Ignore[2] = LocalPlayer.Character end
+        state.Occluded = true
+        for _, name in ipairs({"Head", "UpperTorso", "Torso", "HumanoidRootPart"}) do
+            local part = model:FindFirstChild(name)
+            if part and part:IsA("BasePart") then
+                local ok, blockers = pcall(camera.GetPartsObscuringTarget, camera, {part.Position}, state.Ignore)
+                if ok and #blockers == 0 then state.Occluded = false; break end
+            end
+        end
+    end
+    local occluded = not alwaysOn and state.Occluded
+    local enabled = occluded and wallEnabled or (not occluded and visibleEnabled)
+    if not enabled then
+        local existing = Chams.ModelCache[model]
+        if existing and existing.Enabled then existing.Enabled = false end
         return
     end
-    local visibleColor, visibleTransparency = chamsColor(visibleColorFlag, Color3.fromRGB(142, 181, 39))
-    local wallColor, wallTransparency = chamsColor(wallColorFlag, Color3.fromRGB(79, 143, 214))
-     
-     
-     
-    if alwaysOn and localBodyTransparent then
-        visibleTransparency = math.max(visibleTransparency, 0.1)
-        wallTransparency = math.max(wallTransparency, 0.1)
-    end
-    local visibleStyle = chamsStyle(visibleStyleFlag)
-    local wallStyle = chamsStyle(wallStyleFlag)
-    local validParts = {}
-    for _, part in ipairs(parts) do
-        validParts[part] = true
-        local occluded = false
-        if not alwaysOn then
-            if refreshOcclusion or Chams.OcclusionCache[part] == nil then
-                Chams.OcclusionCache[part] = partIsOccluded(camera, part, model)
-            end
-            occluded = Chams.OcclusionCache[part] == true
-        end
-        local enabled = occluded and wallEnabled or (not occluded and visibleEnabled)
-        if not enabled then
-            Chams.RemovePart(part)
-        else
-            local color = occluded and wallColor or visibleColor
-            local transparency = occluded and wallTransparency or visibleTransparency
-            local style = occluded and wallStyle or visibleStyle
-
-            if style == "Normal" then
-                 
-                 
-                 
-                Chams.CreatePart(part, {
-                    FillColor = color,
-                    FillTransparency = math.max(transparency, 0.6),
-                    OutlineColor = color,
-                    OutlineTransparency = 0,
-                    AlwaysOnTop = occluded or alwaysOn == true,
-                    Enabled = true,
-                })
-            else
-                 
-                Chams.CreatePart(part, {
-                    FillColor = color,
-                    FillTransparency = transparency,
-                    OutlineColor = color,
-                    OutlineTransparency = 1,
-                    AlwaysOnTop = occluded or alwaysOn == true,
-                    Enabled = true,
-                })
-            end
-        end
-    end
-    local stale = {}
-    for part in pairs(Chams.PartCache) do
-        if part:IsDescendantOf(model) and not validParts[part] then
-            stale[#stale + 1] = part
-        end
-    end
-    for _, part in ipairs(stale) do
-        Chams.RemovePart(part)
-    end
+    local tint, alpha = chamsColor(occluded and wallColorFlag or visibleColorFlag,
+        Color3.fromRGB(142, 181, 39))
+    local style = chamsStyle(occluded and wallStyleFlag or visibleStyleFlag)
+    Chams.CreateModel(model, {
+        FillColor = tint, FillTransparency = style == "Normal" and math.max(alpha, 0.6) or alpha,
+        OutlineColor = tint, OutlineTransparency = style == "Normal" and 0 or 1,
+        AlwaysOnTop = occluded or alwaysOn == true, Enabled = true,
+    })
 end
 local function addChamsTarget(targets, model, kind, player)
     if model and model.Parent and Entity.IsAliveModel(model) then
@@ -283,14 +248,10 @@ local function applyLocalPlayerChams(model)
         Chams.LocalHighlight = hl
     end
 
-    hl.Adornee = model
-    hl.FillColor = color
-    hl.FillTransparency = fillTrans
-    hl.OutlineColor = color
-    hl.OutlineTransparency = outlineTrans
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Enabled = true
-    hl.Parent = Workspace
+    configureHighlight(hl, model, {
+        FillColor = color, FillTransparency = fillTrans,
+        OutlineColor = color, OutlineTransparency = outlineTrans, Enabled = true,
+    }, true, Workspace)
 end
 
 local function applyTargetChams(target, refreshOcclusion)
@@ -615,14 +576,11 @@ function ChamsRuntime.Apply(deltaTime)
     else
         ChamsRuntime.OcclusionTimer -= deltaTime or (1 / 60)
     end
-    local staleModels = {}
-    for model in pairs(modelPartsCache) do
-        if not activeModels[model] then
-            staleModels[#staleModels + 1] = model
-        end
+    for model in pairs(Chams.ModelCache) do
+        if not activeModels[model] then Chams.RemoveModel(model) end
     end
-    for _, model in ipairs(staleModels) do
-        removeModelChams(model)
+    for model in pairs(Chams.ModelOcclusion) do
+        if not activeModels[model] then Chams.ModelOcclusion[model] = nil end
     end
     if LocalPlayer.Character and not activeModels[LocalPlayer.Character] then
         if Chams.LocalHighlight then

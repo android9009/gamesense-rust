@@ -248,19 +248,42 @@ end
 
 local Chams = {
     PartCache = {},
+    ModelCache = {},
+    ModelOcclusion = {},
     OcclusionCache = {},
     LocalHighlight = nil
 }
 local function configureHighlight(hl, target, options, alwaysOnTop, parent)
     options = options or {}
-    hl.Adornee = target
-    hl.FillColor = options.FillColor or Color3.fromRGB(255, 50, 50)
-    hl.FillTransparency = options.FillTransparency ~= nil and options.FillTransparency or 0.5
-    hl.OutlineColor = options.OutlineColor or hl.FillColor
-    hl.OutlineTransparency = options.OutlineTransparency ~= nil and options.OutlineTransparency or 1
-    hl.DepthMode = alwaysOnTop and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
-    hl.Enabled = options.Enabled ~= false
-    hl.Parent = parent or target
+    local fill = options.FillColor or Color3.fromRGB(255, 50, 50)
+    local alpha = options.FillTransparency ~= nil and options.FillTransparency or 0.5
+    local outline = options.OutlineColor or fill
+    local outlineAlpha = options.OutlineTransparency ~= nil and options.OutlineTransparency or 1
+    local depth = alwaysOnTop and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+    local enabled = options.Enabled ~= false
+    if hl.Adornee ~= target then hl.Adornee = target end
+    if hl.FillColor ~= fill then hl.FillColor = fill end
+    if hl.FillTransparency ~= alpha then hl.FillTransparency = alpha end
+    if hl.OutlineColor ~= outline then hl.OutlineColor = outline end
+    if hl.OutlineTransparency ~= outlineAlpha then hl.OutlineTransparency = outlineAlpha end
+    if hl.DepthMode ~= depth then hl.DepthMode = depth end
+    if hl.Enabled ~= enabled then hl.Enabled = enabled end
+    if hl.Parent ~= (parent or target) then hl.Parent = parent or target end
+end
+function Chams.CreateModel(target, options)
+    local hl = Chams.ModelCache[target]
+    if not hl or not hl.Parent then
+        hl = Instance.new("Highlight")
+        hl.Name = "GS_ChamsModel"
+        Chams.ModelCache[target] = hl
+    end
+    configureHighlight(hl, target, options, options.AlwaysOnTop == true, Workspace)
+    return hl
+end
+function Chams.RemoveModel(target)
+    local hl = Chams.ModelCache[target]
+    if hl then hl:Destroy(); Chams.ModelCache[target] = nil end
+    Chams.ModelOcclusion[target] = nil
 end
 function Chams.CreatePart(target, options)
     if not target or not target:IsA("BasePart") then return nil end
@@ -283,6 +306,7 @@ function Chams.RemovePart(target)
     Chams.OcclusionCache[target] = nil
 end
 function Chams.RemoveModelParts(model)
+    Chams.RemoveModel(model)
     local remove = {}
     for part in pairs(Chams.PartCache) do
         if part:IsDescendantOf(model) then
@@ -294,6 +318,8 @@ function Chams.RemoveModelParts(model)
     end
 end
 function Chams.ClearAll()
+    for model in pairs(Chams.ModelCache) do Chams.RemoveModel(model) end
+    table.clear(Chams.ModelOcclusion)
     local partTargets = {}
     for part in pairs(Chams.PartCache) do
         partTargets[#partTargets + 1] = part

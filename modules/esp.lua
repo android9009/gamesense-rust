@@ -2,7 +2,7 @@ local ESP = {}
 do
     local function initializeESP()
     local TextService = game:GetService("TextService")
-    local HZ, LIMIT = 45, 14
+    local HZ, LIMIT = 60, 14
     local INTERVAL = 1 / HZ
     local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
     local GREEN, RED = Color3.fromRGB(88, 214, 74), Color3.fromRGB(214, 79, 79)
