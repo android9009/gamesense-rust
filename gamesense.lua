@@ -8103,7 +8103,6 @@ Library:Connection(RunService.RenderStepped, function()
     end
 end)
 local ContextActionService = game:GetService("ContextActionService")
-pcall(function() ContextActionService:UnbindAction("GS_MenuBlockFire") end)
 local origToggle = Window.ToggleMenu
 Window.ToggleMenu = function(bool)
     menuOpen = bool == true
@@ -8123,7 +8122,6 @@ Library.UnloadHooks = Library.UnloadHooks or {}
 table.insert(Library.UnloadHooks, function()
     pcall(function()
         ContextActionService:UnbindCoreAction("BlockEscape")
-        ContextActionService:UnbindAction("GS_MenuBlockFire")
     end)
 end)
 Library:Connection(InputService.InputBegan, function(input, ge)
