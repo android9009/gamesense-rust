@@ -251,3 +251,5 @@ function ItemGiver.Start()
         end
     end)
 end
+
+ItemGiver.Start()
