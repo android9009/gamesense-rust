@@ -132,6 +132,7 @@ function AntiAim.Update(deltaTime)
 end
 
 function AntiAim.Start()
+ItemGiver.Start()
     if AntiAim.Started then return end
     AntiAim.Started = true
     TaskManager.AddConnection("AntiAimApply", RunService.RenderStepped, AntiAim.Update)

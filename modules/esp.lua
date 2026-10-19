@@ -58,7 +58,10 @@ do
         config.ItemText = flag("ESPItemText", true) == true
         config.Unit = flag("ESPDistanceUnit", "Meters")
         config.PingChecker = flag("ESPPingChecker", false) == true
-        return any
+        config.HitboxVisual = flag("ESPHitboxVisual", false) == true
+        config.HitboxColor, config.HitboxAlpha = color("ESPHitboxColor", RED)
+        config.HitboxShape = flag("ESPHitboxShape", "Box")
+        return any or config.HitboxVisual
     end
     local function ensureGui()
         if gui then return end
@@ -76,6 +79,13 @@ do
     local function destroyEntry(model)
         local entry = cache[model]
         if not entry then return end
+        if entry.HitAdorns then
+            for _, store in pairs(entry.HitAdorns) do
+                for _, adorn in ipairs(store) do
+                    pcall(function() adorn:Destroy() end)
+                end
+            end
+        end
         entry.Root:Destroy()
         cache[model] = nil
     end
@@ -341,6 +351,123 @@ do
             end
         end
     end
+    -- Visual hitbox: тот хитбокс из выбранных в рейдже, в который реально
+    -- уйдёт аим (видимый и ближайший к прицелу; голова закрыта - любой
+    -- другой видимый, по которому можно стрельнуть).
+    local function aimPartFor(model, camera)
+        if not (RageBot and RageBot.GetHitboxParts) then return nil end
+        local ok, parts = pcall(function() return RageBot.GetHitboxParts(model) end)
+        if not ok or type(parts) ~= "table" or #parts == 0 then return nil end
+        local center = camera.ViewportSize * 0.5
+        local best, bestDist, shootable = nil, math.huge, {}
+        for _, hb in ipairs(parts) do
+            local pos = hb.Position
+            if RageBot.GetHitboxShotPoint then
+                pos = RageBot.GetHitboxShotPoint(hb.Part, hb.Position)
+            end
+            -- Визуал отвечает на вопрос "куда я могу стрельнуть": видимость
+            -- проверяем всегда, независимо от Visible check в рейдже.
+            local vis = true
+            if isPartVisible then
+                vis = isPartVisible(camera, hb.Part, pos, model) == true
+            end
+            if vis then
+                shootable[#shootable + 1] = hb.Part
+                local sp = camera:WorldToViewportPoint(pos)
+                if sp.Z > 0 then
+                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                    if d < bestDist then
+                        bestDist, best = d, hb.Part
+                    end
+                end
+            end
+        end
+        -- Ничего простреливаемого нет - возвращаем nil: мигание пропадёт.
+        return best, shootable
+    end
+    -- Форма ВНУТРИ хитбокса: бокс или круг (сфера), красный, с glow-ореолом.
+    local function hitStore(entry)
+        local shape = config.HitboxShape == "Circle" and "Circle" or "Box"
+        entry.HitAdorns = entry.HitAdorns or {Box = {}, Circle = {}}
+        return shape, entry.HitAdorns[shape]
+    end
+    local function hitAdorn(entry, index)
+        local shape, store = hitStore(entry)
+        local adorn = store[index]
+        if not adorn then
+            adorn = create(shape == "Circle" and "SphereHandleAdornment" or "BoxHandleAdornment", gui, {
+                Name = "Hitbox" .. shape .. index, AlwaysOnTop = true, ZIndex = 12,
+                Color3 = config.HitboxColor or RED, Transparency = 0.4, Visible = false,
+            })
+            store[index] = adorn
+        end
+        return adorn
+    end
+    local function hideHitAdorns(entry)
+        if not entry.HitAdorns then return end
+        for _, store in pairs(entry.HitAdorns) do
+            for _, adorn in ipairs(store) do
+                set(adorn, "Visible", false)
+            end
+        end
+    end
+    local function applyHitShape(adorn, part, transparency, scale)
+        adorn.Adornee = part
+        set(adorn, "Color3", config.HitboxColor or RED)
+        if adorn:IsA("SphereHandleAdornment") then
+            local radius = math.min(part.Size.X, part.Size.Y, part.Size.Z) * 0.45
+            set(adorn, "Radius", math.max(radius * scale, 0.05))
+        else
+            set(adorn, "Size", part.Size * 0.92 * scale)
+        end
+        set(adorn, "Transparency", transparency)
+        set(adorn, "Visible", true)
+    end
+    local function drawHitbox(entry, model, camera, now)
+        if not config.HitboxVisual then
+            hideHitAdorns(entry)
+            return
+        end
+        if now >= (entry.HitboxAt or 0) then
+            entry.HitboxAt = now + 0.1
+            entry.AimMain, entry.AimShootable = aimPartFor(model, camera)
+        end
+        local main, shootable = entry.AimMain, entry.AimShootable
+        if not main then
+            hideHitAdorns(entry)
+            return
+        end
+        -- Статичная форма внутри хитбокса + мягкий glow-ореол вокруг.
+        -- Остальные доступные хитбоксы - тускло, без glow.
+        local alpha = config.HitboxAlpha or 0
+        local flash = 0.22
+        local _, store = hitStore(entry)
+        applyHitShape(hitAdorn(entry, 1), main, flash + (1 - flash) * alpha, 1)
+        applyHitShape(hitAdorn(entry, 2), main, 0.88, 1.45)
+        local slot = 3
+        for _, part in ipairs(shootable or {}) do
+            if part ~= main and slot <= 4 then
+                applyHitShape(hitAdorn(entry, slot), part, 0.72 + 0.28 * alpha, 1)
+                slot += 1
+            end
+        end
+        for index = slot, 4 do
+            if store[index] then
+                set(store[index], "Visible", false)
+            end
+        end
+        -- Неактивная форма не должна светиться.
+        if entry.HitAdorns then
+            local shape = config.HitboxShape == "Circle" and "Circle" or "Box"
+            for name, other in pairs(entry.HitAdorns) do
+                if name ~= shape then
+                    for _, adorn in ipairs(other) do
+                        set(adorn, "Visible", false)
+                    end
+                end
+            end
+        end
+    end
     local function refreshTargets(now)
         if now < rosterTimer then return end
         rosterTimer = now + 0.25
@@ -401,8 +528,14 @@ do
             drawBox(entry, width, height)
             local hpSide, hpPush = drawHealth(entry, humanoid, width, height, math.clamp(reference * 0.03, 2, 4))
             drawTexts(entry, root, humanoid, camera, myRoot, width, height, reference, hpSide, hpPush, now)
+            drawHitbox(entry, model, camera, now)
         end
-        for _, entry in pairs(cache) do if not entry.Rendered then set(entry.Root, "Visible", false) end end
+        for _, entry in pairs(cache) do
+            if not entry.Rendered then
+                set(entry.Root, "Visible", false)
+                hideHitAdorns(entry)
+            end
+        end
     end
     local function step(dt)
         phase += math.max(dt or 0, 0)

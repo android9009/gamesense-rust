@@ -422,3 +422,95 @@ function TaskManager.ClearAll()
     end
     table.clear(TaskManager.Connections)
 end
+
+-- Группы оружия для Weapon select профилей рейджа и легита.
+local WeaponGroupByName = {
+    ak47hld = "Rifles", lr300hld = "Rifles", hk416 = "Rifles", rifle = "Rifles", g4 = "Rifles",
+    smghld = "SMGs", mp5hld = "SMGs", vector9 = "SMGs", ["mp-40"] = "SMGs", thompsonhld = "SMGs",
+    bolt = "Snipers", dvl = "Snipers", mk14 = "Snipers", sks = "Snipers", crossbow = "Snipers",
+    glock = "Pistols", pistol = "Pistols", python = "Pistols", revolver = "Pistols",
+    m249hld = "LMG", m60hld = "LMG", minigun = "LMG",
+}
+local weaponGroupCache = {Tool = false, Group = "Global"}
+local function getWeaponGroup()
+    local char = LocalPlayer and LocalPlayer.Character
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    if not tool then return "Global" end
+    if weaponGroupCache.Tool == tool then return weaponGroupCache.Group end
+    local group = WeaponGroupByName[tool.Name:lower()]
+    if not group then
+        local function attr(name)
+            local value = tool:GetAttribute(name)
+            if value ~= nil then return value end
+            for _, desc in ipairs(tool:GetDescendants()) do
+                value = desc:GetAttribute(name)
+                if value ~= nil then return value end
+            end
+            return nil
+        end
+        local rays = tonumber(attr("raysPerShot")) or 1
+        if rays > 1 then
+            group = "Shotguns"
+        elseif attr("damage") ~= nil or attr("rateOfFire") ~= nil then
+            local mag = tonumber(attr("magazineSize")) or 0
+            group = mag >= 60 and "LMG" or "Rifles"
+        else
+            group = "Other"
+        end
+    end
+    weaponGroupCache.Tool = tool
+    weaponGroupCache.Group = group
+    return group
+end
+
+-- Статы текущего оружия для лаг-компенсации и предикта (кэш 1 сек / до смены
+-- ствола): дальность, спред, темп, число лучей, радиус луча, скорость снаряда.
+local weaponStatsCache = {Tool = nil, At = -1, Stats = nil}
+local function getWeaponStats(now)
+    local char = LocalPlayer and LocalPlayer.Character
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    if not tool then return nil end
+    now = now or os.clock()
+    if weaponStatsCache.Tool == tool and now - weaponStatsCache.At < 1 then
+        return weaponStatsCache.Stats
+    end
+    local function attr(name)
+        local value = tool:GetAttribute(name)
+        if value ~= nil then return value end
+        for _, desc in ipairs(tool:GetDescendants()) do
+            value = desc:GetAttribute(name)
+            if value ~= nil then return value end
+        end
+        return nil
+    end
+    local stats = {
+        Range = tonumber(attr("range")),
+        Spread = tonumber(attr("spread")) or 0,
+        RateOfFire = tonumber(attr("rateOfFire")),
+        RaysPerShot = tonumber(attr("raysPerShot")) or 1,
+        RayRadius = tonumber(attr("rayRadius")) or 0,
+        BulletSpeed = tonumber(attr("bulletSpeed")) or tonumber(attr("projectileSpeed")) or tonumber(attr("muzzleVelocity")),
+    }
+    weaponStatsCache.Tool = tool
+    weaponStatsCache.At = now
+    weaponStatsCache.Stats = stats
+    return stats
+end
+
+-- Значение настройки с учётом профиля группы оружия: для текущей группы
+-- включён Override - берём значение из профиля, иначе глобальный флаг.
+-- Global - это сами обычные флаги; он работает для всех групп без оверрайда.
+local function profileFlag(prefix, name, default)
+    local all = Library and Library.Flags
+    local profiles = all and all[prefix .. "WeaponProfiles"]
+    if type(profiles) == "table" then
+        local group = getWeaponGroup()
+        if group ~= "Global" then
+            local prof = profiles[group]
+            if prof and prof.Override == true and type(prof.Values) == "table" and prof.Values[name] ~= nil then
+                return prof.Values[name]
+            end
+        end
+    end
+    return flag(name, default)
+end

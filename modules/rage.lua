@@ -61,7 +61,7 @@ end
 
 local function getScreenFOVRadius()
     local cam = Workspace.CurrentCamera
-    local maxFOV = tonumber(flag("AimbotFOV", 90)) or 90
+    local maxFOV = tonumber(profileFlag("Rage", "AimbotFOV", 90)) or 90
     maxFOV = math.clamp(maxFOV, 1, 180)
     if not cam then return maxFOV * 4 end
     local radFOV = math.rad(maxFOV / 2)
@@ -93,24 +93,37 @@ local function visibilityParams(camera, backtrack)
 end
 
 local function isPartVisible(cam, targetPart, targetPos, targetModel)
-    local localChar = LocalPlayer.Character
     local origin = cam.CFrame.Position
     local dir = targetPos - origin
-
     local rayParams = visibilityParams(cam, false)
 
-    local result = Workspace:Raycast(origin, dir, rayParams)
-    if not result then
-        return true
-    end
-    if result.Instance then
-        if result.Instance == targetPart or result.Instance:IsDescendantOf(targetModel) then
+    -- Простреливаемые декорации (ступеньки, перила и прочая мелочь с
+    -- CanCollide=false или полупрозрачная) пуля проходит насквозь - луч
+    -- пропускаем сквозь них дальше, до 3 проникновений. Поэтому если видны
+    -- только ноги за ступеньками - целимся в ноги, а не отбрасываем цель.
+    local from = origin
+    local total = dir.Magnitude
+    if total < 1e-4 then return true end
+    for _ = 1, 4 do
+        local result = Workspace:Raycast(from, targetPos - from, rayParams)
+        if not result then
             return true
         end
-        if result.Instance.Transparency >= 0.85 or not result.Instance.CanCollide then
-            if (result.Position - targetPos).Magnitude <= 2.0 then
+        local inst = result.Instance
+        if not inst then
+            return true
+        end
+        if inst == targetPart or inst:IsDescendantOf(targetModel) then
+            return true
+        end
+        if not inst.CanCollide or inst.Transparency >= 0.85 then
+            local traveled = (result.Position - origin).Magnitude + 0.15
+            if traveled >= total then
                 return true
             end
+            from = origin + dir.Unit * traveled
+        else
+            return false
         end
     end
     return false
@@ -119,7 +132,7 @@ end
 function RageBot.GetHitboxParts(model)
     local results = {}
     if not model then return results end
-    local selected = flag("AimbotHitbox", {"Head","Chest"})
+    local selected = profileFlag("Rage", "AimbotHitbox", {"Head","Chest"})
     if type(selected) ~= "table" then selected = {selected} end
     if #selected == 0 then selected = {"Head","Chest"} end
     local enabled = {}
@@ -202,6 +215,47 @@ local function farAimPoint(part, model, fallback)
     return cf:PointToWorldSpace(unit * (scale * 0.92))
 end
 
+-- Мультипойнт: дополнительные точки внутри хитбокса (ухо, глаз, челюсть...).
+-- Процент масштаба = как далеко точки от центра и сколько их: 0 - выключено,
+-- дальше - больше точек и шире разброс по объёму хитбокса.
+local function multipointPoints(part, basePos, groupName)
+    local sel = profileFlag("Rage", "AimbotMultipoint", {})
+    if type(sel) ~= "table" then sel = {sel} end
+    local enabled = false
+    for _, name in ipairs(sel) do
+        if name == groupName then enabled = true break end
+    end
+    local scalePct = tonumber(profileFlag("Rage", "AimbotMultipointScale", 0)) or 0
+    if not enabled or scalePct <= 0 or not (part and part:IsA("BasePart")) then
+        return {basePos}
+    end
+    local frac = math.clamp(scalePct, 0, 100) / 100
+    local cf = part.CFrame
+    local half = part.Size * 0.5
+    local center = cf:PointToObjectSpace(basePos)
+    local ox, oy, oz = half.X * 0.85 * frac, half.Y * 0.85 * frac, half.Z * 0.85 * frac
+    local combos = {
+        {1, 1, 0}, {-1, 1, 0}, {1, -1, 0}, {-1, -1, 0},
+        {1, 0, 1}, {-1, 0, 1}, {1, 0, -1}, {-1, 0, -1},
+        {0, 1, 1}, {0, -1, 1}, {0, 1, -1}, {0, -1, -1},
+        {1, 1, 1}, {-1, 1, 1}, {1, -1, 1}, {1, 1, -1},
+        {-1, -1, 1}, {-1, 1, -1}, {1, -1, -1}, {-1, -1, -1},
+    }
+    local count = frac <= 0.34 and 4 or (frac <= 0.67 and 12 or 20)
+    local points = {basePos}
+    for i = 1, count do
+        local c = combos[i]
+        local lp = center + Vector3.new(c[1] * ox, c[2] * oy, c[3] * oz)
+        lp = Vector3.new(
+            math.clamp(lp.X, -half.X * 0.95, half.X * 0.95),
+            math.clamp(lp.Y, -half.Y * 0.95, half.Y * 0.95),
+            math.clamp(lp.Z, -half.Z * 0.95, half.Z * 0.95)
+        )
+        points[#points + 1] = cf:PointToWorldSpace(lp)
+    end
+    return points
+end
+
 local function btPosVisible(cam, pos)
     local localChar = LocalPlayer.Character
     local origin = cam.CFrame.Position
@@ -241,6 +295,18 @@ local function getClosestTarget()
     if type(targetSel) ~= "table" then targetSel = {targetSel} end
     if #targetSel == 0 then targetSel = {"Players"} end
 
+    -- Приоритет цели (Target priority): кого брать первым при выборе.
+    local priority = flag("AimbotTargetPriority", "Closest to crosshair")
+    local bestScore = math.huge
+    local function targetScore(health, dist, range)
+        if priority == "Lowest health" then
+            return health * 100000 + dist
+        elseif priority == "Closest distance" then
+            return range * 1000 + dist * 0.001
+        end
+        return dist
+    end
+
     local allowsPlayers = false
     local allowsTeam = false
     local allowsBots = false
@@ -270,30 +336,43 @@ local function getClosestTarget()
                     local char = player.Character
                     if char then
                         local hitboxes = RageBot.GetHitboxParts(char)
+                        local charHum = char:FindFirstChildOfClass("Humanoid")
+                        local charHealth = charHum and charHum.Health or 100
                         for _, hb in ipairs(hitboxes) do
                             local selectionPoint = RageBot.GetExpandedAimPoint(hb.Part, hb.Position, expandedRay)
                             hb.Position = RageBot.GetHitboxShotPoint(hb.Part, hb.Position)
-                            local screenPos, onScreen = camera:WorldToViewportPoint(selectionPoint)
-                            if screenPos.Z > 0 then
-                                local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                                if dist <= closestDist then
-                                    local isVis = true
-                                    if needVis then
-                                        local visiblePoint = RageBot.ResolveVisibleHitbox(camera,hb.Part,hb.Position,char,selectionPoint,mousePos,closestDist)
-                                        isVis = visiblePoint ~= nil
-                                        if visiblePoint then
-                                            hb.Position = visiblePoint
+                            local points = multipointPoints(hb.Part, hb.Position, hb.Name)
+                            for _, aimPt in ipairs(points) do
+                                local screenPos = camera:WorldToViewportPoint(#points > 1 and aimPt or selectionPoint)
+                                if screenPos.Z > 0 then
+                                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                                    if dist <= maxFOV then
+                                        local isVis = true
+                                        local visPt = aimPt
+                                        if needVis then
+                                            local visiblePoint = RageBot.ResolveVisibleHitbox(camera,hb.Part,aimPt,char,selectionPoint,mousePos,closestDist)
+                                            isVis = visiblePoint ~= nil
+                                            if visiblePoint then visPt = visiblePoint end
                                         end
-                                    end
-                                    if isVis then
-                                        closestDist = dist
-                                        closestPart = hb.Part
-                                        local aimPos = farAimPoint(hb.Part, char, hb.Position)
-                                        if needVis and aimPos ~= hb.Position
-                                            and not isPartVisible(camera, hb.Part, aimPos, char) then
-                                            aimPos = hb.Position
+                                        if isVis then
+                                            local score = targetScore(charHealth, dist, (visPt - camera.CFrame.Position).Magnitude)
+                                            if score <= bestScore then
+                                                bestScore = score
+                                                closestDist = dist
+                                                closestPart = hb.Part
+                                                if #points > 1 then
+                                                    closestPos = visPt
+                                                else
+                                                    local aimPos = farAimPoint(hb.Part, char, visPt)
+                                                    if needVis and aimPos ~= visPt
+                                                        and not isPartVisible(camera, hb.Part, aimPos, char) then
+                                                        aimPos = visPt
+                                                    end
+                                                    closestPos = aimPos
+                                                end
+                                            end
+                                            break
                                         end
-                                        closestPos = aimPos
                                     end
                                 end
                             end
@@ -309,30 +388,43 @@ local function getClosestTarget()
         for _, npc in ipairs(cachedNPCs) do
             if Entity.IsAliveModel(npc) then
                 local hitboxes = RageBot.GetHitboxParts(npc)
+                local npcHum = npc:FindFirstChildOfClass("Humanoid")
+                local npcHealth = npcHum and npcHum.Health or 100
                 for _, hb in ipairs(hitboxes) do
                     local selectionPoint = RageBot.GetExpandedAimPoint(hb.Part, hb.Position, expandedRay)
                     hb.Position = RageBot.GetHitboxShotPoint(hb.Part, hb.Position)
-                    local screenPos, onScreen = camera:WorldToViewportPoint(selectionPoint)
-                    if screenPos.Z > 0 then
-                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                        if dist <= closestDist then
-                            local isVis = true
-                            if needVis then
-                                local visiblePoint = RageBot.ResolveVisibleHitbox(camera,hb.Part,hb.Position,npc,selectionPoint,mousePos,closestDist)
-                                isVis = visiblePoint ~= nil
-                                if visiblePoint then
-                                    hb.Position = visiblePoint
+                    local points = multipointPoints(hb.Part, hb.Position, hb.Name)
+                    for _, aimPt in ipairs(points) do
+                        local screenPos = camera:WorldToViewportPoint(#points > 1 and aimPt or selectionPoint)
+                        if screenPos.Z > 0 then
+                            local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                            if dist <= maxFOV then
+                                local isVis = true
+                                local visPt = aimPt
+                                if needVis then
+                                    local visiblePoint = RageBot.ResolveVisibleHitbox(camera,hb.Part,aimPt,npc,selectionPoint,mousePos,closestDist)
+                                    isVis = visiblePoint ~= nil
+                                    if visiblePoint then visPt = visiblePoint end
                                 end
-                            end
-                            if isVis then
-                                closestDist = dist
-                                closestPart = hb.Part
-                                local aimPos = farAimPoint(hb.Part, npc, hb.Position)
-                                if needVis and aimPos ~= hb.Position
-                                    and not isPartVisible(camera, hb.Part, aimPos, npc) then
-                                    aimPos = hb.Position
+                                if isVis then
+                                    local score = targetScore(npcHealth, dist, (visPt - camera.CFrame.Position).Magnitude)
+                                    if score <= bestScore then
+                                        bestScore = score
+                                        closestDist = dist
+                                        closestPart = hb.Part
+                                        if #points > 1 then
+                                            closestPos = visPt
+                                        else
+                                            local aimPos = farAimPoint(hb.Part, npc, visPt)
+                                            if needVis and aimPos ~= visPt
+                                                and not isPartVisible(camera, hb.Part, aimPos, npc) then
+                                                aimPos = visPt
+                                            end
+                                            closestPos = aimPos
+                                        end
+                                    end
+                                    break
                                 end
-                                closestPos = aimPos
                             end
                         end
                     end
@@ -355,7 +447,7 @@ local function getClosestTarget()
                 local screenPos, onScreen = camera:WorldToViewportPoint(selectionPoint)
                 if screenPos.Z > 0 then
                     local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                    if dist <= closestDist then
+                    if dist <= maxFOV then
                         local isVis = true
                         if needVis then
                             local visiblePoint = RageBot.ResolveVisibleHitbox(camera,targetPart,targetPos,structure,selectionPoint,mousePos,closestDist)
@@ -365,9 +457,13 @@ local function getClosestTarget()
                             end
                         end
                         if isVis then
-                            closestDist = dist
-                            closestPart = targetPart
-                            closestPos = targetPos
+                            local score = targetScore(100, dist, (targetPos - camera.CFrame.Position).Magnitude)
+                            if score <= bestScore then
+                                bestScore = score
+                                closestDist = dist
+                                closestPart = targetPart
+                                closestPos = targetPos
+                            end
                         end
                     end
                 end
@@ -660,6 +756,187 @@ local function setupGameShootHook()
     return RageBot.GameShootHooked
 end
 
+-- ЛАГ-КОМПЕНСАЦИЯ: сервер видит мир не так, как рендерит ваш клиент.
+-- Рендер цели отстаёт от её серверной позиции на: её пинг (клиент->сервер),
+-- ваш пинг (сервер->вы) и буфер интерполяции. Выстрел долетает до сервера
+-- ещё за ваш пинг. Система математически восстанавливает РЕАЛЬНУЮ позицию
+-- цели в момент регистрации выстрела:
+--   pos + скорость * t + 0.5 * ускорение * t^2,
+-- где скорость/ускорение измеряются по истории движения цели (стрейфы,
+-- развороты, прыжки), а в воздухе вертикаль считается по гравитации мира
+-- (скорость падения), а не по шуму сэмплов.
+--   t = мой пинг + его пинг/2 + интерполяция 45мс, предохранитель 0.3 сек
+--   (аналог sv_maxunlag). Никаких ручных настроек: всё считается автоматом.
+local LagComp = {Samples = {}, MyPing = 0.05, MyPingAt = -1, HisPing = 0, HisPingAt = -1, HisModel = nil, LastPrune = 0}
+
+function LagComp.GetMyPing(now)
+    if now - LagComp.MyPingAt < 0.25 then
+        return LagComp.MyPing
+    end
+    LagComp.MyPingAt = now
+    local ping = nil
+    pcall(function()
+        local stats = game:GetService("Stats")
+        local network = stats and stats:FindFirstChild("Network")
+        local serverStats = network and network:FindFirstChild("ServerStatsItem")
+        local item = serverStats and serverStats:FindFirstChild("Data Ping")
+        if item then
+            ping = item:GetValue() / 1000
+        end
+    end)
+    if ping == nil then
+        pcall(function()
+            ping = LocalPlayer:GetNetworkPing()
+        end)
+    end
+    LagComp.MyPing = math.clamp(tonumber(ping) or 0.05, 0, 0.4)
+    return LagComp.MyPing
+end
+
+function LagComp.GetHisPing(model, now)
+    if LagComp.HisModel == model and now - LagComp.HisPingAt < 0.5 then
+        return LagComp.HisPing
+    end
+    LagComp.HisModel, LagComp.HisPingAt = model, now
+    local ping = nil
+    local plr = model and Players:GetPlayerFromCharacter(model)
+    if plr then
+        pcall(function()
+            ping = plr:GetNetworkPing()
+        end)
+    end
+    LagComp.HisPing = math.clamp(tonumber(ping) or 0, 0, 0.5)
+    return LagComp.HisPing
+end
+
+-- История движения цели: измеренные скорость и ускорение по позициям рута.
+-- Мгновенная AssemblyLinearVelocity при лагах врёт (интерполяция рендера),
+-- поэтому скорость выводится из реальных перемещений модели по кадрам.
+function LagComp.Sample(model, root, now)
+    if now - LagComp.LastPrune > 5 then
+        LagComp.LastPrune = now
+        for m, sm in pairs(LagComp.Samples) do
+            if now - sm.At > 5 then
+                LagComp.Samples[m] = nil
+            end
+        end
+    end
+    local pos = root.Position
+    local sm = LagComp.Samples[model]
+    if not sm then
+        sm = {Pos = pos, Vel = root.AssemblyLinearVelocity, Acc = Vector3.new(0, 0, 0), At = now}
+        LagComp.Samples[model] = sm
+        return sm
+    end
+    local dt = now - sm.At
+    if dt < 0.005 then
+        return sm
+    end
+    local rawVel = (pos - sm.Pos) / dt
+    if rawVel.Magnitude > 260 then
+        -- Телепорт/респавн: история невалидна, начинаем заново.
+        sm.Pos, sm.At = pos, now
+        sm.Vel = root.AssemblyLinearVelocity
+        sm.Acc = Vector3.new(0, 0, 0)
+        return sm
+    end
+    local vel = sm.Vel:Lerp(rawVel, 0.55)
+    local rawAcc = (vel - sm.Vel) / dt
+    if rawAcc.Magnitude > 600 then
+        rawAcc = rawAcc.Unit * 600
+    end
+    sm.Acc = sm.Acc:Lerp(rawAcc, 0.35)
+    sm.Vel = vel
+    sm.Pos = pos
+    sm.At = now
+    return sm
+end
+
+function LagComp.Predict(model, part, pos, now)
+    local root = model and findRootPart(model)
+    if not root then
+        return pos
+    end
+    local sm = LagComp.Sample(model, root, now)
+    -- Измеренная скорость + мгновенная физика (25%): ловит резкие старты.
+    local vel = sm.Vel:Lerp(root.AssemblyLinearVelocity, 0.25)
+    -- Время коррекции как в Source (player_lagcompensation.cpp):
+    -- correct = latency + interpolation. У нас: мой полный RTT (выстрел
+    -- туда-обратно проходит регистрацию), его пинг/2 (его клиент->сервер,
+    -- откуда сервер знает позицию) и буфер интерполяции рендера 45 мс.
+    -- Предохранитель как sv_maxunlag у Valve: коррекция не глубже 0.3 сек.
+    local myPing = LagComp.GetMyPing(now)
+    local hisPing = LagComp.GetHisPing(model, now)
+    local lead = math.clamp(myPing + hisPing * 0.5 + 0.045, 0, 0.3)
+    -- Статы оружия: вне range компенсировать нечего; снарядному оружию -
+    -- плюс время полёта снаряда, автоогню - довод по темпу до след. выстрела.
+    local wstats = getWeaponStats(now)
+    local cam = Workspace.CurrentCamera
+    local dist0 = cam and (pos - cam.CFrame.Position).Magnitude or 0
+    if wstats then
+        if wstats.Range and wstats.Range > 0 and dist0 > wstats.Range then
+            return pos
+        end
+        if wstats.BulletSpeed and wstats.BulletSpeed > 10 and dist0 > 0 then
+            lead = lead + dist0 / wstats.BulletSpeed
+        end
+        if wstats.RateOfFire and wstats.RateOfFire > 0 then
+            lead = lead + math.min(30 / wstats.RateOfFire, 0.04)
+        end
+        lead = math.clamp(lead, 0, wstats.BulletSpeed and 1.2 or 0.45)
+    end
+    if vel.Magnitude < 0.1 and sm.Acc.Magnitude < 1 then
+        return pos
+    end
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    local airborne = hum ~= nil and hum.FloorMaterial == Enum.Material.Air
+    local gravity = tonumber(Workspace.Gravity) or 196.2
+    local acc = Vector3.new(
+        math.clamp(sm.Acc.X, -260, 260),
+        airborne and -gravity or math.clamp(sm.Acc.Y, -80, 80),
+        math.clamp(sm.Acc.Z, -260, 260)
+    )
+    -- Экстраполяция как в CS-читах: не замкнутая формула, а по-тиковая
+    -- интеграция вперёд на время коррекции: каждый тик скорость получает
+    -- ускорение (в воздухе Y тянет гравитация - скорость падения растёт),
+    -- позиция шагает новой скоростью. Стрейфы и падения считаются честно.
+    local step = 1 / 60
+    local steps = math.max(1, math.floor(lead / step + 0.5))
+    local simPos = pos
+    local simVel = vel
+    for _ = 1, steps do
+        simVel = simVel + acc * step
+        if simVel.Magnitude > 320 then
+            simVel = simVel.Unit * 320
+        end
+        simPos = simPos + simVel * step
+    end
+    local offset = simPos - pos
+    if offset.Magnitude > 32 then
+        offset = offset.Unit * 32
+    end
+    if wstats then
+        -- Спред оружия даёт люфт ошибки на дистанции: глушим перелёт.
+        local cone = math.tan(math.rad(math.clamp(wstats.Spread, 0, 15))) * dist0 + wstats.RayRadius
+        if wstats.RaysPerShot > 1 then
+            offset = offset * 0.75
+        elseif cone > 0.5 then
+            offset = offset * math.clamp(1 - cone * 0.012, 0.82, 1)
+        end
+        simPos = pos + offset
+        -- Не дальше range оружия от камеры.
+        if wstats.Range and wstats.Range > 0 and cam then
+            local toAim = simPos - cam.CFrame.Position
+            if toAim.Magnitude > wstats.Range then
+                simPos = cam.CFrame.Position + toAim.Unit * wstats.Range
+            end
+        end
+    else
+        simPos = pos + offset
+    end
+    return simPos
+end
+
 function RageBot.UpdateRender(deltaTime)
 
     local masterEnabled = flag("AimbotEnabled", false) == true
@@ -700,6 +977,28 @@ function RageBot.UpdateRender(deltaTime)
     RageBot.TargetPart = part
     RageBot.TargetPosition = pos
     RageBot.TargetIsBacktrack = isBtShot == true
+
+    -- Лаг-компенсация: считаем реальную позицию цели к моменту регистрации
+    -- выстрела сервером (мой пинг + его пинг + скорость/ускорение/падение).
+    -- Для бектрека не применяем - там позиция и так прошлая.
+    if part and pos and not RageBot.TargetIsBacktrack and flag("AimbotLagComp", true) == true then
+        local model = part:FindFirstAncestorOfClass("Model")
+        if model then
+            pos = LagComp.Predict(model, part, pos, os.clock())
+            RageBot.TargetPosition = pos
+        end
+    end
+
+    -- Предикт (отдельный модуль Prediction): моделирует будущее движение
+    -- цели (скорость/ускорение/инпут/падение/ландшафт) поверх лаг-компенсации.
+    if part and pos and not RageBot.TargetIsBacktrack and flag("AimbotPrediction", false) == true
+        and Prediction and Prediction.Predict then
+        local model = part:FindFirstAncestorOfClass("Model")
+        if model then
+            pos = Prediction.Predict(model, pos, os.clock())
+            RageBot.TargetPosition = pos
+        end
+    end
 
     local isShooting = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or flag("AimbotAutoFire", false) == true
 

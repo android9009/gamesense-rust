@@ -717,7 +717,7 @@ local Library
                     local Key = Value.key ~= nil and Value.key or Value.Key
                     local Mode = Value.mode ~= nil and Value.mode or Value.Mode
                     local Active = Value.active ~= nil and Value.active or Value.Active
-                    Config[Idx] = {active = (Active == true), mode = Mode or "Toggle", key = tostring(Key or "NONE")}
+                    Config[Idx] = {active = (Active == true), mode = Mode or "Hold", key = tostring(Key or "NONE")}
                 elseif type(Value) == "table" and Value["Transparency"] ~= nil and Value["Color"] ~= nil and typeof(Value["Color"]) == "Color3" then
                     Config[Idx] = {Transparency = Value["Transparency"], Color = Value["Color"]:ToHex()}
                 elseif typeof(Value) == "Color3" then
@@ -2319,7 +2319,7 @@ local Library
                 Callback = properties.Callback or function() end;
                 Name = properties.Name or nil;
                 Key = properties.Key or nil;
-                Mode = properties.Mode or "Toggle";
+                Mode = properties.Mode or "Hold";
                 Active = properties.Default or false;
                 Show = properties.ShowInList or true;
                 Open = false;
@@ -2446,12 +2446,35 @@ local Library
                         PaddingRight = dim(0, 5);
                         PaddingLeft = dim(0, 5)
                     });
-                    for _,mode in {"Always", "Toggle", "Hold"} do
+                    Items.Off = Library:Create( "TextButton" , {
+                        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                        TextColor3 = rgb(205, 205, 205);
+                        BorderColor3 = rgb(0, 0, 0);
+                        Text = "Off hotkey";
+                        Parent = Items.Inline;
+                        ClipsDescendants = true;
+                        AutomaticSize = Enum.AutomaticSize.Y;
+                        Size = dim2(1, 0, 0, 0);
+                        Name = "\0";
+                        TextXAlignment = Enum.TextXAlignment.Left;
+                        BorderSizePixel = 0;
+                        ZIndex = 2;
+                        TextSize = 13;
+                        BackgroundColor3 = rgb(26, 26, 26)
+                    });
+                    Library:Create( "UIPadding" , {
+                        PaddingTop = dim(0, 5);
+                        PaddingBottom = dim(0, 5);
+                        Parent = Items.Off;
+                        PaddingRight = dim(0, 5);
+                        PaddingLeft = dim(0, 5)
+                    });
+                    for _,mode in {"Always", "Toggle", "Hold", "Off"} do
                         Items[mode].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
                         Items[mode].BackgroundTransparency = 0;
                         Items[mode].TextColor3 = rgb(205, 205, 205)
                         Items[mode].MouseButton1Click:Connect(function()
-                            for _,extra in {"Always", "Toggle", "Hold"} do
+                            for _,extra in {"Always", "Toggle", "Hold", "Off"} do
                                 Items[extra].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
                                 Items[extra].BackgroundTransparency = 0;
                                 Items[extra].TextColor3 = rgb(205, 205, 205)
@@ -2464,7 +2487,7 @@ local Library
                     end
             end
             local function UpdateModeVisuals()
-                for _, mode in {"Always", "Toggle", "Hold"} do
+                for _, mode in {"Always", "Toggle", "Hold", "Off"} do
                     if Items[mode] then
                         Items[mode].FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", mode == Cfg.Mode and Enum.FontWeight.Bold or Enum.FontWeight.Regular, Enum.FontStyle.Normal)
                         Items[mode].BackgroundTransparency = mode == Cfg.Mode and 1 or 0
@@ -2514,14 +2537,17 @@ local Library
                 return key
             end
             function Cfg.SetMode(mode)
-                if not table.find({"Toggle", "Hold", "Always"}, mode) then
-                    mode = "Toggle"
+                if not table.find({"Toggle", "Hold", "Always", "Off"}, mode) then
+                    mode = "Hold"
                 end
                 Cfg.Mode = mode
                 if Cfg.Mode == "Always" then
                     Cfg.Active = true
                 elseif Cfg.Mode == "Hold" then
                     Cfg.Active = false
+                elseif Cfg.Mode == "Off" then
+                    -- Off hotkey: работает, пока клавиша НЕ зажата.
+                    Cfg.Active = not Cfg.KeyHeld
                 end
                 UpdateModeVisuals()
             end
@@ -2533,14 +2559,14 @@ local Library
                     end
                 elseif typeof(input) == "EnumItem" then
                     Cfg.Key = NormalizeKey(input)
-                elseif table.find({"Toggle", "Hold", "Always"}, input) then
+                elseif table.find({"Toggle", "Hold", "Always", "Off"}, input) then
                     Cfg.SetMode(input)
                 elseif type(input) == "table" then
                     local key = input.key ~= nil and input.key or input.Key
                     local mode = input.mode ~= nil and input.mode or input.Mode
                     local active = input.active ~= nil and input.active or input.Active
                     Cfg.Key = NormalizeKey(key)
-                    Cfg.SetMode(mode or Cfg.Mode or "Toggle")
+                    Cfg.SetMode(mode or Cfg.Mode or "Hold")
                     if active ~= nil then
                         Cfg.Active = active and true or false
                     end
@@ -2548,6 +2574,8 @@ local Library
                         Cfg.Active = true
                     elseif Cfg.Mode == "Hold" and active == nil then
                         Cfg.Active = false
+                    elseif Cfg.Mode == "Off" and active == nil then
+                        Cfg.Active = not Cfg.KeyHeld
                     end
                 elseif type(input) == "string" then
                     Cfg.Key = NormalizeKey(input)
@@ -2609,10 +2637,13 @@ local Library
                 if not game_event then
                     local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
                     if selected_key == Cfg.Key then
+                        Cfg.KeyHeld = true
                         if Cfg.Mode == "Toggle" then
                             Cfg.Set(not Cfg.Active)
                         elseif Cfg.Mode == "Hold" then
                             Cfg.Set(true)
+                        elseif Cfg.Mode == "Off" then
+                            Cfg.Set(false)
                         end
                     end
                 end
@@ -2623,8 +2654,11 @@ local Library
                 end
                 local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
                 if selected_key == Cfg.Key then
+                    Cfg.KeyHeld = false
                     if Cfg.Mode == "Hold" then
                         Cfg.Set(false)
+                    elseif Cfg.Mode == "Off" then
+                        Cfg.Set(true)
                     end
                 end
             end)
@@ -2839,6 +2873,7 @@ local Tabs = {
     Skins = Window:Tab({Icon = "rbxassetid://8547258459"}),
     Saving = Window:Tab({Icon = "rbxassetid://107672994153530"}),
     Lua = Window:Tab({Icon = "rbxassetid://83653738255058"}),
+    Giver = Window:Tab({Icon = "rbxassetid://107672994153530"}),
 }
 Library.Registry = Library.Registry or {}
 Library.TabsByName = Library.TabsByName or {}
@@ -2890,7 +2925,7 @@ end
 local AddMenuBind
 do
     function AddMenuBind(TargetToggle, FlagName, NoToggleState)
-        local bindMode = "Toggle"
+        local bindMode = "Hold"
         local boundKey = nil
         local bindActive = false
         local binding = false
@@ -2901,6 +2936,7 @@ do
             return boundKey ~= nil and boundKey ~= "NONE"
         end
 
+        local keyHeld = false
         local function ComputeActive(state)
             if not TargetToggle.Enabled then
                 return false
@@ -2909,7 +2945,12 @@ do
                 return true
             end
             if boundKey == nil or boundKey == "NONE" then
-                return false
+                -- Без клавиши Off hotkey выключить нечем - он работает.
+                return bindMode == "Off"
+            end
+            if bindMode == "Off" then
+                -- Off hotkey: работает, пока клавиша НЕ зажата.
+                return not keyHeld
             end
             return state == true
         end
@@ -2950,7 +2991,7 @@ do
         local ModeFrame = Library:Create("Frame", {
             Parent = Library.Other;
             Visible = false;
-            Size = dim2(0, 100, 0, 66);
+            Size = dim2(0, 100, 0, 88);
             Name = "";
             BorderColor3 = rgb(0, 0, 0);
             BorderSizePixel = 0;
@@ -2997,13 +3038,14 @@ do
         local ModeHold = CreateModeOption("Hold")
         local ModeToggle = CreateModeOption("Toggle")
         local ModeAlways = CreateModeOption("Always")
+        local ModeOff = CreateModeOption("Off hotkey")
         local function UpdateModeVisuals()
-            for _, button in {ModeHold, ModeToggle, ModeAlways} do
+            for _, button in {ModeHold, ModeToggle, ModeAlways, ModeOff} do
                 button.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
                 button.TextColor3 = rgb(205, 205, 205)
                 button.BackgroundTransparency = 0
             end
-            local selected = bindMode == "Hold" and ModeHold or bindMode == "Toggle" and ModeToggle or ModeAlways
+            local selected = bindMode == "Hold" and ModeHold or bindMode == "Toggle" and ModeToggle or bindMode == "Off" and ModeOff or ModeAlways
             selected.FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
             selected.TextColor3 = themes.preset.accent
             selected.BackgroundTransparency = 1
@@ -3032,6 +3074,9 @@ do
         end)
         ModeAlways.MouseButton1Click:Connect(function()
             SetMode("Always")
+        end)
+        ModeOff.MouseButton1Click:Connect(function()
+            SetMode("Off")
         end)
         table.insert(Library.NoDrag, ModeFrame)
         table.insert(Library.NoDrag, BindButton)
@@ -3094,17 +3139,24 @@ do
             if binding or not boundKey then return end
             local key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
             if key ~= boundKey then return end
+            keyHeld = true
             if bindMode == "Toggle" then
                 ApplyState(not bindActive)
-            else
+            elseif bindMode == "Hold" then
                 ApplyState(true)
+            else
+                ApplyState(bindActive)
             end
         end)
         Library:Connection(InputService.InputEnded, function(input, gameProcessed)
-            if binding or not boundKey or bindMode ~= "Hold" then return end
+            if binding or not boundKey then return end
             local key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
-            if key == boundKey then
+            if key ~= boundKey then return end
+            keyHeld = false
+            if bindMode == "Hold" then
                 ApplyState(false)
+            elseif bindMode == "Off" then
+                ApplyState(bindActive)
             end
         end)
 
@@ -3142,7 +3194,7 @@ do
                     end
                 end
 
-                if mode and table.find({"Hold", "Toggle", "Always"}, mode) then
+                if mode and table.find({"Hold", "Toggle", "Always", "Off"}, mode) then
                     bindMode = mode
                 end
                 UpdateModeVisuals()
@@ -3151,6 +3203,8 @@ do
                     ApplyState(true)
                 elseif bindMode == "Hold" then
                     ApplyState(false)
+                elseif bindMode == "Off" then
+                    ApplyState(bindActive)
                 elseif active ~= nil then
                     ApplyState(active == true)
                 else
@@ -3168,6 +3222,138 @@ do
         ConfigFlags[FlagName] = SetBind
     end
 end
+-- Профили настроек по группам оружия (Weapon select): у каждой группы свой
+    -- набор значений управляемых контролов. Global - обычные флаги; группа без
+    -- включённого Override использует Global. Override у Global нет и быть не может.
+    local WeaponGroupOptions = {"Global", "Rifles", "SMGs", "Snipers", "Shotguns", "Pistols", "LMG", "Other"}
+    local function CopyProfileValue(value)
+        if type(value) == "table" then
+            local out = {}
+            for k, v in pairs(value) do out[k] = v end
+            return out
+        end
+        return value
+    end
+    local function CreateWeaponProfileUI(Section, Prefix, PriorityFlag)
+        local ProfilesFlag = Prefix .. "WeaponProfiles"
+        local ui = {Current = "Global", Managed = {}, GlobalValues = {}, Loading = false}
+        local function GetProfiles()
+            local profiles = Flags[ProfilesFlag]
+            if type(profiles) ~= "table" then
+                profiles = {}
+                Flags[ProfilesFlag] = profiles
+            end
+            return profiles
+        end
+        local function GetProfile(group)
+            local profiles = GetProfiles()
+            local prof = profiles[group]
+            if type(prof) ~= "table" then
+                prof = {Override = false, Values = {}}
+                profiles[group] = prof
+            end
+            if type(prof.Values) ~= "table" then prof.Values = {} end
+            return prof
+        end
+        function ui.SaveOutgoing()
+            local prof = ui.Current ~= "Global" and GetProfile(ui.Current) or nil
+            local toProfile = prof and prof.Override == true
+            for _, m in ipairs(ui.Managed) do
+                if toProfile then
+                    prof.Values[m.Flag] = CopyProfileValue(Flags[m.Flag])
+                else
+                    ui.GlobalValues[m.Flag] = CopyProfileValue(Flags[m.Flag])
+                end
+            end
+        end
+        function ui.LoadGroup(group)
+            if type(group) ~= "string" or group == "" then group = "Global" end
+            ui.Loading = true
+            ui.SaveOutgoing()
+            ui.Current = group
+            local prof = GetProfile(group)
+            local useOverride = group ~= "Global" and prof.Override == true
+            if ui.OverrideElement then
+                ui.OverrideElement.Set(useOverride)
+                if ui.OverrideElement.Items and ui.OverrideElement.Items.Toggle then
+                    ui.OverrideElement.Items.Toggle.Visible = group ~= "Global"
+                end
+            end
+            for _, m in ipairs(ui.Managed) do
+                local value
+                if useOverride and prof.Values[m.Flag] ~= nil then
+                    value = prof.Values[m.Flag]
+                else
+                    value = ui.GlobalValues[m.Flag]
+                end
+                if value ~= nil and m.Element and m.Element.Set then
+                    m.Element.Set(CopyProfileValue(value))
+                end
+            end
+            ui.Loading = false
+        end
+        ui.SelectElement = Section:Dropdown({
+            Name = "Weapon select",
+            Options = WeaponGroupOptions,
+            Default = "Global",
+            Flag = Prefix .. "WeaponSelect",
+            Callback = function(value)
+                if ui.Loading then return end
+                if type(value) == "table" then value = value[1] end
+                ui.LoadGroup(value)
+            end,
+        })
+        Section:Dropdown({
+            Name = "Target priority",
+            Options = {"Closest to crosshair", "Lowest health", "Closest distance"},
+            Default = "Closest to crosshair",
+            Flag = PriorityFlag,
+        })
+        ui.OverrideElement = Section:Toggle({
+            Name = "Override",
+            Flag = Prefix .. "WeaponOverride",
+            Callback = function(state)
+                if ui.Loading then return end
+                local group = ui.Current
+                if group == "Global" then return end
+                local prof = GetProfile(group)
+                prof.Override = state == true
+                ui.Loading = true
+                if state then
+                    -- Первое включение: профиль стартует с текущих значений.
+                    for _, m in ipairs(ui.Managed) do
+                        if prof.Values[m.Flag] == nil then
+                            prof.Values[m.Flag] = CopyProfileValue(Flags[m.Flag])
+                        end
+                    end
+                else
+                    -- Выключили: контролы показывают глобальные значения.
+                    for _, m in ipairs(ui.Managed) do
+                        local value = ui.GlobalValues[m.Flag]
+                        if value ~= nil and m.Element and m.Element.Set then
+                            m.Element.Set(CopyProfileValue(value))
+                        end
+                    end
+                end
+                ui.Loading = false
+            end,
+        })
+        if ui.OverrideElement.Items and ui.OverrideElement.Items.Toggle then
+            ui.OverrideElement.Items.Toggle.Visible = false
+        end
+        function ui.Bind(managed)
+            ui.Managed = managed or {}
+            ui.GlobalValues = {}
+            for _, m in ipairs(ui.Managed) do
+                ui.GlobalValues[m.Flag] = CopyProfileValue(Flags[m.Flag])
+            end
+            local selected = Flags[Prefix .. "WeaponSelect"]
+            if type(selected) == "string" and selected ~= "Global" then
+                ui.LoadGroup(selected)
+            end
+        end
+        return ui
+    end
 do
     local Page = Tabs.Rage.Items.Page
     for _, child in pairs(Page:GetChildren()) do
@@ -3189,8 +3375,11 @@ do
     end
     local Aimbot = Tabs.Rage:Section({Name = "Aimbot", Side = "Left"})
     local Toggle = Aimbot:Toggle({Name = "Enabled", Flag = "AimbotEnabled"})
+    local RageProfiles = CreateWeaponProfileUI(Aimbot, "Rage", "AimbotTargetPriority")
     Aimbot:Dropdown({Name = "Target selection", Options = {"Players", "Team", "Bots", "Structures"}, Multi = true, Default = {"Players"}, Flag = "AimbotTargetSel"})
-    Aimbot:Dropdown({Name = "Target hitbox", Options = {"Head", "Neck", "Chest", "Stomach", "Legs", "Feet"}, Multi = true, Default = {"Head", "Chest"}, Flag = "AimbotHitbox"})
+    local RageHitboxElement = Aimbot:Dropdown({Name = "Target hitbox", Options = {"Head", "Neck", "Chest", "Stomach", "Legs", "Feet"}, Multi = true, Default = {"Head", "Chest"}, Flag = "AimbotHitbox"})
+    local RageMultipointElement = Aimbot:Dropdown({Name = "Multipoint", Options = {"Head", "Neck", "Chest", "Stomach", "Legs", "Feet"}, Multi = true, Default = {}, Flag = "AimbotMultipoint"})
+    local RageMultipointScale = Aimbot:Slider({Name = "Multipoint scale", Min = 0, Max = 100, Default = 50, Suffix = "%", Flag = "AimbotMultipointScale"})
     Aimbot:Toggle({Name = "Visible check", Flag = "AimbotVisibleCheck"})
     Aimbot:Toggle({Name = "Auto fire", Flag = "AimbotAutoFire"})
     Aimbot:Toggle({Name = "Silent aim", Flag = "AimbotSilentAim"})
@@ -3214,6 +3403,10 @@ do
         RapidFireSlider.Items.Title.TextColor3 = RiskyColor
     end
     BindVisibility(RapidFireToggle, {RapidFireSlider})
+    Aimbot:Toggle({Name = "Lag compensation", Flag = "AimbotLagComp", Default = true})
+    local PredictionToggle = Aimbot:Toggle({Name = "Prediction", Flag = "AimbotPrediction", Default = false})
+    local PredictionMode = Aimbot:Dropdown({Name = "Prediction mode", Options = {"Light", "Balanced", "Aggressive"}, Default = "Balanced", Flag = "AimbotPredictionMode"})
+    BindVisibility(PredictionToggle, {PredictionMode})
     local ReachToggle = Aimbot:Toggle({Name = "Hitbox expander", Flag = "AimbotReach"})
     ReachToggle.Items.Title.TextColor3 = RiskyColor
     local ReachSlider = Aimbot:Slider({
@@ -3232,10 +3425,16 @@ do
     AddMenuBind(Toggle, "AimbotEnabledBind", true)
     local Other = Tabs.Rage:Section({Name = "Other", Side = "Right", Size = 0.6})
     Other:Toggle({Name = "Visible FOV", Flag = "AimbotVisFOV"})
-    Other:Slider({Name = "Maximum FOV", Min = 1, Max = 180, Suffix = "°", Default = 90, Flag = "AimbotFOV"})
+    local RageFovElement = Other:Slider({Name = "Maximum FOV", Min = 1, Max = 180, Suffix = "°", Default = 90, Flag = "AimbotFOV"})
     Other:Toggle({Name = "Lag compensation", Flag = "AimbotLagComp"})
     Other:Toggle({Name = "Backtrack", Flag = "AimbotBacktrack"})
     Other:Slider({Name = "Backtrack ms", Min = 0, Max = 200, Suffix = "ms", Default = 200, Flag = "AimbotBacktrackMs"})
+    RageProfiles.Bind({
+        {Flag = "AimbotHitbox", Element = RageHitboxElement},
+        {Flag = "AimbotMultipoint", Element = RageMultipointElement},
+        {Flag = "AimbotMultipointScale", Element = RageMultipointScale},
+        {Flag = "AimbotFOV", Element = RageFovElement},
+    })
     local AA = Tabs.Rage:Section({Name = "Anti-aimbot angles", Side = "Right", Size = 0.4})
     local function UpdateRageRightSections()
         local gap = 19
@@ -3307,20 +3506,19 @@ do
         Flag = "LegitAimbotEnabled"
     })
     AddMenuBind(LegitEnabled, "LegitAimbotBind", true)
-    LegitAimbot:Slider({
-        Name = "Speed",
+    local LegitProfiles = CreateWeaponProfileUI(LegitAimbot, "Legit", "LegitTargetPriority")
+    local LegitSmoothElement = LegitAimbot:Slider({
+        Name = "Smooth",
         Min = 0,
-        Max = 1,
-        Decimal = 0.01,
-        Default = 0.65,
+        Max = 10,
+        Default = 5,
         Flag = "LegitAimbotSpeed"
     })
-    LegitAimbot:Slider({
-        Name = "Speed (in attack)",
+    local LegitAttackSmoothElement = LegitAimbot:Slider({
+        Name = "Smooth (in attack)",
         Min = 0,
-        Max = 1,
-        Decimal = 0.01,
-        Default = 0.65,
+        Max = 10,
+        Default = 5,
         Flag = "LegitAimbotAttackSpeed"
     })
     LegitAimbot:Slider({
@@ -3331,27 +3529,33 @@ do
         Suffix = "%",
         Flag = "LegitAimbotSpeedScaleFOV"
     })
-    LegitAimbot:Slider({
+    local LegitMaxLockElement = LegitAimbot:Slider({
         Name = "Maximum lock-on time",
         Min = 0,
-        Max = 1000,
-        Default = 1000,
-        Decimal = 10,
+        Max = 10000,
+        Default = 0,
+        Decimal = 1,
         Flag = "LegitAimbotMaxLockTime",
         Formatter = function(value)
-            return value >= 1000 and "∞" or (tostring(value) .. "ms")
+            if value <= 0 then
+                return "off"
+            end
+            if value % 1000 == 0 then
+                return (value / 1000) .. "s"
+            end
+            return tostring(value) .. "ms"
         end
     })
-    LegitAimbot:Slider({
+    local LegitReactionElement = LegitAimbot:Slider({
         Name = "Reaction time",
         Min = 0,
         Max = 1000,
         Default = 100,
-        Decimal = 10,
+        Decimal = 1,
         Suffix = "ms",
         Flag = "LegitAimbotReactionTime"
     })
-    LegitAimbot:Slider({
+    local LegitFovElement = LegitAimbot:Slider({
         Name = "Maximum FOV",
         Min = 0,
         Max = 180,
@@ -3375,7 +3579,8 @@ do
         Suffix = "%",
         Flag = "LegitAimbotRecoilYaw"
     })
-    LegitAimbot:Toggle({Name = "Visible check", Flag = "LegitAimbotVisibleCheck"})
+    local LegitVisibleCheckElement = LegitAimbot:Toggle({Name = "Visible check", Flag = "LegitAimbotVisibleCheck"})
+    LegitAimbot:Toggle({Name = "Visible FOV", Flag = "LegitAimbotVisibleFOV"})
     local HitboxColor = rgb(182, 182, 101)
     local LegitHead = LegitAimbot:Toggle({Name = "Head", Flag = "LegitAimbotHead"})
     local LegitChest = LegitAimbot:Toggle({Name = "Chest", Flag = "LegitAimbotChest"})
@@ -3383,6 +3588,17 @@ do
     for _, hitbox in {LegitHead, LegitChest, LegitStomach} do
         hitbox.Items.Title.TextColor3 = HitboxColor
     end
+    LegitProfiles.Bind({
+        {Flag = "LegitAimbotSpeed", Element = LegitSmoothElement},
+        {Flag = "LegitAimbotAttackSpeed", Element = LegitAttackSmoothElement},
+        {Flag = "LegitAimbotMaxLockTime", Element = LegitMaxLockElement},
+        {Flag = "LegitAimbotReactionTime", Element = LegitReactionElement},
+        {Flag = "LegitAimbotMaximumFOV", Element = LegitFovElement},
+        {Flag = "LegitAimbotVisibleCheck", Element = LegitVisibleCheckElement},
+        {Flag = "LegitAimbotHead", Element = LegitHead},
+        {Flag = "LegitAimbotChest", Element = LegitChest},
+        {Flag = "LegitAimbotStomach", Element = LegitStomach},
+    })
     local Triggerbot = Tabs.Aiming:Section({
         Name = "Triggerbot",
         Side = "Right",
@@ -3399,7 +3615,7 @@ do
         Min = 0,
         Max = 1000,
         Default = 100,
-        Decimal = 10,
+        Decimal = 1,
         Suffix = "ms",
         Flag = "TriggerbotReactionTime"
     })
@@ -5173,6 +5389,179 @@ do
         end
         table.insert(ItemPickers, {Row = ItemRow, Picker = ItemPicker})
         RefreshItem()
+        local HitSection = MakeSection(ContextInline)
+        -- Мигающий хитбокс на манекене (голова - куда аимится чит): в превью
+        -- пикер красит именно его, а не текст Hit.
+        local HitboxDummy = Library:Create("Frame", {
+            Parent = Target;
+            Name = "\0";
+            AnchorPoint = vec2(0.5, 0);
+            Position = dim2(0.5, 0, 0.02, 0);
+            Size = dim2(0.22, 0, 0.13, 0);
+            BackgroundColor3 = rgb(214, 79, 79);
+            BackgroundTransparency = 0.35;
+            BorderSizePixel = 0;
+            ZIndex = 12;
+            Visible = Flags.ESPHitboxVisual == true;
+            BackgroundColor3 = rgb(214, 79, 79);
+        })
+        local HitboxAlpha = 0
+        local HitboxCorner = Library:Create("UICorner", {
+            Parent = HitboxDummy;
+            CornerRadius = dim(0, 0);
+        })
+        local function SyncHitboxShape(value)
+            HitboxCorner.CornerRadius = value == "Circle" and dim(0.5, 0) or dim(0, 0)
+        end
+        MakeCheckbox(HitSection, "Visual hitbox", 1, function(state)
+            Flags.ESPHitboxVisual = state
+            HitboxDummy.Visible = state
+        end, Flags.ESPHitboxVisual == true)
+        local _, HitHost = MakeColorRow(HitSection, "Color", 2)
+        local HitPicker = LiftPicker(HitHost:Colorpicker({
+            Flag = "ESPHitboxColor";
+            Color = PickerColor(rgb(214, 79, 79));
+        }))
+        local HitShapeCombo = MakeCombo(HitSection, "Shape", 3, {"Box", "Circle"}, Root, false, Flags.ESPHitboxShape or "Box")
+        HitShapeCombo.Callback = function(value)
+            Flags.ESPHitboxShape = value
+            SyncHitboxShape(value)
+        end
+        Flags.ESPHitboxShape = Flags.ESPHitboxShape or "Box"
+        SyncHitboxShape(Flags.ESPHitboxShape)
+        do
+            local swatch = HitPicker.Items and HitPicker.Items.InnerObject
+            if swatch then
+                local function Sync()
+                    HitboxDummy.BackgroundColor3 = swatch.BackgroundColor3
+                    HitboxAlpha = swatch.BackgroundTransparency
+                    HitboxDummy.BackgroundTransparency = 0.35 + 0.65 * HitboxAlpha
+                end
+                swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(Sync)
+                swatch:GetPropertyChangedSignal("BackgroundTransparency"):Connect(Sync)
+                Sync()
+            end
+        end
+        -- Lua API (3.0): расширения превью. Скрипты добавляют свои чипы в
+        -- полосу под моделью и свои пункты в контекстные меню готовых чипов.
+        local LuaContextItems = {}
+        local LuaContextSection = MakeSection(ContextInline)
+        local function RebuildLuaContext(name)
+            for _, child in ipairs(LuaContextSection:GetChildren()) do
+                if child:IsA("GuiObject") then
+                    child:Destroy()
+                end
+            end
+            local defs = LuaContextItems[name]
+            LuaContextSection.Visible = defs ~= nil and #defs > 0
+            if not defs then
+                return
+            end
+            local order = 1
+            for _, def in ipairs(defs) do
+                if def.kind == "combobox" then
+                    local combo = MakeCombo(LuaContextSection, def.name, order, def.options or {}, Root, false, Library.Flags[def.flag] or def.default)
+                    combo.Callback = function(value)
+                        Library.Flags[def.flag] = value
+                        if def.callback then
+                            pcall(def.callback, value)
+                        end
+                    end
+                else
+                    local cb = MakeCheckbox(LuaContextSection, def.name, order, function(state)
+                        Library.Flags[def.flag] = state
+                        if def.callback then
+                            pcall(def.callback, state)
+                        end
+                    end, Library.Flags[def.flag] == true)
+                    ConfigFlags[def.flag] = function(value)
+                        cb.Set(value == true)
+                    end
+                end
+                order = order + 1
+            end
+        end
+        local function AddPreviewChip(def)
+            local flagName = def.flag or ("ESP" .. tostring(def.name):gsub("%s", ""))
+            local Chip = Library:Create("TextButton", {
+                Parent = Pool;
+                Name = "\0";
+                Text = tostring(def.name);
+                AutoButtonColor = false;
+                FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+                TextSize = 12;
+                TextColor3 = rgb(150, 150, 150);
+                AutomaticSize = Enum.AutomaticSize.X;
+                Size = dim2(0, 0, 0, 18);
+                LayoutOrder = 900;
+                BorderSizePixel = 0;
+                ZIndex = 4;
+                BackgroundColor3 = rgb(26, 26, 26);
+            })
+            Library:Create("UIPadding", {
+                Parent = Chip;
+                PaddingLeft = dim(0, 6);
+                PaddingRight = dim(0, 6);
+            })
+            local value = Library.Flags[flagName]
+            if value == nil then
+                value = def.default
+            end
+            if def.kind == "combobox" and value == nil then
+                value = (def.options or {})[1]
+            end
+            local function RefreshChip()
+                local on = def.kind == "combobox" or value == true
+                Chip.TextColor3 = on and themes.preset.accent or rgb(150, 150, 150)
+                Chip.BackgroundColor3 = on and rgb(34, 34, 34) or rgb(26, 26, 26)
+                Chip.Text = def.kind == "combobox" and (tostring(def.name) .. ": " .. tostring(value)) or tostring(def.name)
+            end
+            local function SetValue(nextValue, fire)
+                value = nextValue
+                Library.Flags[flagName] = value
+                RefreshChip()
+                if fire ~= false and def.callback then
+                    pcall(def.callback, value)
+                end
+            end
+            Chip.MouseButton1Click:Connect(function()
+                if def.kind == "combobox" then
+                    local options = def.options or {}
+                    if #options == 0 then
+                        return
+                    end
+                    local index = 1
+                    for i, option in ipairs(options) do
+                        if option == value then
+                            index = i
+                            break
+                        end
+                    end
+                    SetValue(options[index % #options + 1])
+                else
+                    SetValue(not value)
+                end
+            end)
+            ConfigFlags[flagName] = function(configValue)
+                SetValue(configValue, false)
+            end
+            SetValue(value, false)
+            return Chip
+        end
+        Library.PreviewHooks = {
+            AddChip = AddPreviewChip,
+            Extend = function(elementName, def)
+                LuaContextItems[elementName] = LuaContextItems[elementName] or {}
+                table.insert(LuaContextItems[elementName], def)
+            end,
+            Elements = function()
+                local names = {}
+                for _, element in ipairs(Elements) do
+                    names[#names + 1] = element.Name
+                end
+                return names
+            end,
+        }
         local ContextChip = nil
         local function CloseAllLists()
             for _, combo in AllCombos do
@@ -5183,7 +5572,7 @@ do
             ContextChip = nil
             ContextMenu.Visible = false
             CloseAllLists()
-            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, NamePicker, DistPicker, PingPicker} do
+            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, NamePicker, DistPicker, PingPicker, HitPicker} do
                 if picker.Open then
                     picker.Open = false
                     picker.SetVisible(false)
@@ -5213,6 +5602,8 @@ do
             DistSection.Visible = name == "Distance"
             PingSection.Visible = name == "Ping"
             ItemSection.Visible = name == "Item"
+            HitSection.Visible = name == "Hit"
+            RebuildLuaContext(name)
             CloseAllLists()
             ContextMenu.AnchorPoint = vec2(0, 0)
             ContextMenu.Visible = true
@@ -5250,7 +5641,7 @@ do
             if DraggingAvatar then
                 return
             end
-            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, NamePicker, DistPicker, PingPicker} do
+            for _, picker in {BoxPicker, HealthPicker, HealthPickerTo, NamePicker, DistPicker, PingPicker, HitPicker} do
                 if picker.Open then
                     return
                 end
@@ -5314,7 +5705,7 @@ do
             Chip.MouseButton1Click:Connect(function()
                 Set(not ESPFlags[element.Name])
             end)
-            if element.Name == "Box" or element.Name == "Health" or element.Name == "Name" or element.Name == "Distance" or element.Name == "Ping" or element.Name == "Item" then
+            if element.Name == "Box" or element.Name == "Health" or element.Name == "Name" or element.Name == "Distance" or element.Name == "Ping" or element.Name == "Item" or element.Name == "Hit" then
                 Chip.MouseButton2Click:Connect(function()
                     if ContextMenu.Visible and ContextTitle.Text == element.Name then
                         CloseContext()
@@ -5756,6 +6147,262 @@ do
         Movement = Movement,
         Settings = SettingsSection,
     }
+end
+
+do
+    local Page = Tabs.Giver.Items.Page
+    for _, child in pairs(Page:GetChildren()) do
+        if child:IsA("UIListLayout") then
+            child.HorizontalFlex = Enum.UIFlexAlignment.None
+        end
+    end
+    Tabs.Giver.Items.Left.Size = dim2(0.5, -10, 1, 0)
+    Tabs.Giver.Items.Right.Size = dim2(0.5, -10, 1, 0)
+    for _, column in {Tabs.Giver.Items.Left, Tabs.Giver.Items.Right} do
+        for _, child in pairs(column:GetChildren()) do
+            if child:IsA("UIListLayout") then
+                child.VerticalFlex = Enum.UIFlexAlignment.None
+            end
+        end
+    end
+    local ItemsSection = Tabs.Giver:Section({Name = "Weapons", Side = "Left", Size = 1})
+    ItemsSection.Items.Outline.Size = dim2(1, 0, 1, 0)
+    local SettingsSection = Tabs.Giver:Section({Name = "Item settings", Side = "Right", Size = 1})
+    SettingsSection.Items.Outline.Size = dim2(1, 0, 1, 0)
+    Tabs.Giver.Sections = {
+        Items = ItemsSection,
+        Settings = SettingsSection,
+    }
+    local ListOutline = Library:Create("Frame", {
+        Parent = ItemsSection.Items.Elements;
+        Name = "\0";
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        Size = dim2(1, 0, 1, -4);
+        LayoutOrder = 1;
+        BackgroundColor3 = themes.preset.outline;
+    }); Library:Themify(ListOutline, "outline", "BackgroundColor3")
+    local ListInline = Library:Create("Frame", {
+        Parent = ListOutline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = themes.preset.inline;
+    }); Library:Themify(ListInline, "inline", "BackgroundColor3")
+    local ListBackground = Library:Create("Frame", {
+        Parent = ListInline;
+        Name = "\0";
+        Position = dim2(0, 1, 0, 1);
+        Size = dim2(1, -2, 1, -2);
+        BorderSizePixel = 0;
+        BorderColor3 = rgb(0, 0, 0);
+        BackgroundColor3 = rgb(23, 23, 23);
+    })
+    local ListHolder = Library:Create("ScrollingFrame", {
+        Parent = ListBackground;
+        Name = "\0";
+        Active = true;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Position = dim2(0, 0, 0, 2);
+        Size = dim2(1, 0, 1, -4);
+        CanvasSize = dim2(0, 0, 0, 0);
+        AutomaticCanvasSize = Enum.AutomaticSize.Y;
+        ScrollBarThickness = 4;
+        ScrollBarImageColor3 = rgb(65, 65, 65);
+        MidImage = "rbxassetid://74268315755026";
+        TopImage = "rbxassetid://74268315755026";
+        BottomImage = "rbxassetid://74268315755026";
+        ZIndex = 2;
+    })
+    Library:Create("UIListLayout", {
+        Parent = ListHolder;
+        Padding = dim(0, 1);
+        SortOrder = Enum.SortOrder.LayoutOrder;
+    })
+    local SelectedName = nil
+    local Entries = {}
+    local FieldDefs = {
+        {Key = "damage", Name = "Damage"},
+        {Key = "minDamage", Name = "Min damage"},
+        {Key = "spread", Name = "Spread"},
+        {Key = "range", Name = "Range"},
+        {Key = "rateOfFire", Name = "Rate of fire"},
+        {Key = "magazineSize", Name = "Magazine size"},
+        {Key = "raysPerShot", Name = "Rays per shot"},
+        {Key = "rayRadius", Name = "Ray radius"},
+    }
+    local FieldBoxes = {}
+    local SelectedLabel = Library:Create("TextLabel", {
+        Parent = SettingsSection.Items.Elements;
+        Name = "\0";
+        Text = "Item: -";
+        FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+        TextSize = 13;
+        TextXAlignment = Enum.TextXAlignment.Left;
+        TextColor3 = themes.preset.text_color;
+        BackgroundTransparency = 1;
+        BorderSizePixel = 0;
+        Size = dim2(1, 0, 0, 16);
+        LayoutOrder = 1;
+        ZIndex = 3;
+    })
+    local function RefreshEntryVisuals()
+        for name, entry in Entries do
+            local selected = name == SelectedName
+            entry.BackgroundTransparency = selected and 0 or 1
+            entry.BackgroundColor3 = themes.preset.accent
+            entry.TextColor3 = selected and rgb(255, 255, 255) or themes.preset.text_color
+        end
+    end
+    local function FillFields()
+        local attrs = {}
+        if SelectedName and ItemGiver and ItemGiver.Describe then
+            pcall(function()
+                attrs = ItemGiver.Describe(SelectedName) or {}
+            end)
+        end
+        for _, def in ipairs(FieldDefs) do
+            local box = FieldBoxes[def.Key]
+            if box and box.Items and box.Items.Background then
+                local value = attrs[def.Key]
+                box.Items.Background.Text = value ~= nil and tostring(value) or ""
+            end
+        end
+    end
+    local function SelectItem(name)
+        SelectedName = name
+        Library.Flags.GiverSelected = name
+        SelectedLabel.Text = "Item: " .. (name or "-")
+        RefreshEntryVisuals()
+        FillFields()
+    end
+    local function AddEntry(name)
+        if Entries[name] then
+            return
+        end
+        local isMega = name == "Mega Pickaxe" or name == "Mega Axe"
+        local entry = Library:Create("TextButton", {
+            Parent = ListHolder;
+            Name = "\0";
+            Text = isMega and (name .. " (200x)") or name;
+            AutoButtonColor = false;
+            LayoutOrder = isMega and 0 or 1;
+            FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json", isMega and Enum.FontWeight.SemiBold or Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+            TextSize = 13;
+            TextXAlignment = Enum.TextXAlignment.Left;
+            TextColor3 = themes.preset.text_color;
+            BackgroundColor3 = themes.preset.accent;
+            BackgroundTransparency = 1;
+            BorderSizePixel = 0;
+            BorderColor3 = rgb(0, 0, 0);
+            Size = dim2(1, -2, 0, 14);
+            Position = dim2(0, 1, 0, 0);
+            ZIndex = 3;
+        })
+        Library:Create("UIPadding", {
+            Parent = entry;
+            PaddingLeft = dim(0, 4);
+        })
+        entry.MouseButton1Click:Connect(function()
+            SelectItem(SelectedName == name and nil or name)
+        end)
+        Entries[name] = entry
+        RefreshEntryVisuals()
+    end
+    local order = 2
+    for _, def in ipairs(FieldDefs) do
+        local box = SettingsSection:Textbox({Name = def.Name, Flag = "GiverField_" .. def.Key, Default = ""})
+        box.Items.List.LayoutOrder = order
+        order = order + 1
+        FieldBoxes[def.Key] = box
+    end
+    local function CollectFields()
+        local fields = {}
+        for _, def in ipairs(FieldDefs) do
+            local box = FieldBoxes[def.Key]
+            local raw = box and box.Items and box.Items.Background and box.Items.Background.Text or ""
+            local value = tonumber(raw)
+            if value then
+                fields[def.Key] = value
+            end
+        end
+        return fields
+    end
+    local function Notify(text)
+        pcall(function()
+            Notifications:Create({Name = text})
+        end)
+    end
+    local GiveButton = SettingsSection:Button({
+        Name = "Give",
+        Callback = function()
+            if not SelectedName then
+                Notify("Select an item first")
+                return
+            end
+            if ItemGiver and ItemGiver.Give then
+                local ok, msg = ItemGiver.Give(SelectedName)
+                Notify(tostring(msg))
+            else
+                Notify("ItemGiver module is not loaded")
+            end
+        end
+    })
+    GiveButton.Items.Button.LayoutOrder = order
+    order = order + 1
+    local ApplyButton = SettingsSection:Button({
+        Name = "Apply",
+        Callback = function()
+            if not SelectedName then
+                Notify("Select an item first")
+                return
+            end
+            if ItemGiver and ItemGiver.Apply then
+                local count = ItemGiver.Apply(SelectedName, CollectFields())
+                Notify("Applied to " .. tostring(count) .. " attribute(s)")
+            else
+                Notify("ItemGiver module is not loaded")
+            end
+        end
+    })
+    ApplyButton.Items.Button.LayoutOrder = order
+    order = order + 1
+    local ResetButton = SettingsSection:Button({
+        Name = "Reset",
+        Callback = function()
+            if not SelectedName then
+                Notify("Select an item first")
+                return
+            end
+            if ItemGiver and ItemGiver.Reset then
+                local count = ItemGiver.Reset(SelectedName)
+                FillFields()
+                Notify("Restored " .. tostring(count) .. " attribute(s)")
+            else
+                Notify("ItemGiver module is not loaded")
+            end
+        end
+    })
+    ResetButton.Items.Button.LayoutOrder = order
+    Library.GiverBridge = {
+        SetItems = function(names)
+            for _, name in ipairs(names) do
+                AddEntry(name)
+            end
+        end,
+    }
+    Library.GiverBridge.SetItems({
+        "Mega Pickaxe", "Mega Axe",
+        "ak47HLD", "lr300HLD", "hk416", "rifle", "G4",
+        "SMGHLD", "MP5HLD", "vector9", "mp-40", "thompsonHLD",
+        "bolt", "dvl", "mk14", "sks", "crossbow",
+        "glock", "pistol", "python", "revolver",
+        "m249HLD", "m60HLD", "Minigun",
+        "Grenade", "F1", "Hammer", "Building Plan", "Chainsaw", "Drill", "Axe", "Pickaxe",
+    })
 end
 do
     local Page = Tabs.Skins.Items.Page
@@ -7294,7 +7941,7 @@ do
         api.player = lp
         api.camera = Camera
         api.game = game
-        api.version = "2.0"
+        api.version = "3.0"
         local client = {}
         local function Join(...)
             local parts = {}
@@ -7343,8 +7990,253 @@ do
             api.on(event, fn)
         end
         api.client = client
+        function client.latency()
+            local ok, ping = pcall(function()
+                return lp:GetNetworkPing()
+            end)
+            return ok and ping or 0
+        end
+        function client.eye_position()
+            return Camera.CFrame.Position
+        end
+        function client.camera_angles()
+            return Camera.CFrame
+        end
+        -- ============ API 3.0: рисование (renderer.* из CS2) ============
+        local draw = {objects = {}}
+        local function ToColor(color)
+            if typeof(color) == "Color3" then
+                return color
+            end
+            if type(color) == "table" then
+                return Color3.fromRGB(color[1] or 255, color[2] or 255, color[3] or 255)
+            end
+            return Color3.fromRGB(255, 255, 255)
+        end
+        local function NewDraw(kind, props)
+            local ok, object = pcall(function()
+                return Drawing.new(kind)
+            end)
+            if not ok or not object then
+                return nil
+            end
+            for key, value in pairs(props or {}) do
+                pcall(function()
+                    object[key] = value
+                end)
+            end
+            object.Visible = true
+            draw.objects[#draw.objects + 1] = object
+            return object
+        end
+        function draw.line(x1, y1, x2, y2, color, thickness)
+            return NewDraw("Line", {From = Vector2.new(x1, y1), To = Vector2.new(x2, y2), Color = ToColor(color), Thickness = thickness or 1})
+        end
+        function draw.rect(x, y, w, h, color, filled)
+            return NewDraw("Square", {Position = Vector2.new(x, y), Size = Vector2.new(w, h), Color = ToColor(color), Filled = filled == true})
+        end
+        function draw.circle(x, y, radius, color, filled, segments)
+            return NewDraw("Circle", {Position = Vector2.new(x, y), Radius = radius, Color = ToColor(color), Filled = filled == true, NumSides = segments or 32})
+        end
+        function draw.text(x, y, text, color, size, centered)
+            return NewDraw("Text", {Position = Vector2.new(x, y), Text = tostring(text), Color = ToColor(color), Size = size or 13, Center = centered == true, Outline = true})
+        end
+        function draw.clear()
+            for _, object in ipairs(draw.objects) do
+                pcall(function()
+                    object:Remove()
+                end)
+            end
+            draw.objects = {}
+        end
+        api.draw = draw
+        table.insert(session.unload, function()
+            draw.clear()
+        end)
+        function api.world_to_screen(position)
+            local screen, onScreen = Camera:WorldToViewportPoint(position)
+            return screen.X, screen.Y, onScreen and screen.Z > 0
+        end
+        -- ============ API 3.0: сущности (entity.* из CS2) ============
+        local entities = {}
+        local function RootOf(player)
+            local char = player and player.Character
+            return char and char:FindFirstChild("HumanoidRootPart")
+        end
+        function entities.get_local()
+            return lp
+        end
+        function entities.get_players(enemiesOnly)
+            local result = {}
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= lp then
+                    if not enemiesOnly or not (lp.Team and player.Team and lp.Team == player.Team) then
+                        result[#result + 1] = player
+                    end
+                end
+            end
+            return result
+        end
+        function entities.is_alive(player)
+            local char = player and player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            return hum ~= nil and hum.Health > 0
+        end
+        function entities.get_health(player)
+            local char = player and player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            return hum and hum.Health or 0
+        end
+        function entities.get_root(player)
+            return RootOf(player)
+        end
+        function entities.get_distance(player)
+            local root = RootOf(player)
+            if not root then
+                return math.huge
+            end
+            return (root.Position - Camera.CFrame.Position).Magnitude
+        end
+        function entities.get_screen_pos(player)
+            local root = RootOf(player)
+            if not root then
+                return nil
+            end
+            local screen, onScreen = Camera:WorldToViewportPoint(root.Position)
+            return screen.X, screen.Y, onScreen and screen.Z > 0
+        end
+        function entities.get_bounding_box(player)
+            local char = player and player.Character
+            if not char then
+                return nil
+            end
+            local cf, size = char:GetBoundingBox()
+            local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+            local any = false
+            for _, sx in ipairs({-1, 1}) do
+                for _, sy in ipairs({-1, 1}) do
+                    for _, sz in ipairs({-1, 1}) do
+                        local corner = cf:PointToWorldSpace(Vector3.new(size.X * 0.5 * sx, size.Y * 0.5 * sy, size.Z * 0.5 * sz))
+                        local screen, onScreen = Camera:WorldToViewportPoint(corner)
+                        if onScreen and screen.Z > 0 then
+                            any = true
+                            minX = math.min(minX, screen.X)
+                            minY = math.min(minY, screen.Y)
+                            maxX = math.max(maxX, screen.X)
+                            maxY = math.max(maxY, screen.Y)
+                        end
+                    end
+                end
+            end
+            if not any then
+                return nil
+            end
+            return minX, minY, maxX - minX, maxY - minY
+        end
+        api.entities = entities
+        -- ============ API 3.0: ввод, сеть, данные, звук ============
+        local input = {}
+        function input.is_key_down(key)
+            local code = Enum.KeyCode[tostring(key)]
+            if not code then
+                return false
+            end
+            return InputService:IsKeyDown(code)
+        end
+        function input.is_mouse_down(button)
+            return InputService:IsMouseButtonPressed(button == 2 and Enum.UserInputType.MouseButton2 or Enum.UserInputType.MouseButton1)
+        end
+        function input.mouse_position()
+            local pos = InputService:GetMouseLocation()
+            return pos.X, pos.Y
+        end
+        api.input = input
+        function api.http_get(url)
+            local ok, result = pcall(function()
+                return game:HttpGet(url)
+            end)
+            return ok and result or nil
+        end
+        function api.set_clipboard(text)
+            if type(setclipboard) == "function" then
+                pcall(setclipboard, tostring(text))
+                return true
+            end
+            return false
+        end
+        function api.play_sound(id, volume)
+            local sound = Instance.new("Sound")
+            sound.SoundId = "rbxassetid://" .. tostring(id)
+            sound.Volume = volume or 0.5
+            sound.Parent = game:GetService("SoundService")
+            sound:Play()
+            task.delay(3, function()
+                pcall(function()
+                    sound:Destroy()
+                end)
+            end)
+            return sound
+        end
+        function api.data_write(key, value)
+            if type(makefolder) ~= "function" or type(writefile) ~= "function" then
+                return false
+            end
+            pcall(makefolder, "gamesense/data")
+            local ok = pcall(writefile, "gamesense/data/" .. tostring(key) .. ".txt", tostring(value))
+            return ok
+        end
+        function api.data_read(key)
+            if type(readfile) ~= "function" or type(isfile) ~= "function" then
+                return nil
+            end
+            local path = "gamesense/data/" .. tostring(key) .. ".txt"
+            if not isfile(path) then
+                return nil
+            end
+            local ok, content = pcall(readfile, path)
+            return ok and content or nil
+        end
         local ui = {}
-        ui.version = "2.0"
+        ui.version = "3.0"
+        -- ============ API 3.0: ESP Preview ============
+        -- Свои чипы появляются прямо в полосе превью под моделью, а
+        -- preview_extend добавляет пункты в контекстное меню готовых чипов
+        -- (Box, Health, Name, Distance, Ping, Item) по правому клику.
+        function ui.preview_elements()
+            if Library.PreviewHooks and Library.PreviewHooks.Elements then
+                return Library.PreviewHooks.Elements()
+            end
+            return {}
+        end
+        function ui.preview_add_checkbox(name, default, callback)
+            if not (Library.PreviewHooks and Library.PreviewHooks.AddChip) then
+                return nil
+            end
+            return Library.PreviewHooks.AddChip({name = name, kind = "toggle", default = default == true, callback = callback})
+        end
+        function ui.preview_add_combobox(name, options, default, callback)
+            if not (Library.PreviewHooks and Library.PreviewHooks.AddChip) then
+                return nil
+            end
+            return Library.PreviewHooks.AddChip({name = name, kind = "combobox", options = options, default = default, callback = callback})
+        end
+        function ui.preview_extend(chipName, spec)
+            if not (Library.PreviewHooks and Library.PreviewHooks.Extend) then
+                return false
+            end
+            local kind = spec.type == "combobox" and "combobox" or "checkbox"
+            local flagName = spec.flag or ("ESPLua_" .. tostring(chipName) .. "_" .. tostring(spec.name)):gsub("%s", "")
+            Library.Flags[flagName] = Library.Flags[flagName] ~= nil and Library.Flags[flagName] or spec.default
+            Library.PreviewHooks.Extend(chipName, {
+                kind = kind,
+                name = spec.name,
+                flag = flagName,
+                options = spec.options,
+                default = spec.default,
+                callback = spec.callback,
+            })
+            return true
+        end
         local Elements = {}
         local ElementId = 0
         local OwnedHandles = {}
