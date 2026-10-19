@@ -737,11 +737,26 @@ local function setupGameShootHook()
         RageBot.GameShoot = hookfunction(fn, function(...)
             local cam = Workspace.CurrentCamera
             local repos = beginBacktrackShot()
-            if RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition and cam then
+            local magic = flag("AimbotMagicBullet", false) == true
+            local silent = RageBot.Active and RageBot.SilentOn and RageBot.TargetPosition
+            if cam and (magic or silent) then
+                -- Точка попадания: захваченная цель рейджа, иначе - куда смотрит прицел.
+                local targetPoint = (RageBot.Active and RageBot.TargetPosition) or nil
+                if not targetPoint then
+                    targetPoint = cam.CFrame.Position + cam.CFrame.LookVector * 300
+                end
                 local oldCFrame = cam.CFrame
-                -- Silent aim: наводим камеру на цель (цель — живой противник или
-                -- позиция призрака бектрека)
-                cam.CFrame = CFrame.lookAt(oldCFrame.Position, RageBot.TargetPosition)
+                if magic then
+                    -- Magic bullet: пуля вылетает НЕ из вашего ствола, а из точки
+                    -- в 30 стадах над целью и летит вниз в неё. Стена/укрытие между
+                    -- вами и целью лучу не мешает. Камера ставится туда только
+                    -- на время вызова shoot и сразу возвращается обратно.
+                    cam.CFrame = CFrame.lookAt(targetPoint + Vector3.new(0, 30, 0), targetPoint)
+                else
+                    -- Silent aim: наводим камеру на цель (цель — живой противник или
+                    -- позиция призрака бектрека)
+                    cam.CFrame = CFrame.lookAt(oldCFrame.Position, targetPoint)
+                end
                 local result = RageBot.GameShoot(...)
                 cam.CFrame = oldCFrame
                 endBacktrackShot(repos)
