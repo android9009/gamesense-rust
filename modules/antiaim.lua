@@ -154,10 +154,21 @@ function AntiAim.Shutdown()
     AntiAim.PinnedCharacter = nil
 end
 
-RageBot.Start()
-RecoilKiller.Start()
-NoSpread.Start()
-AirShot.Start()
-RapidFire.Start()
-AntiAim.Start()
+-- Стартуем модули бронебойно: nil или ошибка одного не должны ронять весь чит.
+local function safeStart(name, module)
+    if module and module.Start then
+        local ok, err = pcall(module.Start)
+        if not ok then
+            warn("[gamesense] " .. name .. " start failed: " .. tostring(err))
+        end
+    else
+        warn("[gamesense] module not loaded: " .. name)
+    end
+end
+safeStart("RageBot", RageBot)
+safeStart("RecoilKiller", RecoilKiller)
+safeStart("NoSpread", NoSpread)
+safeStart("AirShot", AirShot)
+safeStart("RapidFire", RapidFire)
+safeStart("AntiAim", AntiAim)
 
