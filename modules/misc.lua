@@ -227,16 +227,20 @@ do
     end
 
     -- Damage boost: та же механика, что у Fast reload, только для урона.
-    -- У тулов есть клиентские атрибуты damage (и minDamage у некоторых) -
-    -- пишем туда оригинал x25, оригиналы запоминаем и возвращаем при
-    -- выключении чекбокса. Примет ли сервер повышенный урон, зависит от
-    -- валидации игры (как и с Fast reload - проверяется в игре).
-    local DamageBoost = {Originals = {}, LastScan = 0, Mult = 25}
+    -- ВАЖНО: голый атрибут damage игра берёт на СЕРВЕРЕ из своей копии
+    -- оружия, клиентская запись туда не реплицируется - в игре урон от
+    -- этого не рос (проверено пользователем). Рост даёт то, что считает
+    -- КЛИЕНТ: raysPerShot - число лучей в одном выстреле. Каждый луч -
+    -- отдельное попадание с полным уроном оружия, поэтому x10 лучей =
+    -- x10 урона за выстрел, если сервер принимает хиты клиента.
+    -- damage/minDamage всё равно поднимаем (вдруг игра читает их локально),
+    -- но основная ставка - raysPerShot (кап 60, чтобы не фризило).
+    local DamageBoost = {Originals = {}, LastScan = 0, Spec = {damage = 25, minDamage = 25, raysPerShot = 10}}
     function DamageBoost.ApplyTo(tool)
         if not (tool and tool:IsA("Tool")) then
             return
         end
-        for _, attr in ipairs({"damage", "minDamage"}) do
+        for attr, mult in pairs(DamageBoost.Spec) do
             local ok, value = pcall(function()
                 return tool:GetAttribute(attr)
             end)
@@ -249,7 +253,10 @@ do
                 if rec[attr] == nil then
                     rec[attr] = value
                 end
-                local boosted = rec[attr] * DamageBoost.Mult
+                local boosted = rec[attr] * mult
+                if attr == "raysPerShot" then
+                    boosted = math.clamp(boosted, rec[attr], 60)
+                end
                 if value ~= boosted then
                     pcall(function()
                         tool:SetAttribute(attr, boosted)
