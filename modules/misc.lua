@@ -226,6 +226,79 @@ do
         end
     end
 
+    -- Damage boost: та же механика, что у Fast reload, только для урона.
+    -- У тулов есть клиентские атрибуты damage (и minDamage у некоторых) -
+    -- пишем туда оригинал x25, оригиналы запоминаем и возвращаем при
+    -- выключении чекбокса. Примет ли сервер повышенный урон, зависит от
+    -- валидации игры (как и с Fast reload - проверяется в игре).
+    local DamageBoost = {Originals = {}, LastScan = 0, Mult = 25}
+    function DamageBoost.ApplyTo(tool)
+        if not (tool and tool:IsA("Tool")) then
+            return
+        end
+        for _, attr in ipairs({"damage", "minDamage"}) do
+            local ok, value = pcall(function()
+                return tool:GetAttribute(attr)
+            end)
+            if ok and type(value) == "number" then
+                local rec = DamageBoost.Originals[tool]
+                if not rec then
+                    rec = {}
+                    DamageBoost.Originals[tool] = rec
+                end
+                if rec[attr] == nil then
+                    rec[attr] = value
+                end
+                local boosted = rec[attr] * DamageBoost.Mult
+                if value ~= boosted then
+                    pcall(function()
+                        tool:SetAttribute(attr, boosted)
+                    end)
+                end
+            end
+        end
+    end
+    function DamageBoost.RestoreAll()
+        for tool, rec in pairs(DamageBoost.Originals) do
+            if tool and tool.Parent then
+                for attr, original in pairs(rec) do
+                    pcall(function()
+                        tool:SetAttribute(attr, original)
+                    end)
+                end
+            end
+        end
+        table.clear(DamageBoost.Originals)
+    end
+    function DamageBoost.Apply()
+        if flag("MiscDamageBoost", false) == true then
+            local now = os.clock()
+            if now - DamageBoost.LastScan < 0.5 then
+                return
+            end
+            DamageBoost.LastScan = now
+            local character = LocalPlayer and LocalPlayer.Character
+            if character then
+                for _, tool in ipairs(character:GetChildren()) do
+                    DamageBoost.ApplyTo(tool)
+                end
+            end
+            local backpack = LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack")
+            if backpack then
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    DamageBoost.ApplyTo(tool)
+                end
+            end
+            for tool in pairs(DamageBoost.Originals) do
+                if not tool.Parent then
+                    DamageBoost.Originals[tool] = nil
+                end
+            end
+        elseif next(DamageBoost.Originals) then
+            DamageBoost.RestoreAll()
+        end
+    end
+
     local function isParticle(object)
         return object:IsA("ParticleEmitter") or object:IsA("Trail") or object:IsA("Smoke")
             or object:IsA("Fire") or object:IsA("Sparkles") or object:IsA("Beam")
@@ -288,6 +361,7 @@ do
         local camera = Workspace.CurrentCamera
         refreshCamera(camera)
         FastReload.Apply()
+        DamageBoost.Apply()
         if flag("MiscFPSUnlocker", false) == true and setfpscap then
             local requested = math.clamp(tonumber(flag("MiscFPSValue", 240)) or 240, 30, 999)
             if fpsLast ~= requested then
@@ -380,6 +454,7 @@ do
         for _, id in ipairs({"MiscApply", "MiscWorldAdded", "MiscLightingAdded", "MiscCameraEffects"}) do TaskManager.RemoveConnection(id) end
         FastReload.RestoreController()
         FastReload.RestoreAll()
+        DamageBoost.RestoreAll()
         restoreProperty(particles, "Enabled"); restoreProperty(textures, "Transparency")
         restoreProperty(collisions, "CanCollide"); restoreEffects(); restoreName(); restoreFPS()
         if shadowOriginal ~= nil then Lighting.GlobalShadows = shadowOriginal; shadowOriginal = nil end
