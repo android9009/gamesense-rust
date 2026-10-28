@@ -1004,16 +1004,6 @@ function RageBot.UpdateRender(deltaTime)
         end
     end
 
-    -- Предикт (отдельный модуль Prediction): моделирует будущее движение
-    -- цели (скорость/ускорение/инпут/падение/ландшафт) поверх лаг-компенсации.
-    if part and pos and not RageBot.TargetIsBacktrack and flag("AimbotPrediction", false) == true
-        and Prediction and Prediction.Predict then
-        local model = part:FindFirstAncestorOfClass("Model")
-        if model then
-            pos = Prediction.Predict(model, pos, os.clock())
-            RageBot.TargetPosition = pos
-        end
-    end
 
     local isShooting = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) or flag("AimbotAutoFire", false) == true
 
