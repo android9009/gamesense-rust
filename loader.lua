@@ -31,7 +31,7 @@ local manifest = {
         "modules/core.lua",
         "modules/chams_layers.lua",
         "modules/visuals.lua",
-        "modules/prediction.lua",
+
         "modules/rage.lua",
         "modules/antiaim.lua",
         "modules/backtrack.lua",
@@ -40,7 +40,6 @@ local manifest = {
         "modules/movement.lua",
         "modules/misc.lua",
         "modules/legit.lua",
-        "modules/item_giver.lua",
         "modules/exports.lua",
     },
 }
